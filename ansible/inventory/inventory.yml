@@ -1,0 +1,28 @@
+target_hosts:
+  vars:
+    ansible_user: tochi
+  hosts:
+    k3s-server:
+      ansible_host: 192.168.1.150
+    k3s-agent-minipc:
+      ansible_host: 192.168.1.151
+    k3s-agent-z440:
+      ansible_host: 192.168.1.152
+    omv:
+      ansible_host: 192.168.1.211
+    gitea:
+      ansible_host: 192.168.1.200
+    pbs:
+      ansible_host: 192.168.1.202
+
+vms:
+  hosts:
+    k3s-server: {}
+    k3s-agent-minipc: {}
+    k3s-agent-z440: {}
+    omv: {}
+
+containers:
+  hosts:
+    gitea: {}
+    pbs: {}

@@ -1,0 +1,6 @@
+- name: Confirm Terraform-managed hosts respond
+  hosts: target_hosts
+  gather_facts: false
+  tasks:
+    - name: Ping guests across both VM and container groups
+      ansible.builtin.ping: {}
