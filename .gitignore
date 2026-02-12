@@ -24,3 +24,6 @@ collections/
 
 ansible.cfg
 
+.env
+
+.vscode/
