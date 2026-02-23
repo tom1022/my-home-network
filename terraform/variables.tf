@@ -108,3 +108,9 @@ variable "ci_user" {
   type        = string
   default     = "tochi"
 }
+
+variable "zfs_pool_sizes" {
+  description = "Map of additional ZFS pool sizes keyed by guest name. Value may be a number (single pool) or a list of numbers (multiple pools). Set in terraform.tfvars as needed."
+  type        = map(any)
+  default     = {}
+}

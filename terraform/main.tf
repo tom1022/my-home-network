@@ -22,6 +22,7 @@ module "containers" {
   os_type              = "debian"
   start                = true
   ci_user              = local.ci_user
+  zfs_pools            = lookup(each.value, "zfs_pools", null)
 }
 
 module "virtual_machines" {
@@ -49,4 +50,5 @@ module "virtual_machines" {
   qemu_agent_wait_for_ipv6 = var.vm_qemu_agent_wait_for_ipv6
   ip1                      = each.value.ip1
   ci_user                  = local.ci_user
+  zfs_pools                = lookup(each.value, "zfs_pools", null)
 }

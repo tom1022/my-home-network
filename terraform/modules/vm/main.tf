@@ -18,7 +18,9 @@ locals {
     var.ip1 != "" ? [{ bridge = var.bridge1, mtu = var.bridge_secondary_mtu }] : []
   )
 
-  ssh_keys = var.ssh_public_key != "" ? [trimspace(var.ssh_public_key)] : []
+  ssh_keys             = var.ssh_public_key != "" ? [trimspace(var.ssh_public_key)] : []
+  normalized_zfs_pools = var.zfs_pools == null ? [] : try(tolist(var.zfs_pools), [var.zfs_pools])
+  zfs_pools_map        = { for idx, val in local.normalized_zfs_pools : tostring(idx) => val }
 }
 
 resource "proxmox_virtual_environment_vm" "this" {
@@ -49,6 +51,16 @@ resource "proxmox_virtual_environment_vm" "this" {
     datastore_id = var.disk_datastore
     interface    = "scsi0"
     size         = var.disk_size
+  }
+
+  dynamic "disk" {
+    for_each = local.zfs_pools_map
+    content {
+      # lookup pool via disk.key/disk.value provided by the dynamic block
+      size         = try(local.zfs_pools_map[disk.key].size, local.zfs_pools_map[disk.key])
+      datastore_id = "zfs-pool"
+      interface    = format("scsi%s", tostring(tonumber(disk.key) + 1))
+    }
   }
 
   agent {

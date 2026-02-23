@@ -19,7 +19,9 @@ locals {
     var.ip1 != "" ? [{ name = "eth1", bridge = var.bridge1, mtu = var.bridge_secondary_mtu }] : []
   )
 
-  ssh_keys = var.ssh_public_key != "" ? [trimspace(var.ssh_public_key)] : []
+  ssh_keys             = var.ssh_public_key != "" ? [trimspace(var.ssh_public_key)] : []
+  normalized_zfs_pools = var.zfs_pools == null ? [] : try(tolist(var.zfs_pools), [var.zfs_pools])
+  zfs_pools_map        = { for idx, val in local.normalized_zfs_pools : tostring(idx) => val }
 }
 
 resource "proxmox_virtual_environment_container" "this" {
@@ -43,6 +45,7 @@ resource "proxmox_virtual_environment_container" "this" {
     size         = var.disk_size
   }
 
+
   initialization {
     hostname = var.name
 
@@ -63,7 +66,6 @@ resource "proxmox_virtual_environment_container" "this" {
     dynamic "user_account" {
       for_each = length(local.ssh_keys) > 0 ? [local.ssh_keys] : []
       content {
-        username = var.ci_user
         keys = user_account.value
       }
     }

@@ -79,3 +79,8 @@ variable "start" {
 variable "ci_user" {
   type = string
 }
+variable "zfs_pools" {
+  description = "Optional single number or list of numbers describing sizes (GB) for additional ZFS pool volumes to attach."
+  type        = any
+  default     = null
+}

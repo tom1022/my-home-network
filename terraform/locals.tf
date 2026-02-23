@@ -23,22 +23,24 @@ locals {
       ip1   = "172.16.0.151"
     }
     "k3s-agent-z440" = {
-      vmid  = 152
-      node  = "hp-z440"
-      cores = 8
-      mem   = 16384
-      disk  = 128
-      ip0   = "192.168.1.152"
-      ip1   = "172.16.0.152"
+      vmid      = 152
+      node      = "hp-z440"
+      cores     = 8
+      mem       = 16384
+      disk      = 128
+      zfs_pools = [500, 1000]
+      ip0       = "192.168.1.152"
+      ip1       = "172.16.0.152"
     }
     "omv" = {
-      vmid  = 201
-      node  = "hp-z440"
-      cores = 4
-      mem   = 8192
-      disk  = 64
-      ip0   = "192.168.1.211"
-      ip1   = "172.16.0.201"
+      vmid      = 201
+      node      = "hp-z440"
+      cores     = 4
+      mem       = 8192
+      disk      = 64
+      zfs_pools = [1000]
+      ip0       = "192.168.1.211"
+      ip1       = "172.16.0.201"
     }
   }
 
@@ -53,13 +55,14 @@ locals {
       ip1   = "172.16.0.200"
     }
     "pbs" = {
-      vmid  = 202
-      node  = "hp-z440"
-      cores = 4
-      mem   = 8192
-      disk  = 64
-      ip0   = "192.168.1.202"
-      ip1   = "172.16.0.202"
+      vmid      = 202
+      node      = "hp-z440"
+      cores     = 4
+      mem       = 8192
+      disk      = 64
+      ip0       = "192.168.1.202"
+      zfs_pools = [500]
+      ip1       = "172.16.0.202"
     }
   }
 }
