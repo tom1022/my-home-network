@@ -1,0 +1,10 @@
+---
+# Placeholder playbook for gitea. Implement role or tasks as needed.
+- name: gitea - placeholder
+  hosts: gitea
+  become: true
+  vars: {}
+  tasks:
+    - name: Placeholder - implement gitea role or tasks
+      ansible.builtin.debug:
+        msg: "Add gitea role/playbook and update this file"

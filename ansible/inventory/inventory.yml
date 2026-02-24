@@ -1,6 +1,7 @@
 target_hosts:
   vars:
     ansible_user: tochi
+    ansible_ssh_private_key_file: ~/.ssh/hp-z440
   hosts:
     k3s-server:
       ansible_host: 192.168.1.150
@@ -9,11 +10,13 @@ target_hosts:
     k3s-agent-z440:
       ansible_host: 192.168.1.152
     omv:
-      ansible_host: 192.168.1.211
+      ansible_host: 192.168.1.201
     gitea:
       ansible_host: 192.168.1.200
+      ansible_user: root
     pbs:
       ansible_host: 192.168.1.202
+      ansible_user: root
 
 vms:
   hosts:

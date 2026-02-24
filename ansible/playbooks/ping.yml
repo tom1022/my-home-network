@@ -1,3 +1,4 @@
+---
 - name: Confirm Terraform-managed hosts respond
   hosts: target_hosts
   gather_facts: false
