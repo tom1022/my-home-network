@@ -24,9 +24,9 @@ locals {
 }
 
 resource "proxmox_virtual_environment_vm" "this" {
-  name      = var.name
-  node_name = var.node_name
-  vm_id     = var.vm_id
+  name                = var.name
+  node_name           = var.node_name
+  vm_id               = var.vm_id
   reboot_after_update = true
 
   clone {
