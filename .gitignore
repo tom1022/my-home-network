@@ -5,6 +5,7 @@
 
 *.tfstate
 *.tfstate.*
+tfplan.binary
 
 crash.log
 crash.*.log
