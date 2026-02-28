@@ -9,7 +9,7 @@ target_hosts:
       ansible_host: 192.168.1.151
     k3s-agent-z440:
       ansible_host: 192.168.1.152
-    omv:
+    nas:
       ansible_host: 192.168.1.201
     gitea:
       ansible_host: 192.168.1.200
@@ -23,7 +23,7 @@ vms:
     k3s-server: {}
     k3s-agent-minipc: {}
     k3s-agent-z440: {}
-    omv: {}
+    nas: {}
 
 containers:
   hosts:

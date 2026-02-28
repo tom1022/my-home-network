@@ -1,0 +1,6 @@
+---
+- name: Configure Debian NAS host
+  hosts: nas
+  become: true
+  roles:
+    - nas

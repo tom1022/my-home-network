@@ -1,0 +1,15 @@
+---
+letsencrypt_packages:
+  - certbot
+  - python3-certbot-dns-cloudflare
+
+letsencrypt_contact_email: ""
+letsencrypt_cloudflare_api_token: ""
+
+letsencrypt_domain: fickledev.com
+letsencrypt_wildcard_domain: "*.{{ letsencrypt_domain }}"
+letsencrypt_cert_name: "{{ letsencrypt_domain }}"
+
+letsencrypt_cloudflare_credentials_path: /etc/letsencrypt/cloudflare.ini
+letsencrypt_cloudflare_propagation_seconds: 60
+letsencrypt_live_dir: "/etc/letsencrypt/live/{{ letsencrypt_cert_name }}"

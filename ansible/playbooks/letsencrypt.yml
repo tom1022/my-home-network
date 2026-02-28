@@ -1,0 +1,6 @@
+---
+- name: Obtain wildcard Let's Encrypt certificate
+  hosts: nas
+  become: true
+  roles:
+    - letsencrypt

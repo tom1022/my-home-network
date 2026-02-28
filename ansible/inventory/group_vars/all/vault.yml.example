@@ -1,0 +1,7 @@
+---
+# Copy this file to vault.yml and encrypt it:
+# ansible-vault encrypt inventory/group_vars/all/vault.yml
+vault_sssd_bind_password: "CHANGEME_SSSD_BIND_PASSWORD"
+
+vault_letsencrypt_contact_email: "admin@fickledev.com"
+vault_letsencrypt_cloudflare_api_token: "CHANGEME_CLOUDFLARE_DNS_API_TOKEN"

@@ -1,0 +1,84 @@
+---
+- name: Ensure NFS server package is installed
+  ansible.builtin.apt:
+    name: nfs-kernel-server
+    state: present
+    update_cache: true
+
+- name: Resolve allowed client IP for Gitea NFS export
+  ansible.builtin.set_fact:
+    nas_gitea_ip: "{{ nas_gitea_client_ip | default('') }}"
+
+- name: Fail if allowed client IP is not configured
+  ansible.builtin.fail:
+    msg: "Could not determine allowed client IP for Gitea export. Set nas_gitea_client_ip."
+  when: nas_gitea_ip | length == 0
+
+- name: Ensure gitea system user exists
+  ansible.builtin.user:
+    name: "{{ nas_gitea_user }}"
+    system: true
+    create_home: false
+
+- name: Resolve Gitea share user uid on NAS
+  ansible.builtin.command:
+    argv:
+      - id
+      - -u
+      - "{{ nas_gitea_user }}"
+  check_mode: false
+  register: nas_gitea_uid_result
+  changed_when: false
+  failed_when: nas_gitea_uid_result.rc != 0
+
+- name: Resolve Gitea share user gid on NAS
+  ansible.builtin.command:
+    argv:
+      - id
+      - -g
+      - "{{ nas_gitea_user }}"
+  check_mode: false
+  register: nas_gitea_gid_result
+  changed_when: false
+  failed_when: nas_gitea_gid_result.rc != 0
+
+- name: Set NFS export options for Gitea share
+  ansible.builtin.set_fact:
+    nas_gitea_export_options: >-
+      rw,sync,no_subtree_check,all_squash,anonuid={{ nas_gitea_uid_result.stdout }},anongid={{ nas_gitea_gid_result.stdout }}
+
+- name: Create Gitea data directory
+  ansible.builtin.file:
+    path: "{{ nas_gitea_share_path }}"
+    state: directory
+    owner: "{{ nas_gitea_user }}"
+    group: "{{ nas_gitea_user }}"
+    mode: '0750'
+
+- name: Remove existing Gitea export lines for same path and host
+  ansible.builtin.lineinfile:
+    path: /etc/exports
+    regexp: "^{{ nas_gitea_share_path | regex_escape() }}\\s+{{ nas_gitea_ip | regex_escape() }}\\(.*\\)$"
+    state: absent
+
+- name: Ensure /etc/exports contains Gitea export restricted to Gitea IP
+  ansible.builtin.lineinfile:
+    path: /etc/exports
+    line: "{{ nas_gitea_share_path }} {{ nas_gitea_ip }}({{ nas_gitea_export_options }})"
+    create: true
+    mode: '0644'
+    state: present
+    backrefs: false
+
+- name: Refresh NFS exports
+  ansible.builtin.command: exportfs -ra
+  become: true
+  register: nas_exportfs_result
+  changed_when: false
+  failed_when: nas_exportfs_result.rc != 0
+
+- name: Ensure nfs-server is running and enabled
+  ansible.builtin.service:
+    name: nfs-kernel-server
+    state: started
+    enabled: true

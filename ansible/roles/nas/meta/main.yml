@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  role_name: nas
+  author: tom1022
+  description: Configure NAS storage and NFS export for Gitea
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

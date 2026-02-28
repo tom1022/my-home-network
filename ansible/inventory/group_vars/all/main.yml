@@ -1,0 +1,5 @@
+---
+sssd_bind_password: "{{ vault_sssd_bind_password | default('') }}"
+
+letsencrypt_contact_email: "{{ vault_letsencrypt_contact_email | default('') }}"
+letsencrypt_cloudflare_api_token: "{{ vault_letsencrypt_cloudflare_api_token | default('') }}"

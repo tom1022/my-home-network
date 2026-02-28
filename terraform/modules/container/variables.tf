@@ -84,3 +84,9 @@ variable "zfs_pools" {
   type        = any
   default     = null
 }
+
+variable "bind_mounts" {
+  description = "Optional bind mount definitions for LXC mount_point blocks."
+  type        = list(any)
+  default     = []
+}

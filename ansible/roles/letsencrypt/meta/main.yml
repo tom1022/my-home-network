@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  role_name: letsencrypt
+  author: tom1022
+  description: Obtain wildcard Let's Encrypt certificates using Cloudflare DNS challenge
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

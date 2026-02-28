@@ -1,0 +1,13 @@
+---
+# Non-secret Gitea settings for group `gitea`
+gitea_admin_username: admin
+gitea_admin_email: admin@example.local
+
+gitea_db_host: "{{ vault_gitea_db_host | default('') }}"
+gitea_db_name: "{{ vault_gitea_db_name | default('') }}"
+gitea_db_user: "{{ vault_gitea_db_user | default('') }}"
+gitea_db_password: "{{ vault_gitea_db_password | default('') }}"
+
+gitea_admin_password: "{{ vault_gitea_admin_password | default('') }}"
+gitea_security_secret_key: "{{ vault_gitea_security_secret_key | default('') }}"
+gitea_security_internal_token: "{{ vault_gitea_security_internal_token | default('') }}"

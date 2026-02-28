@@ -32,7 +32,7 @@ locals {
       ip0       = "192.168.1.152"
       ip1       = "172.16.0.152"
     }
-    "omv" = {
+    "nas" = {
       vmid      = 201
       node      = "hp-z440"
       cores     = 4

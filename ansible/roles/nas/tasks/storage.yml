@@ -1,0 +1,88 @@
+---
+- name: Find NAS data disk by SCSI address from by-path
+  ansible.builtin.find:
+    paths: /dev/disk/by-path
+    recurse: false
+    file_type: link
+    patterns:
+      - "*-scsi-{{ nas_data_disk_scsi_address }}"
+  register: nas_data_disk_by_path_links
+
+- name: Validate exactly one NAS data disk by-path link is found
+  ansible.builtin.assert:
+    that:
+      - nas_data_disk_by_path_links.matched == 1
+    fail_msg: >-
+      Expected exactly one /dev/disk/by-path link for scsi address {{ nas_data_disk_scsi_address }},
+      but found {{ nas_data_disk_by_path_links.matched }}.
+
+- name: Inspect selected NAS data disk by-path link
+  ansible.builtin.stat:
+    path: "{{ nas_data_disk_by_path_links.files[0].path }}"
+    follow: false
+  register: nas_data_disk_symlink
+
+- name: Set NAS data disk paths
+  ansible.builtin.set_fact:
+    nas_data_disk_by_path: "{{ nas_data_disk_by_path_links.files[0].path }}"
+    nas_data_disk_device: "/dev/{{ nas_data_disk_symlink.stat.lnk_source | basename }}"
+    nas_data_partition_suffix: "{{ 'p' if (nas_data_disk_symlink.stat.lnk_source | basename) is search('^(nvme|mmcblk|loop)') else '' }}"
+
+- name: Gather NAS data disk partition table info
+  community.general.parted:
+    device: "{{ nas_data_disk_device }}"
+    unit: MiB
+    state: info
+  register: nas_data_disk_parted_info
+
+- name: Validate NAS data disk has at most one partition before managing
+  ansible.builtin.assert:
+    that:
+      - nas_data_disk_parted_info.partitions | length <= 1
+      - nas_data_disk_parted_info.partitions | length == 0 or nas_data_disk_parted_info.partitions[0].num == nas_data_partition_number
+    fail_msg: >-
+      Unexpected partition layout on {{ nas_data_disk_device }}. Refusing to proceed automatically.
+
+- name: Ensure NAS data partition exists
+  community.general.parted:
+    device: "{{ nas_data_disk_device }}"
+    label: gpt
+    number: "{{ nas_data_partition_number }}"
+    part_start: 1MiB
+    part_end: 100%
+    state: present
+
+- name: Set NAS data partition paths
+  ansible.builtin.set_fact:
+    nas_data_partition_device: >-
+      {{ nas_data_disk_device }}{{ nas_data_partition_suffix }}{{ nas_data_partition_number }}
+    nas_data_partition_by_path: "{{ nas_data_disk_by_path }}-part{{ nas_data_partition_number }}"
+
+- name: Wait for NAS data partition by-path link
+  ansible.builtin.wait_for:
+    path: "{{ nas_data_partition_by_path }}"
+    timeout: 30
+  when: not ansible_check_mode
+
+- name: Ensure filesystem exists on NAS data partition
+  community.general.filesystem:
+    fstype: "{{ nas_data_filesystem_type }}"
+    dev: "{{ nas_data_partition_device }}"
+  when: not ansible_check_mode
+
+- name: Ensure NAS data mount directory exists
+  ansible.builtin.file:
+    path: "{{ nas_data_mount_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure NAS data partition is mounted persistently
+  ansible.posix.mount:
+    path: "{{ nas_data_mount_path }}"
+    src: "{{ nas_data_partition_by_path }}"
+    fstype: "{{ nas_data_filesystem_type }}"
+    opts: defaults
+    state: mounted
+  when: not ansible_check_mode

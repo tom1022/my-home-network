@@ -1,0 +1,23 @@
+---
+# Defaults for NAS role
+
+# NAS data disk settings (auto-detect by SCSI slot via /dev/disk/by-path)
+nas_data_disk_enabled: true
+nas_data_disk_scsi_address: "0:0:0:1"
+nas_data_partition_number: 1
+nas_data_filesystem_type: ext4
+nas_data_mount_path: /srv/nas-data
+
+# Storage prerequisite packages for Debian
+nas_storage_base_packages:
+  - parted
+nas_filesystem_package_map:
+  ext4: e2fsprogs
+  xfs: xfsprogs
+  btrfs: btrfs-progs
+
+# Gitea share defaults
+nas_gitea_share_enabled: true
+nas_gitea_share_path: "{{ nas_data_mount_path }}/shares/gitea"
+nas_gitea_user: gitea
+nas_gitea_client_ip: "172.16.0.2"

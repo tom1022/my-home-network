@@ -1,0 +1,35 @@
+APP_NAME = Gitea
+RUN_USER = {{ gitea_run_user }}
+RUN_MODE = prod
+WORK_PATH = {{ gitea_work_dir }}
+
+[database]
+DB_TYPE = {{ gitea_db_type }}
+HOST = {{ gitea_db_host }}
+NAME = {{ gitea_db_name }}
+USER = {{ gitea_db_user }}
+PASSWD = {{ gitea_db_password }}
+CHARSET = {{ gitea_db_charset }}
+
+[server]
+DOMAIN = {{ gitea_http_domain }}
+HTTP_PORT = {{ gitea_http_port }}
+ROOT_URL = {{ gitea_root_url }}
+SSH_DOMAIN = {{ gitea_ssh_domain }}
+SSH_PORT = {{ gitea_ssh_port }}
+APP_DATA_PATH = {{ gitea_app_data_path }}
+
+[service]
+DISABLE_REGISTRATION = {{ gitea_disable_registration | ternary('true', 'false') }}
+
+[security]
+INSTALL_LOCK = {{ gitea_install_lock | ternary('true', 'false') }}
+{% if gitea_security_secret_key | length > 0 %}
+SECRET_KEY = {{ gitea_security_secret_key }}
+{% endif %}
+{% if gitea_security_internal_token | length > 0 %}
+INTERNAL_TOKEN = {{ gitea_security_internal_token }}
+{% endif %}
+
+[oauth2]
+JWT_SECRET = {{ gitea_oauth2_jwt_secret }}

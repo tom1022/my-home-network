@@ -1,0 +1,52 @@
+---
+- name: Ensure LDAP bind password is provided
+  ansible.builtin.assert:
+    that:
+      - sssd_bind_password | length > 0
+    fail_msg: sssd_bind_password is required. Define it via ansible-vault.
+
+- name: Ensure SSSD dependencies are installed
+  ansible.builtin.apt:
+    name: "{{ sssd_packages }}"
+    state: present
+    update_cache: true
+
+- name: Ensure sssd.conf is installed
+  ansible.builtin.template:
+    src: sssd.conf.j2
+    dest: /etc/sssd/sssd.conf
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart SSSD
+
+- name: Ensure passwd nsswitch source includes sss
+  ansible.builtin.lineinfile:
+    path: /etc/nsswitch.conf
+    regexp: '^passwd:'
+    line: 'passwd:         files systemd sss'
+
+- name: Ensure group nsswitch source includes sss
+  ansible.builtin.lineinfile:
+    path: /etc/nsswitch.conf
+    regexp: '^group:'
+    line: 'group:          files systemd sss'
+
+- name: Ensure shadow nsswitch source includes sss
+  ansible.builtin.lineinfile:
+    path: /etc/nsswitch.conf
+    regexp: '^shadow:'
+    line: 'shadow:         files sss'
+
+- name: Ensure pam_mkhomedir is enabled
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/common-session
+    regexp: '^session\s+required\s+pam_mkhomedir.so'
+    line: 'session required pam_mkhomedir.so skel=/etc/skel umask=0022'
+    insertafter: EOF
+
+- name: Ensure SSSD service is enabled and started
+  ansible.builtin.service:
+    name: "{{ sssd_service_name }}"
+    enabled: true
+    state: started

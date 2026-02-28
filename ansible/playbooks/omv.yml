@@ -1,6 +1,0 @@
----
-- name: Install OpenMediaVault on target VM
-  hosts: omv
-  become: true
-  roles:
-    - omv

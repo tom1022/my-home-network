@@ -1,0 +1,17 @@
+[Unit]
+Description=Gitea (Git with a cup of tea)
+After=network.target
+
+[Service]
+Type=simple
+User={{ gitea_run_user }}
+Group={{ gitea_run_group }}
+WorkingDirectory={{ gitea_work_dir }}
+ExecStart={{ gitea_binary_path }} web --config {{ gitea_app_ini_path }}
+Restart=always
+RestartSec=2s
+Environment=USER={{ gitea_run_user }} HOME=/home/{{ gitea_run_user }} GITEA_WORK_DIR={{ gitea_work_dir }}
+LimitNOFILE=524288:524288
+
+[Install]
+WantedBy=multi-user.target

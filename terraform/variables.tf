@@ -1,11 +1,33 @@
 variable "proxmox_api_token_id" {
   description = "API token that Terraform will use to authenticate against Proxmox"
   type        = string
+  default     = ""
 }
 variable "proxmox_api_token_secret" {
   description = "API token that Terraform will use to authenticate against Proxmox"
   type        = string
+  default     = ""
+}
+variable "proxmox_auth_method" {
+  description = "Authentication method for Proxmox provider: token or password"
+  type        = string
+  default     = "token"
 
+  validation {
+    condition     = contains(["token", "password"], var.proxmox_auth_method)
+    error_message = "proxmox_auth_method must be either token or password."
+  }
+}
+variable "proxmox_username" {
+  description = "Proxmox username for password-based authentication (example: root@pam)"
+  type        = string
+  default     = ""
+}
+variable "proxmox_password" {
+  description = "Proxmox password for password-based authentication"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 variable "proxmox_api_url" {
   description = "API endpoint for Proxmox VE"
@@ -111,6 +133,12 @@ variable "ci_user" {
 
 variable "zfs_pool_sizes" {
   description = "Map of additional ZFS pool sizes keyed by guest name. Value may be a number (single pool) or a list of numbers (multiple pools). Set in terraform.tfvars as needed."
+  type        = map(any)
+  default     = {}
+}
+
+variable "container_bind_mounts" {
+  description = "Map of bind mount definitions keyed by container name. Each item requires `volume` (host path) and `path` (path inside container)."
   type        = map(any)
   default     = {}
 }

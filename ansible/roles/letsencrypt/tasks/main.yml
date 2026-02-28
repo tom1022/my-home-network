@@ -1,0 +1,65 @@
+---
+- name: Ensure Let's Encrypt contact email is provided
+  ansible.builtin.assert:
+    that:
+      - letsencrypt_contact_email | length > 0
+    fail_msg: letsencrypt_contact_email is required.
+
+- name: Ensure Cloudflare API token is provided
+  ansible.builtin.assert:
+    that:
+      - letsencrypt_cloudflare_api_token | length > 0
+    fail_msg: letsencrypt_cloudflare_api_token is required and should come from ansible-vault.
+
+- name: Ensure certbot packages are installed
+  ansible.builtin.apt:
+    name: "{{ letsencrypt_packages }}"
+    state: present
+    update_cache: true
+
+- name: Ensure Cloudflare credentials directory exists
+  ansible.builtin.file:
+    path: "{{ letsencrypt_cloudflare_credentials_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Ensure Cloudflare credentials file exists
+  ansible.builtin.copy:
+    content: "dns_cloudflare_api_token = {{ letsencrypt_cloudflare_api_token }}\n"
+    dest: "{{ letsencrypt_cloudflare_credentials_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Ensure wildcard certificate exists
+  ansible.builtin.command:
+    argv:
+      - certbot
+      - certonly
+      - --non-interactive
+      - --agree-tos
+      - --dns-cloudflare
+      - --dns-cloudflare-credentials
+      - "{{ letsencrypt_cloudflare_credentials_path }}"
+      - --dns-cloudflare-propagation-seconds
+      - "{{ letsencrypt_cloudflare_propagation_seconds | string }}"
+      - --email
+      - "{{ letsencrypt_contact_email }}"
+      - --cert-name
+      - "{{ letsencrypt_cert_name }}"
+      - -d
+      - "{{ letsencrypt_domain }}"
+      - -d
+      - "{{ letsencrypt_wildcard_domain }}"
+    creates: "{{ letsencrypt_live_dir }}/fullchain.pem"
+  register: letsencrypt_issue_result
+  changed_when: letsencrypt_issue_result.rc == 0
+
+- name: Ensure certbot renew timer is enabled and started
+  ansible.builtin.service:
+    name: certbot.timer
+    enabled: true
+    state: started

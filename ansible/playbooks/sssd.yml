@@ -1,0 +1,6 @@
+---
+- name: Configure SSSD against authentik LDAP
+  hosts: nas:gitea
+  become: true
+  roles:
+    - sssd

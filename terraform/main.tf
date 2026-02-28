@@ -23,6 +23,7 @@ module "containers" {
   start                = true
   ci_user              = local.ci_user
   zfs_pools            = lookup(each.value, "zfs_pools", null)
+  bind_mounts          = try(var.container_bind_mounts[each.key], [])
 }
 
 module "virtual_machines" {

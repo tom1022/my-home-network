@@ -1,6 +1,0 @@
----
-- name: Install OpenMediaVault packages and repository
-  ansible.builtin.import_tasks: install.yml
-
-- name: Configure SSH access for OMV admin user
-  ansible.builtin.import_tasks: access.yml

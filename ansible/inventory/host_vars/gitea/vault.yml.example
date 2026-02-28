@@ -1,0 +1,16 @@
+---
+# Copy this file to vault.yml and encrypt it:
+# ansible-vault encrypt inventory/group_vars/gitea/vault.yml
+# MariaDB user references (SHOW USERS is invalid):
+#   SELECT User, Host FROM mysql.user ORDER BY User, Host;
+#   CREATE USER 'gitea'@'192.168.1.200' IDENTIFIED BY 'YOUR_PASSWORD';
+#   GRANT ALL PRIVILEGES ON gitea.* TO 'gitea'@'192.168.1.200';
+#   FLUSH PRIVILEGES;
+vault_gitea_db_host: "192.168.1.201:3306"
+vault_gitea_db_name: "gitea"
+vault_gitea_db_user: "gitea"
+vault_gitea_db_password: "CHANGEME_DB_PASSWORD"
+
+vault_gitea_admin_password: "CHANGEME_STRONG_PASSWORD"
+vault_gitea_security_secret_key: "CHANGEME_LONG_RANDOM_SECRET_KEY"
+vault_gitea_security_internal_token: "CHANGEME_LONG_RANDOM_INTERNAL_TOKEN"

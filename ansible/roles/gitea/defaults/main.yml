@@ -1,0 +1,52 @@
+---
+# Defaults for Gitea role
+
+gitea_dependency_packages:
+  - git
+  - git-lfs
+gitea_update_apt_cache: true
+
+gitea_version: 1.22.6
+gitea_binary_arch: linux-amd64
+gitea_binary_url: "https://dl.gitea.com/gitea/{{ gitea_version }}/gitea-{{ gitea_version }}-{{ gitea_binary_arch }}"
+gitea_binary_checksum: ""
+gitea_binary_path: /usr/local/bin/gitea
+
+gitea_service_name: gitea
+gitea_service_enabled: true
+gitea_service_state: started
+
+gitea_run_user: git
+gitea_run_group: git
+gitea_work_dir: /var/lib/gitea
+gitea_storage_mode: '0777'
+gitea_app_data_path: "{{ gitea_work_dir }}/data"
+gitea_custom_conf_dir: /etc/gitea
+gitea_app_ini_path: /etc/gitea/app.ini
+
+gitea_http_domain: "{{ ansible_host | default(inventory_hostname) }}"
+gitea_http_port: 3000
+gitea_ssh_domain: "{{ gitea_http_domain }}"
+gitea_ssh_port: 22
+gitea_root_url: "http://{{ gitea_http_domain }}:{{ gitea_http_port }}/"
+
+gitea_db_type: mysql
+gitea_db_host: ""
+gitea_db_name: ""
+gitea_db_user: ""
+gitea_db_password: ""
+gitea_db_charset: utf8mb4
+
+gitea_install_lock: true
+gitea_disable_registration: true
+
+gitea_security_secret_key: ""
+gitea_security_internal_token: ""
+gitea_oauth2_jwt_secret: "{{ gitea_security_internal_token }}"
+
+gitea_admin_create: true
+gitea_admin_username: gitea_admin
+gitea_admin_email: admin@example.local
+gitea_admin_password: ""
+gitea_admin_create_no_log: true
+gitea_admin_create_strict: false

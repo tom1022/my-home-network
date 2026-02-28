@@ -80,6 +80,22 @@ resource "proxmox_virtual_environment_container" "this" {
     }
   }
 
+  dynamic "mount_point" {
+    for_each = var.bind_mounts
+    content {
+      volume        = mount_point.value.volume
+      path          = mount_point.value.path
+      backup        = lookup(mount_point.value, "backup", null)
+      read_only     = lookup(mount_point.value, "read_only", null)
+      replicate     = lookup(mount_point.value, "replicate", null)
+      shared        = lookup(mount_point.value, "shared", null)
+      acl           = lookup(mount_point.value, "acl", null)
+      quota         = lookup(mount_point.value, "quota", null)
+      size          = lookup(mount_point.value, "size", null)
+      mount_options = lookup(mount_point.value, "mount_options", null)
+    }
+  }
+
   operating_system {
     template_file_id = var.template_file_id
     type             = var.os_type

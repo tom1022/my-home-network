@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  role_name: gitea
+  author: tom1022
+  description: Install and manage Gitea service on Debian hosts
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

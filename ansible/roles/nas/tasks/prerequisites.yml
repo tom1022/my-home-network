@@ -1,0 +1,19 @@
+---
+- name: Resolve NAS filesystem package for selected filesystem type
+  ansible.builtin.set_fact:
+    nas_filesystem_package: >-
+      {{
+        nas_filesystem_package_map[nas_data_filesystem_type]
+        if nas_data_filesystem_type in nas_filesystem_package_map
+        else ''
+      }}
+
+- name: Ensure storage prerequisite packages are installed
+  ansible.builtin.apt:
+    name: >-
+      {{
+        nas_storage_base_packages
+        + ([nas_filesystem_package] if nas_filesystem_package | length > 0 else [])
+      }}
+    state: present
+    update_cache: true

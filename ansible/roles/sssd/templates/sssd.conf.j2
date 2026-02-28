@@ -1,0 +1,35 @@
+[sssd]
+config_file_version = 2
+domains = {{ sssd_domain }}
+services = nss, pam
+
+[domain/{{ sssd_domain }}]
+id_provider = ldap
+auth_provider = ldap
+chpass_provider = ldap
+access_provider = ldap
+cache_credentials = true
+ldap_uri = {{ sssd_ldap_uri }}
+ldap_search_base = {{ sssd_base_dn }}
+ldap_default_bind_dn = {{ sssd_bind_dn }}
+ldap_default_authtok = {{ sssd_bind_password }}
+ldap_tls_reqcert = demand
+ldap_tls_cacert = {{ sssd_ldap_tls_cacert }}
+ldap_id_use_start_tls = false
+ldap_user_search_base = {{ sssd_user_search_base }}
+ldap_group_search_base = {{ sssd_group_search_base }}
+ldap_user_object_class = posixAccount
+ldap_user_name = uid
+ldap_user_uid_number = uidNumber
+ldap_user_gid_number = gidNumber
+ldap_user_home_directory = homeDirectory
+ldap_user_shell = loginShell
+ldap_group_object_class = posixGroup
+ldap_group_name = cn
+ldap_group_gid_number = gidNumber
+enumerate = false
+use_fully_qualified_names = false
+fallback_homedir = /home/%u
+default_shell = /bin/bash
+min_id = {{ sssd_min_id }}
+max_id = {{ sssd_max_id }}

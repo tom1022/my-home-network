@@ -1,6 +1,0 @@
----
-- name: Run omv-initsystem
-  become: true
-  ansible.builtin.command: omv-initsystem
-  args:
-    creates: /etc/openmediavault
