@@ -1,0 +1,221 @@
+---
+- name: Ensure Proxmox API settings are provided
+  ansible.builtin.assert:
+    that:
+      - proxmox_backup_api_host | length > 0
+      - proxmox_backup_api_user | length > 0
+      - proxmox_backup_api_token_name | length > 0
+      - proxmox_backup_api_token_secret | length > 0
+    fail_msg: >-
+      Proxmox API credentials are required.
+      Define vault_proxmox_api_host, vault_proxmox_api_user,
+      vault_proxmox_api_token_id and vault_proxmox_api_token_secret.
+
+- name: Ensure PBS storage settings are provided
+  ansible.builtin.assert:
+    that:
+      - proxmox_backup_pbs_storage_name | length > 0
+      - proxmox_backup_pbs_server | length > 0
+      - proxmox_backup_pbs_datastore | length > 0
+      - proxmox_backup_pbs_username | length > 0
+      - proxmox_backup_pbs_password | length > 0
+      - proxmox_backup_pbs_fingerprint | length > 0
+    fail_msg: >-
+      PBS storage settings are required.
+      Define proxmox_backup_pbs_storage_name, proxmox_backup_pbs_server, proxmox_backup_pbs_datastore,
+      vault_proxmox_pbs_username, vault_proxmox_pbs_password and vault_proxmox_pbs_fingerprint.
+
+- name: Ensure backup targets are provided
+  ansible.builtin.assert:
+    that:
+      - proxmox_backup_targets | length > 0
+    fail_msg: proxmox_backup_targets must not be empty.
+
+- name: Ensure Python dependencies for Proxmox API modules are installed
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - import proxmoxer, requests
+  register: proxmox_backup_python_deps_check
+  changed_when: false
+  failed_when: proxmox_backup_python_deps_check.rc != 0
+
+- name: Ensure Proxmox VE can use PBS storage via API
+  community.proxmox.proxmox_storage:
+    api_host: "{{ proxmox_backup_api_host }}"
+    api_user: "{{ proxmox_backup_api_user }}"
+    api_token_id: "{{ proxmox_backup_api_token_name }}"
+    api_token_secret: "{{ proxmox_backup_api_token_secret }}"
+    validate_certs: "{{ proxmox_backup_api_validate_certs }}"
+    name: "{{ proxmox_backup_pbs_storage_name }}"
+    type: pbs
+    content:
+      - backup
+    nodes: "{{ proxmox_backup_pbs_storage_nodes }}"
+    pbs_options:
+      server: "{{ proxmox_backup_pbs_server }}"
+      datastore: "{{ proxmox_backup_pbs_datastore }}"
+      username: "{{ proxmox_backup_pbs_username }}"
+      password: "{{ proxmox_backup_pbs_password }}"
+      fingerprint: "{{ proxmox_backup_pbs_fingerprint }}"
+    state: present
+  no_log: "{{ proxmox_backup_sensitive_no_log | bool }}"
+
+- name: Build included VMID list for backup job
+  ansible.builtin.set_fact:
+    proxmox_backup_included_vmids: >-
+      {{
+        proxmox_backup_targets
+        | selectattr('include', 'defined')
+        | selectattr('include')
+        | map(attribute='vmid')
+        | map('string')
+        | list
+      }}
+
+- name: Ensure included VMID list is not empty
+  ansible.builtin.assert:
+    that:
+      - proxmox_backup_included_vmids | length > 0
+    fail_msg: No included VMIDs found in proxmox_backup_targets.
+
+- name: Read current Proxmox backup jobs via API
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_backup_api_host }}:8006/api2/json/cluster/backup"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_backup_api_token_identifier }}={{ proxmox_backup_api_token_secret }}"
+    validate_certs: "{{ proxmox_backup_api_validate_certs }}"
+    status_code: 200
+    return_content: true
+  register: proxmox_backup_jobs_api
+  no_log: "{{ proxmox_backup_sensitive_no_log | bool }}"
+
+- name: Determine managed backup job from API response
+  ansible.builtin.set_fact:
+    proxmox_managed_backup_job: >-
+      {{
+        (
+          proxmox_backup_jobs_api.json.data
+          | selectattr('comment', 'defined')
+          | selectattr('comment', 'equalto', proxmox_backup_job_comment)
+          | list
+          | first
+        ) | default({})
+      }}
+
+- name: Ensure Proxmox backup job exists (create)
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_backup_api_host }}:8006/api2/json/cluster/backup"
+    method: POST
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_backup_api_token_identifier }}={{ proxmox_backup_api_token_secret }}"
+    body_format: form-urlencoded
+    body:
+      enabled: "{{ 1 if proxmox_backup_job_enabled else 0 }}"
+      schedule: "{{ proxmox_backup_schedule_pve }}"
+      storage: "{{ proxmox_backup_pbs_storage_name }}"
+      mode: "{{ proxmox_backup_mode }}"
+      vmid: "{{ proxmox_backup_included_vmids | join(',') }}"
+      prune-backups: "keep-last={{ proxmox_backup_keep_last }}"
+      comment: "{{ proxmox_backup_job_comment }}"
+      all: '0'
+      compress: zstd
+      bwlimit: '0'
+    validate_certs: "{{ proxmox_backup_api_validate_certs }}"
+    status_code: 200
+  register: proxmox_backup_job_create_api
+  changed_when: true
+  no_log: "{{ proxmox_backup_sensitive_no_log | bool }}"
+  when: (proxmox_managed_backup_job.id | default('')) | length == 0
+
+- name: Ensure Proxmox backup job is updated
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_backup_api_host }}:8006/api2/json/cluster/backup/{{ proxmox_managed_backup_job.id }}"
+    method: PUT
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_backup_api_token_identifier }}={{ proxmox_backup_api_token_secret }}"
+    body_format: form-urlencoded
+    body:
+      enabled: "{{ 1 if proxmox_backup_job_enabled else 0 }}"
+      schedule: "{{ proxmox_backup_schedule_pve }}"
+      storage: "{{ proxmox_backup_pbs_storage_name }}"
+      mode: "{{ proxmox_backup_mode }}"
+      vmid: "{{ proxmox_backup_included_vmids | join(',') }}"
+      prune-backups: "keep-last={{ proxmox_backup_keep_last }}"
+      comment: "{{ proxmox_backup_job_comment }}"
+      all: '0'
+      compress: zstd
+      bwlimit: '0'
+    validate_certs: "{{ proxmox_backup_api_validate_certs }}"
+    status_code: 200
+  register: proxmox_backup_job_update_api
+  changed_when: true
+  no_log: "{{ proxmox_backup_sensitive_no_log | bool }}"
+  when: (proxmox_managed_backup_job.id | default('')) | length > 0
+
+- name: Refresh Proxmox backup jobs after create or update
+  community.proxmox.proxmox_backup_info:
+    api_host: "{{ proxmox_backup_api_host }}"
+    api_user: "{{ proxmox_backup_api_user }}"
+    api_token_id: "{{ proxmox_backup_api_token_name }}"
+    api_token_secret: "{{ proxmox_backup_api_token_secret }}"
+    validate_certs: "{{ proxmox_backup_api_validate_certs }}"
+    backup_jobs: true
+  register: proxmox_backup_info_result
+
+- name: Determine managed backup job ID
+  ansible.builtin.set_fact:
+    proxmox_managed_backup_job_id: >-
+      {{
+        (
+          proxmox_backup_info_result.backup_info
+          | default([])
+          | selectattr('comment', 'defined')
+          | selectattr('comment', 'equalto', proxmox_backup_job_comment)
+          | map(attribute='id')
+          | list
+          | first
+        ) | default('')
+      }}
+
+- name: Ensure managed backup job ID exists
+  ansible.builtin.assert:
+    that:
+      - proxmox_managed_backup_job_id | length > 0
+    fail_msg: Failed to resolve managed Proxmox backup job ID.
+
+- name: Ensure included VMIDs are attached to backup schedule
+  community.proxmox.proxmox_backup_schedule:
+    api_host: "{{ proxmox_backup_api_host }}"
+    api_user: "{{ proxmox_backup_api_user }}"
+    api_token_id: "{{ proxmox_backup_api_token_name }}"
+    api_token_secret: "{{ proxmox_backup_api_token_secret }}"
+    validate_certs: "{{ proxmox_backup_api_validate_certs }}"
+    backup_id: "{{ proxmox_managed_backup_job_id }}"
+    vm_id: "{{ item.vmid | string }}"
+    state: present
+  loop: >-
+    {{
+      proxmox_backup_targets
+      | selectattr('include', 'defined')
+      | selectattr('include')
+      | list
+    }}
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Ensure excluded VMIDs are detached from backup schedule
+  community.proxmox.proxmox_backup_schedule:
+    api_host: "{{ proxmox_backup_api_host }}"
+    api_user: "{{ proxmox_backup_api_user }}"
+    api_token_id: "{{ proxmox_backup_api_token_name }}"
+    api_token_secret: "{{ proxmox_backup_api_token_secret }}"
+    validate_certs: "{{ proxmox_backup_api_validate_certs }}"
+    backup_id: "{{ proxmox_managed_backup_job_id }}"
+    vm_id: "{{ item.vmid | string }}"
+    state: absent
+  loop: "{{ proxmox_backup_excluded_targets }}"
+  loop_control:
+    label: "{{ item.name }}"

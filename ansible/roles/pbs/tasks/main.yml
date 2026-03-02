@@ -1,0 +1,128 @@
+---
+- name: Ensure target host is Debian
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+      - ansible_distribution == 'Debian'
+    fail_msg: PBS role supports Debian hosts only.
+
+- name: Ensure PBS repository suite is provided
+  ansible.builtin.assert:
+    that:
+      - pbs_repo_suite | length > 0
+    fail_msg: pbs_repo_suite is required.
+
+- name: Ensure PBS enterprise repositories are disabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ pbs_enterprise_repo_files }}"
+  when: pbs_disable_enterprise_repos
+
+- name: Ensure PBS repository prerequisites are installed
+  ansible.builtin.apt:
+    name: "{{ pbs_prerequisite_packages }}"
+    state: present
+    update_cache: "{{ pbs_update_apt_cache }}"
+
+- name: Ensure Proxmox archive key is installed
+  ansible.builtin.get_url:
+    url: "{{ pbs_repo_key_url }}"
+    dest: "{{ pbs_repo_keyring_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure PBS apt repository is configured
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by={{ pbs_repo_keyring_path }}] {{ pbs_repo_base_url }} {{ pbs_repo_suite }} {{ pbs_repo_channel }}"
+    state: present
+    filename: proxmox-backup
+    update_cache: "{{ pbs_update_apt_cache }}"
+
+- name: Ensure PBS packages are installed
+  ansible.builtin.apt:
+    name: "{{ pbs_packages }}"
+    state: present
+    update_cache: "{{ pbs_update_apt_cache }}"
+
+- name: Ensure PBS service is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ pbs_service_name }}"
+    enabled: "{{ pbs_service_enabled }}"
+    state: "{{ pbs_service_state }}"
+
+- name: Ensure PBS datastore ID and path are provided when datastore management is enabled
+  ansible.builtin.assert:
+    that:
+      - pbs_datastore_id | length > 0
+      - pbs_datastore_path | length > 0
+    fail_msg: pbs_datastore_id and pbs_datastore_path are required when pbs_manage_datastore=true.
+  when: pbs_manage_datastore
+
+- name: Ensure PBS datastore path exists
+  ansible.builtin.file:
+    path: "{{ pbs_datastore_path }}"
+    state: directory
+    owner: backup
+    group: backup
+    mode: '0750'
+  when: pbs_manage_datastore
+
+- name: Ensure PBS datastore path is a mount point
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - -n
+      - "{{ pbs_datastore_path }}"
+  register: pbs_datastore_mount_check
+  changed_when: false
+  failed_when: pbs_datastore_mount_check.rc != 0
+  when:
+    - pbs_manage_datastore
+    - pbs_require_datastore_mountpoint
+
+- name: Ensure PBS datastore list is available
+  ansible.builtin.command:
+    argv:
+      - proxmox-backup-manager
+      - datastore
+      - list
+      - --output-format
+      - json
+  register: pbs_datastore_list_cmd
+  changed_when: false
+  failed_when: pbs_datastore_list_cmd.rc != 0
+  when: pbs_manage_datastore
+
+- name: Determine whether target PBS datastore already exists
+  ansible.builtin.set_fact:
+    pbs_datastore_exists: >-
+      {{
+        (
+          (
+            (pbs_datastore_list_cmd.stdout | default('[]'))
+            | from_json
+          )
+          | selectattr('name', 'defined')
+          | selectattr('name', 'equalto', pbs_datastore_id)
+          | list
+          | length
+        ) > 0
+      }}
+  when: pbs_manage_datastore
+
+- name: Ensure PBS datastore is registered
+  ansible.builtin.command:
+    argv:
+      - proxmox-backup-manager
+      - datastore
+      - create
+      - "{{ pbs_datastore_id }}"
+      - "{{ pbs_datastore_path }}"
+  register: pbs_datastore_create_cmd
+  changed_when: pbs_datastore_create_cmd.rc == 0
+  failed_when: pbs_datastore_create_cmd.rc != 0
+  when:
+    - pbs_manage_datastore
+    - not (pbs_datastore_exists | default(false))

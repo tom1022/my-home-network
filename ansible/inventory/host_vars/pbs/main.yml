@@ -1,0 +1,90 @@
+---
+# PBS backup policy (inventory host: pbs)
+
+pbs_backup_schedule: "30 4 * * *"
+pbs_backup_keep_last: 2
+pbs_backup_mode: snapshot
+pbs_backup_include_pbs_self: true
+
+# Save backups to dataset assigned in Terraform.
+pbs_backup_target_datastore_id: zfs-pool
+pbs_backup_target_dataset_path: /mnt/zfs-pool-0
+
+# Managed targets:
+# - Include all inventory-managed guests except gitea
+# - Add legacy MariaDB and recording VM
+pbs_backup_targets:
+  - name: k3s-server
+    vmid: 150
+    type: qemu
+    ip: 192.168.1.150
+    include: true
+    source: terraform
+    service: k3s-control-plane
+
+  - name: k3s-agent-minipc
+    vmid: 151
+    type: qemu
+    ip: 192.168.1.151
+    include: true
+    source: terraform
+    service: k3s-worker
+
+  - name: k3s-agent-z440
+    vmid: 152
+    type: qemu
+    ip: 192.168.1.152
+    include: true
+    source: terraform
+    service: k3s-worker
+    skip_extra_zvol_dataset_disks: true
+
+  - name: nas
+    vmid: 201
+    type: qemu
+    ip: 192.168.1.201
+    include: true
+    source: terraform
+    service: nas
+    skip_extra_zvol_dataset_disks: true
+
+  - name: pbs
+    vmid: 202
+    type: lxc
+    ip: 192.168.1.202
+    include: true
+    source: terraform
+    service: proxmox-backup-server
+
+  - name: mariadb-legacy
+    vmid: 113
+    type: lxc
+    ip: 172.16.0.100
+    include: true
+    source: external
+    service: MariaDB
+    mariadb_dump_enabled: true
+    mariadb_dump_databases: all
+    mariadb_dump_user: "{{ vault_mariadb_dump_user | default('') }}"
+    mariadb_dump_password: "{{ vault_mariadb_dump_password | default('') }}"
+
+  - name: mirakurun-epgstation
+    vmid: 110
+    type: qemu
+    ip: 192.168.1.11
+    include: true
+    source: external
+    service: Mirakurun+EPGStation
+    recording_data_backup_enabled: false
+
+# Explicitly excluded target
+pbs_backup_excluded_targets:
+  - name: gitea
+    vmid: 200
+    type: lxc
+    ip: 192.168.1.200
+    reason: github-offsite-backup
+
+# Remaining info to confirm before job automation
+pbs_backup_todo:
+  - "Confirm Proxmox VM disk backup=0 for zvol/dataset disks"

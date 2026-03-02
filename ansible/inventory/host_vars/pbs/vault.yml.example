@@ -1,0 +1,12 @@
+---
+# Copy this file to vault.yml and encrypt it:
+# ansible-vault encrypt inventory/host_vars/pbs/vault.yml
+
+# MariaDB logical dump credentials for legacy target (VMID 113)
+# Required grants example:
+#   CREATE USER 'pbs_dump'@'192.168.1.202' IDENTIFIED BY 'YOUR_STRONG_PASSWORD';
+#   GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES ON *.* TO 'pbs_dump'@'192.168.1.202';
+#   FLUSH PRIVILEGES;
+
+vault_mariadb_dump_user: "pbs_dump"
+vault_mariadb_dump_password: "CHANGEME_STRONG_PASSWORD"

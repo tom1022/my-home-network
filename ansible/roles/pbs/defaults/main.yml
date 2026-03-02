@@ -1,0 +1,30 @@
+---
+# Defaults for PBS role
+
+pbs_repo_suite: "{{ ansible_distribution_release }}"
+pbs_repo_channel: pbs-no-subscription
+pbs_repo_base_url: http://download.proxmox.com/debian/pbs
+pbs_repo_key_url: "https://enterprise.proxmox.com/debian/proxmox-release-{{ pbs_repo_suite }}.gpg"
+pbs_repo_keyring_path: "/usr/share/keyrings/proxmox-release-{{ pbs_repo_suite }}.gpg"
+
+pbs_prerequisite_packages:
+  - ca-certificates
+  - gpg
+
+pbs_packages:
+  - proxmox-backup-server
+
+pbs_update_apt_cache: true
+pbs_service_name: proxmox-backup-proxy
+pbs_service_enabled: true
+pbs_service_state: started
+
+pbs_disable_enterprise_repos: true
+pbs_enterprise_repo_files:
+  - /etc/apt/sources.list.d/pbs-enterprise.list
+  - /etc/apt/sources.list.d/proxmox-backup-enterprise.list
+
+pbs_manage_datastore: true
+pbs_datastore_id: "{{ pbs_backup_target_datastore_id | default('') }}"
+pbs_datastore_path: "{{ pbs_backup_target_dataset_path | default('') }}"
+pbs_require_datastore_mountpoint: true

@@ -3,3 +3,12 @@ sssd_bind_password: "{{ vault_sssd_bind_password | default('') }}"
 
 letsencrypt_contact_email: "{{ vault_letsencrypt_contact_email | default('') }}"
 letsencrypt_cloudflare_api_token: "{{ vault_letsencrypt_cloudflare_api_token | default('') }}"
+
+proxmox_api_host: "{{ vault_proxmox_api_host | default('') }}"
+proxmox_api_user: "{{ vault_proxmox_api_user | default('') }}"
+proxmox_api_token_id: "{{ vault_proxmox_api_token_id | default('') }}"
+proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret | default('') }}"
+
+proxmox_pbs_username: "{{ vault_proxmox_pbs_username | default('') }}"
+proxmox_pbs_password: "{{ vault_proxmox_pbs_password | default('') }}"
+proxmox_pbs_fingerprint: "{{ vault_proxmox_pbs_fingerprint | default('') }}"

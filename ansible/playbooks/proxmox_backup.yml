@@ -1,0 +1,7 @@
+---
+- name: Configure Proxmox backup storage and schedules via API
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - proxmox_backup
