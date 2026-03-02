@@ -1,10 +1,13 @@
 ---
+- name: Refresh SSH known_hosts entries
+  import_playbook: refresh_known_hosts.yml
+
 # Placeholder playbook for k3s. Implement role or tasks as needed.
-- name: k3s - placeholder
+- name: K3s - Placeholder
   hosts: k3s
   become: true
   vars: {}
   tasks:
-    - name: Placeholder - implement k3s role or tasks
+    - name: Placeholder - Implement k3s role or tasks
       ansible.builtin.debug:
         msg: "Add k3s role/playbook and update this file"

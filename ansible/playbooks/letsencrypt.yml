@@ -1,4 +1,7 @@
 ---
+- name: Refresh SSH known_hosts entries
+  import_playbook: refresh_known_hosts.yml
+
 - name: Distribute Let's Encrypt certificates from NAS
   hosts: "{{ letsencrypt_copy_target_hosts }}"
   become: true
