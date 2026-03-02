@@ -1,0 +1,48 @@
+global
+    daemon
+    ssl-default-bind-ciphersuites TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256
+    ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384
+    ssl-default-bind-options no-sslv3 no-tls-tickets no-tlsv10 no-tlsv11
+
+defaults
+    log global
+    mode tcp
+    timeout client 1h
+    timeout server 1h
+    timeout connect 10s
+    retries 3
+
+listen imaps_offload
+    bind *:993 ssl crt {{ vps_proxy_haproxy_cert_path }}
+    mode tcp
+    server mail_server_imap {{ vps_proxy_upstream_mail }}:143 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_imap_port }}
+
+listen smtps_offload
+    bind *:465 ssl crt {{ vps_proxy_haproxy_cert_path }}
+    mode tcp
+    server mail_server_smtp {{ vps_proxy_upstream_mail }}:587 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_smtp_tls_port }}
+
+listen pop3s_offload
+    bind *:995 ssl crt {{ vps_proxy_haproxy_cert_path }}
+    mode tcp
+    server mail_server_pop3 {{ vps_proxy_upstream_mail }}:110 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_pop3_port }}
+
+listen smtp_proxy
+    bind *:25
+    mode tcp
+    server mail_server_smtp_plain {{ vps_proxy_upstream_mail }}:25 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_smtp_tls_port }}
+
+listen submission_proxy
+    bind *:587
+    mode tcp
+    server mail_server_submission {{ vps_proxy_upstream_mail }}:587 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_submission_port }}
+
+listen imap_proxy
+    bind *:143
+    mode tcp
+    server mail_server_imap_plain {{ vps_proxy_upstream_mail }}:143 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_imap_port }}
+
+listen pop3_proxy
+    bind *:110
+    mode tcp
+    server mail_server_pop3_plain {{ vps_proxy_upstream_mail }}:110 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_pop3_port }}

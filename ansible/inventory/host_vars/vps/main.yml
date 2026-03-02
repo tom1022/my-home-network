@@ -1,0 +1,15 @@
+---
+ansible_become_password: "{{ vault_vps_become_password | default('') }}"
+
+vps_proxy_domain_main: fickledev.com
+vps_proxy_domain_www: www.fickledev.com
+vps_proxy_domain_mail: mail.fickledev.com
+vps_proxy_domain_tochiweb: tochiweb.mydns.jp
+
+vps_proxy_upstream_main: 192.168.1.103
+vps_proxy_upstream_blog: 192.168.1.101
+vps_proxy_upstream_tochiweb: 192.168.1.11
+vps_proxy_upstream_mail: 192.168.1.102
+
+letsencrypt_certificates:
+  - cert_name: fickledev.com

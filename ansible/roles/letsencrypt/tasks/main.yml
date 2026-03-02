@@ -1,40 +1,170 @@
 ---
-- name: Ensure Let's Encrypt contact email is provided
+- name: Ensure source host for certificate copy is provided
+  ansible.builtin.assert:
+    that:
+      - letsencrypt_source_host | length > 0
+    fail_msg: letsencrypt_source_host is required.
+
+- name: Ensure source host exists in inventory
+  ansible.builtin.assert:
+    that:
+      - hostvars[letsencrypt_source_host] is defined
+    fail_msg: letsencrypt_source_host must be present in inventory.
+
+- name: Ensure certificate list is provided
+  ansible.builtin.assert:
+    that:
+      - letsencrypt_certificates | length > 0
+    fail_msg: letsencrypt_certificates must include at least one certificate.
+
+- name: Ensure Let's Encrypt source issuance variables are provided
   ansible.builtin.assert:
     that:
       - letsencrypt_contact_email | length > 0
-    fail_msg: letsencrypt_contact_email is required.
-
-- name: Ensure Cloudflare API token is provided
-  ansible.builtin.assert:
-    that:
       - letsencrypt_cloudflare_api_token | length > 0
-    fail_msg: letsencrypt_cloudflare_api_token is required and should come from ansible-vault.
+    fail_msg: letsencrypt_contact_email and letsencrypt_cloudflare_api_token are required.
+  when: letsencrypt_manage_source_issuance
+  run_once: true
 
-- name: Ensure certbot packages are installed
+- name: Ensure source host certbot packages are installed
   ansible.builtin.apt:
     name: "{{ letsencrypt_packages }}"
     state: present
     update_cache: true
+  delegate_to: "{{ letsencrypt_source_host }}"
+  when: letsencrypt_manage_source_issuance
+  run_once: true
 
-- name: Ensure Cloudflare credentials directory exists
+- name: Ensure source Cloudflare credentials directory exists
   ansible.builtin.file:
     path: "{{ letsencrypt_cloudflare_credentials_path | dirname }}"
     state: directory
     owner: root
     group: root
     mode: '0700'
+  delegate_to: "{{ letsencrypt_source_host }}"
+  when: letsencrypt_manage_source_issuance
+  run_once: true
 
-- name: Ensure Cloudflare credentials file exists
+- name: Ensure source Cloudflare credentials file exists
   ansible.builtin.copy:
     content: "dns_cloudflare_api_token = {{ letsencrypt_cloudflare_api_token }}\n"
     dest: "{{ letsencrypt_cloudflare_credentials_path }}"
     owner: root
     group: root
     mode: '0600'
+  delegate_to: "{{ letsencrypt_source_host }}"
   no_log: true
+  when: letsencrypt_manage_source_issuance
+  run_once: true
 
-- name: Ensure wildcard certificate exists
+- name: Check whether source certificate already exists
+  ansible.builtin.stat:
+    path: "{{ letsencrypt_live_dir }}/fullchain.pem"
+  register: letsencrypt_source_live_cert_stat
+  delegate_to: "{{ letsencrypt_source_host }}"
+  when: letsencrypt_manage_source_issuance
+  run_once: true
+
+- name: Set default source issuance decision
+  ansible.builtin.set_fact:
+    letsencrypt_should_issue: "{{ not letsencrypt_source_live_cert_stat.stat.exists }}"
+  when: letsencrypt_manage_source_issuance
+  run_once: true
+
+- name: Read source certificate metadata
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - x509
+      - -in
+      - "{{ letsencrypt_live_dir }}/fullchain.pem"
+      - -noout
+      - -startdate
+      - -ext
+      - subjectAltName
+  register: letsencrypt_source_cert_metadata
+  changed_when: false
+  failed_when: letsencrypt_source_cert_metadata.rc != 0
+  delegate_to: "{{ letsencrypt_source_host }}"
+  when:
+    - letsencrypt_manage_source_issuance
+    - letsencrypt_source_live_cert_stat.stat.exists
+  run_once: true
+
+- name: Build expected/source domain sets for issuance decision
+  ansible.builtin.set_fact:
+    letsencrypt_expected_issue_domains: "{{ letsencrypt_issue_domains | map('trim') | unique | sort | list }}"
+    letsencrypt_current_cert_domains: "{{ letsencrypt_source_cert_metadata.stdout | regex_findall('DNS:([^,\\n ]+)') | map('trim') | unique | sort | list }}"
+    letsencrypt_source_cert_not_before: >-
+      {{
+        (
+          letsencrypt_source_cert_metadata.stdout_lines
+          | select('match', '^notBefore=')
+          | list
+          | first
+          | default('notBefore=')
+        )
+        | regex_replace('^notBefore=', '')
+      }}
+  when:
+    - letsencrypt_manage_source_issuance
+    - letsencrypt_source_live_cert_stat.stat.exists
+  run_once: true
+
+- name: Get source host current UTC epoch
+  ansible.builtin.command:
+    argv:
+      - date
+      - -u
+      - +%s
+  register: letsencrypt_source_now_epoch
+  changed_when: false
+  failed_when: letsencrypt_source_now_epoch.rc != 0
+  delegate_to: "{{ letsencrypt_source_host }}"
+  when:
+    - letsencrypt_manage_source_issuance
+    - letsencrypt_source_live_cert_stat.stat.exists
+  run_once: true
+
+- name: Convert source certificate notBefore to epoch
+  ansible.builtin.command:
+    argv:
+      - date
+      - -u
+      - -d
+      - "{{ letsencrypt_source_cert_not_before }}"
+      - +%s
+  register: letsencrypt_source_not_before_epoch
+  changed_when: false
+  failed_when: letsencrypt_source_not_before_epoch.rc != 0
+  delegate_to: "{{ letsencrypt_source_host }}"
+  when:
+    - letsencrypt_manage_source_issuance
+    - letsencrypt_source_live_cert_stat.stat.exists
+  run_once: true
+
+- name: Decide whether source certificate issuance is required
+  ansible.builtin.set_fact:
+    letsencrypt_should_issue: >-
+      {{
+        (letsencrypt_current_cert_domains != letsencrypt_expected_issue_domains)
+        or
+        (
+          (
+            (
+              (letsencrypt_source_now_epoch.stdout | int)
+              - (letsencrypt_source_not_before_epoch.stdout | int)
+            ) / 86400
+          ) | int
+        ) >= (letsencrypt_min_issue_interval_days | int)
+      }}
+  when:
+    - letsencrypt_manage_source_issuance
+    - letsencrypt_source_live_cert_stat.stat.exists
+  run_once: true
+
+- name: Ensure source wildcard certificate exists
   ansible.builtin.command:
     argv:
       - certbot
@@ -54,12 +184,130 @@
       - "{{ letsencrypt_domain }}"
       - -d
       - "{{ letsencrypt_wildcard_domain }}"
-    creates: "{{ letsencrypt_live_dir }}/fullchain.pem"
+  delegate_to: "{{ letsencrypt_source_host }}"
   register: letsencrypt_issue_result
-  changed_when: letsencrypt_issue_result.rc == 0
+  changed_when: "'successfully received certificate' in (letsencrypt_issue_result.stdout | lower)"
+  failed_when: letsencrypt_issue_result.rc != 0
+  when:
+    - letsencrypt_manage_source_issuance
+    - letsencrypt_should_issue | bool
+  run_once: true
 
-- name: Ensure certbot renew timer is enabled and started
+- name: Ensure source certbot renew timer is enabled and started
   ansible.builtin.service:
     name: certbot.timer
     enabled: true
     state: started
+  delegate_to: "{{ letsencrypt_source_host }}"
+  when: letsencrypt_manage_source_issuance
+  run_once: true
+
+- name: Ensure destination Let's Encrypt base directory exists
+  ansible.builtin.file:
+    path: "{{ letsencrypt_destination_base_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure destination live directory exists
+  ansible.builtin.file:
+    path: "{{ letsencrypt_destination_base_dir }}/live"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure destination certificate directories exist
+  ansible.builtin.file:
+    path: "{{ letsencrypt_destination_base_dir }}/live/{{ item.cert_name }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ letsencrypt_certificates }}"
+
+- name: Ensure source fullchain files exist
+  ansible.builtin.stat:
+    path: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/fullchain.pem"
+  delegate_to: "{{ letsencrypt_source_host }}"
+  loop: "{{ letsencrypt_certificates }}"
+  register: letsencrypt_source_fullchain_stats
+
+- name: Ensure source privkey files exist
+  ansible.builtin.stat:
+    path: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/privkey.pem"
+  delegate_to: "{{ letsencrypt_source_host }}"
+  loop: "{{ letsencrypt_certificates }}"
+  register: letsencrypt_source_privkey_stats
+
+- name: Ensure required source certificate files are present
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+    fail_msg: "Missing source certificate file for {{ item.item.cert_name }} on {{ letsencrypt_source_host }}"
+  loop: "{{ letsencrypt_source_fullchain_stats.results + letsencrypt_source_privkey_stats.results }}"
+
+- name: Read source fullchain files
+  ansible.builtin.slurp:
+    src: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/fullchain.pem"
+  delegate_to: "{{ letsencrypt_source_host }}"
+  loop: "{{ letsencrypt_certificates }}"
+  register: letsencrypt_source_fullchain_contents
+
+- name: Read source private key files
+  ansible.builtin.slurp:
+    src: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/privkey.pem"
+  delegate_to: "{{ letsencrypt_source_host }}"
+  loop: "{{ letsencrypt_certificates }}"
+  register: letsencrypt_source_privkey_contents
+  no_log: true
+
+- name: Copy fullchain files to destination host
+  ansible.builtin.copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "{{ letsencrypt_destination_base_dir }}/live/{{ item.item.cert_name }}/fullchain.pem"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ letsencrypt_source_fullchain_contents.results }}"
+
+- name: Copy private key files to destination host
+  ansible.builtin.copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "{{ letsencrypt_destination_base_dir }}/live/{{ item.item.cert_name }}/privkey.pem"
+    owner: root
+    group: root
+    mode: '0600'
+  loop: "{{ letsencrypt_source_privkey_contents.results }}"
+  no_log: true
+
+- name: Ensure source shared SSL files exist
+  ansible.builtin.stat:
+    path: "{{ letsencrypt_source_base_dir }}/{{ item.source }}"
+  delegate_to: "{{ letsencrypt_source_host }}"
+  loop: "{{ letsencrypt_shared_files }}"
+  register: letsencrypt_source_shared_file_stats
+
+- name: Ensure required source shared SSL files are present
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+    fail_msg: "Missing source shared SSL file {{ item.item.source }} on {{ letsencrypt_source_host }}"
+  loop: "{{ letsencrypt_source_shared_file_stats.results }}"
+
+- name: Read source shared SSL files
+  ansible.builtin.slurp:
+    src: "{{ letsencrypt_source_base_dir }}/{{ item.source }}"
+  delegate_to: "{{ letsencrypt_source_host }}"
+  loop: "{{ letsencrypt_shared_files }}"
+  register: letsencrypt_source_shared_file_contents
+
+- name: Copy shared SSL files to destination host
+  ansible.builtin.copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "{{ letsencrypt_destination_base_dir }}/{{ item.item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.item.mode }}"
+  loop: "{{ letsencrypt_source_shared_file_contents.results }}"

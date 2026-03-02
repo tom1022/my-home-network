@@ -1,0 +1,34 @@
+---
+vps_proxy_haproxy_certs_dir: /etc/haproxy/certs
+
+vps_proxy_required_packages:
+  - nginx
+  - haproxy
+
+vps_proxy_domain_main: ""
+vps_proxy_domain_www: ""
+vps_proxy_domain_mail: ""
+
+vps_proxy_upstream_main: ""
+vps_proxy_upstream_blog: ""
+vps_proxy_upstream_mail: ""
+
+vps_proxy_haproxy_check_smtp_tls_port: 5555
+vps_proxy_haproxy_check_submission_port: 5556
+vps_proxy_haproxy_check_imap_port: 5557
+vps_proxy_haproxy_check_pop3_port: 5558
+
+vps_proxy_nginx_service_name: nginx
+vps_proxy_haproxy_service_name: haproxy
+
+vps_proxy_nginx_conf_path: /etc/nginx/nginx.conf
+vps_proxy_nginx_conf_d_dir: /etc/nginx/conf.d
+
+vps_proxy_haproxy_conf_path: /etc/haproxy/haproxy.cfg
+vps_proxy_haproxy_cert_path: /etc/haproxy/certs/haproxy.pem
+
+vps_proxy_legacy_nginx_container_name: nginx-proxy
+vps_proxy_legacy_haproxy_container_name: haproxy-proxy
+
+vps_proxy_haproxy_pem_dest: "{{ vps_proxy_haproxy_certs_dir }}/haproxy.pem"
+vps_proxy_letsencrypt_live_dir: "/etc/letsencrypt/live/{{ vps_proxy_domain_main }}"

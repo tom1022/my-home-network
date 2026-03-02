@@ -17,6 +17,9 @@ target_hosts:
     pbs:
       ansible_host: 192.168.1.202
       ansible_user: root
+    vps:
+      ansible_host: 100.109.6.7
+      ansible_user: trvlr
 
 vms:
   hosts:
@@ -29,3 +32,7 @@ containers:
   hosts:
     gitea: {}
     pbs: {}
+
+vps:
+  hosts:
+    vps: {}
