@@ -51,7 +51,7 @@ flowchart TB
         K3S_PINNED
         K3S_AGENT_Z440["VM: k3s Agent<br>Worker Node 2"]
         LXC_PBS["LXC: Proxmox Backup Server"]
-        VM_OMV["VM: OMV<br>NFS / SMB Manager"]
+        VM_NAS["VM: NAS<br>NFS / SMB Manager"]
         VM_REC["VM: EPGStation + Mirakurun"]
         VM_WINDOWS["VM: Windows"]
         STORAGE_HDD[("IronWolf 4TB<br>ZFS Pool")]
@@ -99,10 +99,10 @@ flowchart TB
     HW_ROUTER_OPNSENSE -- Port Fwd/Routing --> POD_INGRESS
     POD_INGRESS --> POD_NEXTCLOUD & POD_GHOST & POD_PORTFOLIO
     POD_INGRESS -- TCP --> POD_STALWART & POD_ARGO & POD_MINIO
-    STORAGE_HDD == ZFS === VM_OMV
+    STORAGE_HDD == ZFS === VM_NAS
     STORAGE_HDD === LXC_PBS
-    VM_OMV -- NFS --> LXC_GITEA & VM_REC & K3S_FLOATING
-    VM_OMV -- SMB --> HW_CLIENT_DEVICES
+    VM_NAS -- NFS --> LXC_GITEA & VM_REC & K3S_FLOATING
+    VM_NAS -- SMB --> HW_CLIENT_DEVICES
     POD_NEXTCLOUD -. S3 API .-> POD_MINIO
     LXC_GITEA -. S3 LFS/Artifacts .-> POD_MINIO
     LXC_GITEA --> LXC_MARIADB
