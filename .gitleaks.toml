@@ -1,0 +1,14 @@
+title = "my-home-network gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Allow placeholder secrets in example files"
+paths = [
+  '''ansible/inventory/.*/vault\.yml\.example$''',
+  '''terraform/\.env\.example$'''
+]
+regexes = [
+  '''CHANGEME_[A-Z0-9_]+'''
+]
