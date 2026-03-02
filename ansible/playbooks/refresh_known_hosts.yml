@@ -1,0 +1,47 @@
+---
+- name: Refresh SSH known_hosts for target hosts
+  hosts: target_hosts
+  gather_facts: false
+  serial: 1
+  vars:
+    ssh_known_hosts_path: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/known_hosts"
+  tasks:
+    - name: Ensure local .ssh directory exists for known_hosts management
+      ansible.builtin.file:
+        path: "{{ ssh_known_hosts_path | dirname }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    - name: Remove stale SSH host key for current host
+      ansible.builtin.known_hosts:
+        path: "{{ ssh_known_hosts_path }}"
+        name: "{{ ansible_host | default(inventory_hostname) }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+
+    - name: Scan current SSH host key for current host
+      ansible.builtin.command:
+        argv:
+          - ssh-keyscan
+          - -T
+          - "5"
+          - "{{ ansible_host | default(inventory_hostname) }}"
+      register: scanned_host_key
+      changed_when: false
+      failed_when:
+        - scanned_host_key.rc != 0
+        - scanned_host_key.stdout | length == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Add current SSH host key for current host
+      ansible.builtin.known_hosts:
+        path: "{{ ssh_known_hosts_path }}"
+        name: "{{ ansible_host | default(inventory_hostname) }}"
+        key: "{{ scanned_host_key.stdout }}"
+        state: present
+      delegate_to: localhost
+      become: false

@@ -1,4 +1,7 @@
 ---
+- name: Refresh SSH known_hosts entries
+  import_playbook: refresh_known_hosts.yml
+
 - name: Configure Proxmox Backup Server host
   hosts: pbs
   become: true
