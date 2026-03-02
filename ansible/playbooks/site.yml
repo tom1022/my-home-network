@@ -5,3 +5,5 @@
 # Add other component playbooks below when available
 # - import_playbook: k3s.yml
 # - import_playbook: gitea.yml
+- import_playbook: pbs.yml
+# - import_playbook: proxmox_backup.yml

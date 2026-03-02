@@ -5,3 +5,17 @@ vault_sssd_bind_password: "CHANGEME_SSSD_BIND_PASSWORD"
 
 vault_letsencrypt_contact_email: "admin@fickledev.com"
 vault_letsencrypt_cloudflare_api_token: "CHANGEME_CLOUDFLARE_DNS_API_TOKEN"
+
+# Proxmox VE API credentials (token auth)
+# vault_proxmox_api_token_id should be token name (example: ansible).
+# Full form root@pam!ansible is also accepted and normalized by role logic.
+vault_proxmox_api_host: "192.168.1.10"
+vault_proxmox_api_user: "root@pam"
+vault_proxmox_api_token_id: "ansible"
+vault_proxmox_api_token_secret: "CHANGEME_PROXMOX_API_TOKEN_SECRET"
+
+# Proxmox VE -> PBS storage credentials
+# username format example: backup@pbs
+vault_proxmox_pbs_username: "backup@pbs"
+vault_proxmox_pbs_password: "CHANGEME_PBS_STORAGE_PASSWORD"
+vault_proxmox_pbs_fingerprint: "AA:BB:CC:DD:EE:FF:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA"

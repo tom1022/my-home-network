@@ -22,6 +22,15 @@ locals {
   ssh_keys             = var.ssh_public_key != "" ? [trimspace(var.ssh_public_key)] : []
   normalized_zfs_pools = var.zfs_pools == null ? [] : try(tolist(var.zfs_pools), [var.zfs_pools])
   zfs_pools_map        = { for idx, val in local.normalized_zfs_pools : tostring(idx) => val }
+  zfs_pool_mount_points = [
+    for idx in sort(keys(local.zfs_pools_map)) : {
+      volume = try(local.zfs_pools_map[idx].volume, "zfs-pool")
+      size   = try(local.zfs_pools_map[idx].size, format("%sG", local.zfs_pools_map[idx]))
+      path   = try(local.zfs_pools_map[idx].path, format("/mnt/zfs-pool-%s", idx))
+      backup = try(local.zfs_pools_map[idx].backup, false)
+    }
+  ]
+  all_mount_points = concat(local.zfs_pool_mount_points, var.bind_mounts)
 }
 
 resource "proxmox_virtual_environment_container" "this" {
@@ -81,9 +90,9 @@ resource "proxmox_virtual_environment_container" "this" {
   }
 
   dynamic "mount_point" {
-    for_each = var.bind_mounts
+    for_each = local.all_mount_points
     content {
-      volume        = mount_point.value.volume
+      volume        = lookup(mount_point.value, "volume", null)
       path          = mount_point.value.path
       backup        = lookup(mount_point.value, "backup", null)
       read_only     = lookup(mount_point.value, "read_only", null)

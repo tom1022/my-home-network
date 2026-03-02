@@ -1,0 +1,6 @@
+---
+- name: Configure Proxmox Backup Server host
+  hosts: pbs
+  become: true
+  roles:
+    - pbs

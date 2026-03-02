@@ -1,0 +1,47 @@
+---
+proxmox_backup_api_host: "{{ vault_proxmox_api_host | default('') }}"
+proxmox_backup_api_user: "{{ vault_proxmox_api_user | default('') }}"
+proxmox_backup_api_token_id: "{{ vault_proxmox_api_token_id | default('') }}"
+proxmox_backup_api_token_secret: "{{ vault_proxmox_api_token_secret | default('') }}"
+proxmox_backup_api_validate_certs: false
+proxmox_backup_sensitive_no_log: true
+proxmox_backup_api_token_name: "{{ proxmox_backup_api_token_id | regex_replace('^.*!', '') }}"
+proxmox_backup_api_token_identifier: "{{ proxmox_backup_api_user }}!{{ proxmox_backup_api_token_name }}"
+
+proxmox_backup_target_host: pbs
+
+proxmox_backup_schedule: "{{ hostvars[proxmox_backup_target_host].pbs_backup_schedule | default('30 4 * * *') }}"
+proxmox_backup_keep_last: "{{ hostvars[proxmox_backup_target_host].pbs_backup_keep_last | default(2) }}"
+proxmox_backup_mode: "{{ hostvars[proxmox_backup_target_host].pbs_backup_mode | default('snapshot') }}"
+proxmox_backup_schedule_pve: >-
+  {{
+    (
+      '%02d:%02d' | format(
+        (proxmox_backup_schedule.split()[1] | int),
+        (proxmox_backup_schedule.split()[0] | int)
+      )
+    )
+    if (
+      (proxmox_backup_schedule is string)
+      and ((proxmox_backup_schedule | trim).split() | length == 5)
+      and ((proxmox_backup_schedule | trim).split()[2:] == ['*', '*', '*'])
+    )
+    else proxmox_backup_schedule
+  }}
+
+proxmox_backup_job_comment: managed-by-ansible-home-backup
+proxmox_backup_job_enabled: true
+
+proxmox_backup_pbs_storage_name: pbs-zfs-pool
+proxmox_backup_pbs_server: "{{ hostvars[proxmox_backup_target_host].ansible_host | default('') }}"
+proxmox_backup_pbs_datastore: "{{ hostvars[proxmox_backup_target_host].pbs_backup_target_datastore_id | default('') }}"
+proxmox_backup_pbs_username: "{{ vault_proxmox_pbs_username | default('') }}"
+proxmox_backup_pbs_password: "{{ vault_proxmox_pbs_password | default('') }}"
+proxmox_backup_pbs_fingerprint: "{{ vault_proxmox_pbs_fingerprint | default('') }}"
+
+proxmox_backup_pbs_storage_nodes:
+  - n100
+  - hp-z440
+
+proxmox_backup_targets: "{{ hostvars[proxmox_backup_target_host].pbs_backup_targets | default([]) }}"
+proxmox_backup_excluded_targets: "{{ hostvars[proxmox_backup_target_host].pbs_backup_excluded_targets | default([]) }}"
