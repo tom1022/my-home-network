@@ -1,6 +1,6 @@
 ---
-- name: Obtain wildcard Let's Encrypt certificate
-  hosts: nas
+- name: Distribute Let's Encrypt certificates from NAS
+  hosts: "{{ letsencrypt_copy_target_hosts }}"
   become: true
   roles:
     - letsencrypt

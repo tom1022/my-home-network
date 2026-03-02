@@ -1,0 +1,191 @@
+---
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: vps_proxy role supports Debian family hosts only.
+
+- name: Ensure required VPS proxy variables are provided
+  ansible.builtin.assert:
+    that:
+      - vps_proxy_domain_main | length > 0
+      - vps_proxy_domain_www | length > 0
+      - vps_proxy_domain_mail | length > 0
+      - vps_proxy_upstream_main | length > 0
+      - vps_proxy_upstream_blog | length > 0
+      - vps_proxy_upstream_mail | length > 0
+    fail_msg: Required domain and upstream variables for vps_proxy are missing.
+
+- name: Ensure required packages are installed
+  ansible.builtin.apt:
+    name: "{{ vps_proxy_required_packages }}"
+    state: present
+    update_cache: true
+
+- name: Check whether docker command exists
+  ansible.builtin.command:
+    argv:
+      - command
+      - -v
+      - docker
+  register: vps_proxy_docker_command_check
+  changed_when: false
+  failed_when: false
+
+- name: Check whether legacy nginx container exists
+  ansible.builtin.command:
+    argv:
+      - docker
+      - container
+      - inspect
+      - "{{ vps_proxy_legacy_nginx_container_name }}"
+  register: vps_proxy_legacy_nginx_inspect
+  changed_when: false
+  failed_when: false
+  when: vps_proxy_docker_command_check.rc == 0
+
+- name: Check whether legacy haproxy container exists
+  ansible.builtin.command:
+    argv:
+      - docker
+      - container
+      - inspect
+      - "{{ vps_proxy_legacy_haproxy_container_name }}"
+  register: vps_proxy_legacy_haproxy_inspect
+  changed_when: false
+  failed_when: false
+  when: vps_proxy_docker_command_check.rc == 0
+
+- name: Stop and remove legacy nginx container
+  ansible.builtin.command:
+    argv:
+      - docker
+      - container
+      - rm
+      - --force
+      - "{{ vps_proxy_legacy_nginx_container_name }}"
+  register: vps_proxy_legacy_nginx_remove
+  changed_when: vps_proxy_legacy_nginx_remove.rc == 0
+  failed_when: vps_proxy_legacy_nginx_remove.rc != 0
+  when:
+    - vps_proxy_docker_command_check.rc == 0
+    - vps_proxy_legacy_nginx_inspect.rc == 0
+
+- name: Stop and remove legacy haproxy container
+  ansible.builtin.command:
+    argv:
+      - docker
+      - container
+      - rm
+      - --force
+      - "{{ vps_proxy_legacy_haproxy_container_name }}"
+  register: vps_proxy_legacy_haproxy_remove
+  changed_when: vps_proxy_legacy_haproxy_remove.rc == 0
+  failed_when: vps_proxy_legacy_haproxy_remove.rc != 0
+  when:
+    - vps_proxy_docker_command_check.rc == 0
+    - vps_proxy_legacy_haproxy_inspect.rc == 0
+
+- name: Ensure VPS proxy directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ vps_proxy_nginx_conf_d_dir }}"
+      mode: '0755'
+    - path: "{{ vps_proxy_haproxy_certs_dir }}"
+      mode: '0700'
+
+- name: Ensure Let's Encrypt fullchain exists
+  ansible.builtin.stat:
+    path: "{{ vps_proxy_letsencrypt_live_dir }}/fullchain.pem"
+  register: vps_proxy_fullchain_stat
+
+- name: Ensure Let's Encrypt private key exists
+  ansible.builtin.stat:
+    path: "{{ vps_proxy_letsencrypt_live_dir }}/privkey.pem"
+  register: vps_proxy_privkey_stat
+
+- name: Ensure required Let's Encrypt files are present
+  ansible.builtin.assert:
+    that:
+      - vps_proxy_fullchain_stat.stat.exists
+      - vps_proxy_privkey_stat.stat.exists
+    fail_msg: >-
+      Required certificate files are missing under {{ vps_proxy_letsencrypt_live_dir }}.
+      Obtain or renew certificates before running vps_proxy role.
+
+- name: Read Let's Encrypt fullchain
+  ansible.builtin.slurp:
+    src: "{{ vps_proxy_letsencrypt_live_dir }}/fullchain.pem"
+  register: vps_proxy_fullchain_content
+  no_log: true
+
+- name: Read Let's Encrypt private key
+  ansible.builtin.slurp:
+    src: "{{ vps_proxy_letsencrypt_live_dir }}/privkey.pem"
+  register: vps_proxy_privkey_content
+  no_log: true
+
+- name: Ensure haproxy PEM bundle is present
+  ansible.builtin.copy:
+    content: |-
+      {{ vps_proxy_fullchain_content.content | b64decode }}
+      {{ vps_proxy_privkey_content.content | b64decode }}
+    dest: "{{ vps_proxy_haproxy_pem_dest }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  notify: Restart haproxy service
+
+- name: Ensure nginx main config is deployed
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ vps_proxy_nginx_conf_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart nginx service
+
+- name: Ensure main web virtual host config is deployed
+  ansible.builtin.template:
+    src: fickledev.com.conf.j2
+    dest: "{{ vps_proxy_nginx_conf_d_dir }}/fickledev.com.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart nginx service
+
+- name: Ensure tochiweb virtual host config is absent
+  ansible.builtin.file:
+    path: "{{ vps_proxy_nginx_conf_d_dir }}/tochiweb.mydns.jp.conf"
+    state: absent
+  notify: Restart nginx service
+
+- name: Ensure haproxy config is deployed
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: "{{ vps_proxy_haproxy_conf_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart haproxy service
+
+- name: Ensure nginx service is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ vps_proxy_nginx_service_name }}"
+    enabled: true
+    state: started
+
+- name: Ensure haproxy service is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ vps_proxy_haproxy_service_name }}"
+    enabled: true
+    state: started
+
+- name: Flush handlers to apply config changes immediately
+  ansible.builtin.meta: flush_handlers

@@ -1,0 +1,6 @@
+---
+# Copy this file to vault.yml and encrypt it:
+# ansible-vault encrypt inventory/host_vars/vps/vault.yml
+
+# Sudo password used by become for host `vps`
+vault_vps_become_password: "CHANGEME_VPS_SUDO_PASSWORD"

@@ -1,0 +1,6 @@
+---
+- name: Configure VPS reverse proxy host
+  hosts: vps
+  become: true
+  roles:
+    - vps_proxy

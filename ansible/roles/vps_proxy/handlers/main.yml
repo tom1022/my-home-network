@@ -1,0 +1,10 @@
+---
+- name: Restart nginx service
+  ansible.builtin.systemd:
+    name: "{{ vps_proxy_nginx_service_name }}"
+    state: restarted
+
+- name: Restart haproxy service
+  ansible.builtin.systemd:
+    name: "{{ vps_proxy_haproxy_service_name }}"
+    state: restarted

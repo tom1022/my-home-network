@@ -1,4 +1,10 @@
 ---
+letsencrypt_manage_source_issuance: true
+letsencrypt_source_host: nas
+letsencrypt_copy_target_hosts: vps
+letsencrypt_source_base_dir: /etc/letsencrypt
+letsencrypt_destination_base_dir: /etc/letsencrypt
+
 letsencrypt_packages:
   - certbot
   - python3-certbot-dns-cloudflare
@@ -9,7 +15,15 @@ letsencrypt_cloudflare_api_token: ""
 letsencrypt_domain: fickledev.com
 letsencrypt_wildcard_domain: "*.{{ letsencrypt_domain }}"
 letsencrypt_cert_name: "{{ letsencrypt_domain }}"
+letsencrypt_issue_domains:
+  - "{{ letsencrypt_domain }}"
+  - "{{ letsencrypt_wildcard_domain }}"
+letsencrypt_min_issue_interval_days: 30
 
 letsencrypt_cloudflare_credentials_path: /etc/letsencrypt/cloudflare.ini
 letsencrypt_cloudflare_propagation_seconds: 60
-letsencrypt_live_dir: "/etc/letsencrypt/live/{{ letsencrypt_cert_name }}"
+letsencrypt_live_dir: "{{ letsencrypt_source_base_dir }}/live/{{ letsencrypt_cert_name }}"
+
+letsencrypt_certificates:
+  - cert_name: fickledev.com
+letsencrypt_shared_files: []

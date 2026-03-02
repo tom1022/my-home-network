@@ -1,0 +1,51 @@
+server {
+    listen 80;
+    server_name {{ vps_proxy_domain_main }} {{ vps_proxy_domain_www }};
+
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name {{ vps_proxy_domain_www }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ vps_proxy_domain_main }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ vps_proxy_domain_main }}/privkey.pem;
+
+    client_max_body_size 256M;
+
+    location / {
+        proxy_pass http://{{ vps_proxy_upstream_main }}:80;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /blog/ {
+        rewrite ^/blog/(.*)$ /$1 break;
+        proxy_pass http://{{ vps_proxy_upstream_blog }}:80;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header X-Original-Host $http_host;
+    }
+
+    location = /blog {
+        return 301 /blog/;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name {{ vps_proxy_domain_main }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ vps_proxy_domain_main }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ vps_proxy_domain_main }}/privkey.pem;
+
+    return 301 https://{{ vps_proxy_domain_www }}$request_uri;
+}
