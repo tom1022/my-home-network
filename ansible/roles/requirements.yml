@@ -1,0 +1,5 @@
+---
+- src: https://github.com/rlex/ansible-role-k3s.git
+  scm: git
+  name: rlex.k3s
+  # version: ""  # 必要に応じてバージョンを固定してください

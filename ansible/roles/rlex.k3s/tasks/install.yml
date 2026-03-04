@@ -1,0 +1,59 @@
+---
+- name: Install k3s in online mode
+  when:
+    - k3s_install_mode == "online"
+  block:
+    - name: Download k3s binary
+      ansible.builtin.get_url:
+        url: https://github.com/rancher/k3s/releases/download/{{ k3s_version }}/k3s{{ k3s_arch_table[ansible_architecture].suffix }}
+        dest: /usr/local/bin/k3s
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Restart k3s
+
+- name: Install k3s in airgapped mode
+  when:
+    - k3s_install_mode == "airgap"
+  block:
+    - name: Download k3s binary
+      ansible.builtin.get_url:
+        url: https://github.com/rancher/k3s/releases/download/{{ k3s_version }}/k3s{{ k3s_arch_table[ansible_architecture].suffix }}
+        dest: /tmp/k3s-{{ k3s_arch }}-{{ k3s_version }}
+        mode: "0755"
+      delegate_to: localhost
+
+    - name: Download k3s airgapped images
+      ansible.builtin.get_url:
+        url: https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s-airgap-images-{{ k3s_arch }}.tar
+        dest: /tmp/k3s-airgapped-images-{{ k3s_arch }}-{{ k3s_version }}.tar
+        mode: "0755"
+      delegate_to: localhost
+
+    - name: Create folder for airgapped images
+      ansible.builtin.file:
+        path: /var/lib/rancher/k3s/agent/images/
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Transfer k3s binary to target system
+      ansible.builtin.copy:
+        src: /tmp/k3s-{{ k3s_arch }}-{{ k3s_version }}
+        dest: /usr/local/bin/k3s
+        mode: "0755"
+        owner: root
+        group: root
+      notify:
+        - Restart k3s
+
+    - name: Transfer k3s airgapped images to target system
+      ansible.builtin.copy:
+        src: /tmp/k3s-airgapped-images-{{ k3s_arch }}-{{ k3s_version }}.tar
+        dest: /var/lib/rancher/k3s/agent/images/k3s-airgap-images-{{ k3s_arch }}.tar
+        mode: "0755"
+        owner: root
+        group: root
+      notify:
+        - Restart k3s

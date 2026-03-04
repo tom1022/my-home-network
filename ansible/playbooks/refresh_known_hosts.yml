@@ -45,3 +45,4 @@
         state: present
       delegate_to: localhost
       become: false
+      when: scanned_host_key is defined and (scanned_host_key.stdout | length) > 0

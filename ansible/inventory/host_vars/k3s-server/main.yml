@@ -1,0 +1,8 @@
+---
+# k3s control plane node settings
+# Set role booleans expected by rlex.k3s
+k3s_master: true
+# Mark this node as the initial master for first-run configuration
+k3s_initial_master: true
+# Persisted node token read from master for later agent runs
+k3s_node_token: "K10c272647dd62f9d4b3cffd2da1d237a817484b883d2166564e1bc2c8217a4900a::server:678211d70e2aa420b425f5d566ddb0b6"

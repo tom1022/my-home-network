@@ -1,0 +1,19 @@
+---
+# k3s group-level variables
+# コントロールプレーンをホスト名で指定し、その ansible_host を自動参照する
+k3s_control_plane: k3s-server
+# コントロールプレーンの接続先。ホスト名の ansible_host を優先して参照します。
+k3s_server_endpoint: "{{ hostvars[k3s_control_plane].ansible_host | default(k3s_control_plane) }}"
+
+# Map role expected group names to this inventory group
+# role defaults expect `k3s_master_group` and `k3s_agent_group`
+k3s_master_group: k3s
+k3s_agent_group: k3s
+# expose master IP in role-compatible variable
+k3s_master_ip: "{{ hostvars[k3s_control_plane].ansible_host | default(k3s_control_plane) }}"
+k3s_master_port: 6443
+
+# Temporarily rollback extra args to restore previous network configuration.
+# (Previously forced 172.* ranges; cleared to allow k3s defaults.)
+k3s_master_extra_args: []
+k3s_agent_extra_args: []

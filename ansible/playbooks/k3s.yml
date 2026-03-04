@@ -8,6 +8,7 @@
   become: true
   vars: {}
   tasks:
-    - name: Placeholder - Implement k3s role or tasks
-      ansible.builtin.debug:
-        msg: "Add k3s role/playbook and update this file"
+  roles:
+    - role: rlex.k3s
+      # 設定は host_vars / group_vars で上書きしてください
+      # role variables は rlex/ansible-role-k3s の README を参照して合わせてください
