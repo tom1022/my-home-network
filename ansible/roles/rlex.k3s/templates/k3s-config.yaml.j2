@@ -1,0 +1,37 @@
+{% if k3s_master %}
+#master only stuff
+{% if k3s_initial_master and groups[k3s_master_group] | length > 1 %}
+cluster-init: true
+{% endif %}
+{% if k3s_master_disable is iterable and k3s_master_disable | length > 0 %}
+disable:
+{{ k3s_master_disable | to_nice_yaml(indent=2) }}
+{% endif %}
+{% if not k3s_initial_master %}
+server: https://{{ k3s_master_ip }}:{{ k3s_master_port }}
+{% endif %}
+flannel-backend: '{{ k3s_flannel_backend }}'
+{% if k3s_master_extra_config is defined and k3s_master_extra_config | length > 0 %}
+{{ k3s_master_extra_config | to_nice_yaml }}
+{% endif %}
+{% endif %}
+{% if k3s_agent %}
+#agent only stuff
+server: https://{{ k3s_master_ip }}:{{ k3s_master_port }}
+{% if k3s_agent_extra_config is defined and k3s_agent_extra_config | length > 0 %}
+{{ k3s_agent_extra_config | to_nice_yaml }}
+{% endif %}
+#end of agent only stuff
+{% endif %}
+#generic stuff
+{% if k3s_external_ip | length > 0 %}
+node-external-ip: {{ k3s_external_ip }}
+{% endif %}
+{% if k3s_internal_ip | length > 0 %}
+node-ip: {{ k3s_internal_ip }}
+{% endif %}
+#generic kubelet args
+{% if k3s_kubelet_extra_config is defined and k3s_kubelet_extra_config | length > 0 %}
+kubelet-arg:
+{{ k3s_kubelet_extra_config | to_nice_yaml(indent=2) }}
+{% endif %}

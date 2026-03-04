@@ -1,0 +1,25 @@
+---
+- name: Generate config
+  ansible.builtin.template:
+    src: k3s-config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s
+
+- name: Copy k3s service file
+  ansible.builtin.template:
+    src: k3s.service.j2
+    dest: "{{ k3s_systemd_dir }}/k3s.service"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s
+
+- name: Enable and start k3s (workers)
+  ansible.builtin.systemd:
+    name: k3s
+    daemon_reload: true
+    state: started
+    enabled: true

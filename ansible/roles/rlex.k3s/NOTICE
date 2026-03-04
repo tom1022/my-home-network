@@ -1,0 +1,14 @@
+This role was originally published at: https://github.com/rlex/ansible-role-k3s
+
+This repository contains a forked and trimmed copy of the upstream role for
+local maintenance within this infrastructure repository. The upstream role is
+licensed under BSD-3-Clause; that license is retained in the `LICENSE` file.
+
+Modifications in this fork:
+- Removed heavy documentation and CI artifacts from the vendor copy when
+  preparing lightweight distribution (see `scripts/clean_role.sh`).
+- Adjusted role metadata to satisfy local linting requirements.
+
+Upstream attribution:
+  Author: Lex Rivera
+  Source: https://github.com/rlex/ansible-role-k3s

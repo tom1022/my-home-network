@@ -1,0 +1,6 @@
+---
+# k3s agent node settings
+# Use role-expected boolean
+k3s_agent: true
+# k3s_server_endpoint は group_vars/k3s/main.yml で解決します（ホストの ansible_host を参照）
+

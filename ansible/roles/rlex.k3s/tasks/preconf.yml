@@ -1,0 +1,94 @@
+---
+- name: Re-gather facts to get latest info
+  ansible.builtin.setup:
+
+- name: Mount bpffs
+  ansible.posix.mount:
+    path: /sys/fs/bpf
+    src: bpffs
+    fstype: bpf
+    state: mounted
+  when: k3s_mount_bpffs and k3s_mount_bpffs is defined
+
+- name: Install wireguard tools
+  ansible.builtin.package:
+    name: wireguard
+    state: present
+  when: k3s_server_flannel_backend == "wireguard"
+
+- name: Install additional packages
+  ansible.builtin.package:
+    name: "{{ k3s_extra_packages }}"
+    state: present
+  when: k3s_extra_packages | length > 0
+
+- name: Enable additional services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  when: k3s_extra_services | length > 0
+  loop: "{{ k3s_extra_services }}"
+
+- name: Set additional sysctl settings
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    sysctl_file: /etc/sysctl.d/99-k3s.conf
+    state: present
+    reload: true
+    ignoreerrors: true
+  with_dict: "{{ k3s_sysctl_config }}"
+
+- name: Pre-create k3s config folders
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    state: directory
+    mode: "0600"
+  with_items:
+    - /etc/rancher/k3s
+    - /var/lib/rancher/k3s/agent/etc/containerd
+
+- name: Generate registries config
+  ansible.builtin.template:
+    src: registries.yaml.j2
+    dest: /etc/rancher/k3s/registries.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s
+  when:
+    - k3s_registries | length > 0
+
+- name: Generate containerd config
+  ansible.builtin.template:
+    src: "{{ k3s_containerd_template }}"
+    dest: /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s
+  when:
+    - k3s_gvisor
+    - k3s_containerd_template == "containerd.toml.tmpl.j2"
+
+- name: Delete k3s containerd config if gvisor is disabled and no custom config is present
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+    state: absent
+  notify: Restart k3s
+  when:
+    - not k3s_gvisor
+    - k3s_containerd_template == "containerd.toml.tmpl.j2"
+
+- name: Install python3-kubernetes
+  ansible.builtin.package:
+    name: python3-kubernetes
+    state: present
+  run_once: true
+  when:
+    - (k3s_gvisor_create_runtimeclass and k3s_gvisor) or k3s_extra_manifests
+    - k3s_initial_master
