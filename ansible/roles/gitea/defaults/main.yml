@@ -36,6 +36,7 @@ gitea_db_name: ""
 gitea_db_user: ""
 gitea_db_password: ""
 gitea_db_charset: utf8mb4
+gitea_db_collation: utf8mb4_bin
 
 gitea_install_lock: true
 gitea_disable_registration: true
