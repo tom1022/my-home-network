@@ -1,0 +1,16 @@
+---
+# Defaults for nfs_client role
+# Hostname (inventory) of the NAS server to contact
+nfs_client_nas_host: nas
+
+# Export path on the NAS (will be used as fallback if not overridden)
+nfs_client_export_path: /srv/nas-data/shares/gitea
+
+# Mountpoint on the client (Proxmox host)
+nfs_client_mount_path: /mnt/pve/nas-gitea
+
+# Mount options
+nfs_client_mount_opts: "defaults,_netdev,nofail"
+
+# Filesystem type
+nfs_client_fstype: nfs
