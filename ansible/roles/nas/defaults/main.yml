@@ -20,4 +20,12 @@ nas_filesystem_package_map:
 nas_gitea_share_enabled: true
 nas_gitea_share_path: "{{ nas_data_mount_path }}/shares/gitea"
 nas_gitea_user: gitea
-nas_gitea_client_ip: "172.16.0.2"
+# Clients allowed to mount the Gitea export. Prefer inventory hostnames (recommended)
+# Example: ["n100"] or use CIDRs in `nas_gitea_allowed_cidrs` below.
+nas_gitea_allowed_hosts:
+  - "n100"
+# Optional allowed CIDRs (strings). These are merged with resolved host addresses.
+nas_gitea_allowed_cidrs: []
+
+# Default export options (will be combined with anon uid/gid later)
+nas_gitea_export_opts_defaults: "rw,sync,no_subtree_check,all_squash"

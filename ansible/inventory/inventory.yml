@@ -3,6 +3,12 @@ target_hosts:
     ansible_user: tochi
     ansible_ssh_private_key_file: ~/.ssh/hp-z440
   hosts:
+    n100:
+      ansible_host: 192.168.1.10
+      ansible_user: root
+    hp-z440:
+      ansible_host: 192.168.1.2
+      ansible_user: root
     k3s-server:
       ansible_host: 192.168.1.150
     k3s-agent-minipc:
@@ -20,6 +26,11 @@ target_hosts:
     vps:
       ansible_host: 100.109.6.7
       ansible_user: trvlr
+
+proxmox_nodes:
+  hosts:
+    n100: {}
+    hp-z440: {}
 
 vms:
   hosts:

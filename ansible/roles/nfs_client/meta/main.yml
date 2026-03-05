@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  author: tom1022
+  description: NFS client role for mounting NAS exports on Proxmox nodes
+  license: MIT
+  min_ansible_version: 2.12
+  platforms:
+    - name: Debian
+      versions:
+        - buster
+        - bullseye
+        - bookworm
+
+dependencies: []

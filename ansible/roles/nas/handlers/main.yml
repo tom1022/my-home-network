@@ -1,0 +1,8 @@
+---
+- name: reload nfs exports
+  ansible.builtin.command:
+    cmd: exportfs -ra
+  become: true
+  changed_when: false
+  register: nas_exportfs_result
+  failed_when: nas_exportfs_result.rc != 0

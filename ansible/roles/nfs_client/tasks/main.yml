@@ -1,0 +1,28 @@
+---
+- name: Ensure mount point exists
+  ansible.builtin.command:
+    cmd: "mountpoint -q {{ nfs_client_mount_path }}"
+  register: nfs_client_mountpoint_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Ensure mount point exists (only if not already mounted)
+  ansible.builtin.file:
+    path: "{{ nfs_client_mount_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: nfs_client_mountpoint_check.rc != 0
+
+- name: Resolve NAS address for NFS mount
+  ansible.builtin.set_fact:
+    nfs_client_nas_addr: "{{ hostvars[nfs_client_nas_host].ansible_default_ipv4.address | default(hostvars[nfs_client_nas_host].ansible_host) }}"
+
+- name: Mount NFS export
+  ansible.builtin.mount:
+    path: "{{ nfs_client_mount_path }}"
+    src: "{{ nfs_client_nas_addr }}:{{ nfs_client_export_path }}"
+    fstype: "{{ nfs_client_fstype }}"
+    opts: "{{ nfs_client_mount_opts }}"
+    state: mounted

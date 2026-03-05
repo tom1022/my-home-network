@@ -7,3 +7,13 @@
   become: true
   roles:
     - nas
+
+- name: Ensure Proxmox nodes mount Gitea NFS
+  hosts: proxmox_nodes
+  become: true
+  roles:
+    - role: nfs_client
+      vars:
+        # Ensure the role uses the NAS inventory hostname 'nas' by default.
+        # The export path will default to the NAS role default unless overridden here.
+        nfs_client_nas_host: nas
