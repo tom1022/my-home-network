@@ -14,14 +14,6 @@
       delegate_to: localhost
       become: false
 
-    - name: Remove stale SSH host key for current host
-      ansible.builtin.known_hosts:
-        path: "{{ ssh_known_hosts_path }}"
-        name: "{{ ansible_host | default(inventory_hostname) }}"
-        state: absent
-      delegate_to: localhost
-      become: false
-
     - name: Scan current SSH host key for current host
       ansible.builtin.command:
         argv:
@@ -37,7 +29,7 @@
       delegate_to: localhost
       become: false
 
-    - name: Add current SSH host key for current host
+    - name: Add or update current SSH host key for current host (idempotent)
       ansible.builtin.known_hosts:
         path: "{{ ssh_known_hosts_path }}"
         name: "{{ ansible_host | default(inventory_hostname) }}"
