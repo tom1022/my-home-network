@@ -10,6 +10,9 @@ NAME = {{ gitea_db_name }}
 USER = {{ gitea_db_user }}
 PASSWD = {{ gitea_db_password }}
 CHARSET = {{ gitea_db_charset }}
+{% if gitea_db_collation is defined and gitea_db_collation | length > 0 %}
+COLLATE = {{ gitea_db_collation }}
+{% endif %}
 
 [server]
 DOMAIN = {{ gitea_http_domain }}
