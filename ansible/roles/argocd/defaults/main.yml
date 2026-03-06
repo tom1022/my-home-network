@@ -1,0 +1,7 @@
+---
+# Defaults for argocd role
+argocd_install_manifest_url: "https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
+argocd_namespace: argocd
+argocd_kubeconfig: "{{ lookup('env','KUBECONFIG') | default((ansible_env.HOME | default('~')) + '/.kube/config') }}"
+# Fail-fast diagnostic helper
+argocd_fail_fast: false

@@ -1,0 +1,9 @@
+---
+- name: Refresh SSH known_hosts entries
+  import_playbook: refresh_known_hosts.yml
+
+- name: Install / Bootstrap Argo CD on k3s
+  hosts: k3s
+  become: true
+  roles:
+    - argocd
