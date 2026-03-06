@@ -1,0 +1,6 @@
+# Example Vault variables for ArgoCD Gitea source repository
+# This file should be encrypted with:
+# ansible-vault encrypt ansible/inventory/host_vars/k3s-server/argocd_gitea_vault.yml
+
+vault_argocd_gitea_username: "gitea-user"
+vault_argocd_gitea_password: "gitea-password-or-token"

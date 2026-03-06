@@ -1,0 +1,191 @@
+---
+- name: Check if ApplicationSet CRD exists
+  kubernetes.core.k8s_info:
+    kubeconfig: /tmp/ansible_argocd_kubeconfig
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: applicationsets.argoproj.io
+  run_once: true
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_venv_interpreter }}"
+  register: applicationset_crd_check
+  tags:
+    - argocd
+    - argocd-gitea-source
+
+- name: Download ArgoCD manifest
+  ansible.builtin.get_url:
+    url: "{{ argocd_install_manifest_url | default('https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml') }}"
+    dest: /tmp/argocd_manifest.yaml
+    mode: '0644'
+  run_once: true
+  delegate_to: localhost
+  become: false
+  when: applicationset_crd_check.resources | length == 0
+  tags:
+    - argocd
+    - argocd-gitea-source
+
+- name: Re-apply ArgoCD manifest to ensure all CRDs exist
+  kubernetes.core.k8s:
+    kubeconfig: /tmp/ansible_argocd_kubeconfig
+    state: present
+    src: /tmp/argocd_manifest.yaml
+    namespace: "{{ argocd_gitea_namespace }}"
+    apply: yes
+  run_once: true
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_venv_interpreter }}"
+  when: applicationset_crd_check.resources | length == 0
+  tags:
+    - argocd
+    - argocd-gitea-source
+
+- name: Clean up temporary manifest file
+  ansible.builtin.file:
+    path: /tmp/argocd_manifest.yaml
+    state: absent
+  run_once: true
+  delegate_to: localhost
+  become: false
+  when: applicationset_crd_check.resources | length == 0
+  tags:
+    - argocd
+    - argocd-gitea-source
+
+- name: Create ArgoCD Gitea repository secret
+  kubernetes.core.k8s:
+    kubeconfig: /tmp/ansible_argocd_kubeconfig
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ argocd_gitea_repo_name }}"
+        namespace: "{{ argocd_gitea_namespace }}"
+        labels:
+          argocd.argoproj.io/secret-type: repository
+      type: Opaque
+      stringData:
+        type: git
+        url: "{{ argocd_gitea_repo_url }}"
+        password: "{{ argocd_gitea_password }}"
+        username: "{{ argocd_gitea_username }}"
+  run_once: true
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_venv_interpreter }}"
+  register: argocd_secret_result
+  tags:
+    - argocd
+    - argocd-gitea-source
+
+- name: Verify repository secret created
+  ansible.builtin.assert:
+    that:
+      - argocd_secret_result is succeeded
+    fail_msg: "Failed to create ArgoCD Gitea repository secret"
+  tags:
+    - argocd
+    - argocd-gitea-source
+
+- name: Apply ArgoCD Ingress manifest
+  kubernetes.core.k8s:
+    kubeconfig: /tmp/ansible_argocd_kubeconfig
+    state: present
+    src: "{{ argocd_ingress_manifest }}"
+  run_once: true
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_venv_interpreter }}"
+  register: argocd_ingress_result
+  tags:
+    - argocd
+    - argocd-ingress
+
+- name: Verify ArgoCD Ingress created
+  ansible.builtin.assert:
+    that:
+      - argocd_ingress_result is succeeded
+    fail_msg: "Failed to create ArgoCD Ingress"
+  tags:
+    - argocd
+    - argocd-ingress
+
+- name: Apply ArgoCD ApplicationSet manifest
+  kubernetes.core.k8s:
+    kubeconfig: /tmp/ansible_argocd_kubeconfig
+    state: present
+    src: "{{ argocd_applicationset_manifest }}"
+  run_once: true
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_venv_interpreter }}"
+  register: argocd_appset_result
+  tags:
+    - argocd
+    - argocd-applicationset
+
+- name: Verify ArgoCD ApplicationSet created
+  ansible.builtin.assert:
+    that:
+      - argocd_appset_result is succeeded
+    fail_msg: "Failed to create ArgoCD ApplicationSet"
+  tags:
+    - argocd
+    - argocd-applicationset
+
+- name: Restart ApplicationSet controller if CRD was just installed
+  kubernetes.core.k8s:
+    kubeconfig: /tmp/ansible_argocd_kubeconfig
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ argocd_gitea_namespace }}"
+    name: argocd-applicationset-controller
+    state: patched
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ ansible_date_time.iso8601 }}"
+  run_once: true
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_venv_interpreter }}"
+  when: applicationset_crd_apply is defined and applicationset_crd_apply is changed
+  tags:
+    - argocd
+    - argocd-applicationset
+
+- name: Wait for ApplicationSet controller to be ready after restart
+  kubernetes.core.k8s_info:
+    kubeconfig: /tmp/ansible_argocd_kubeconfig
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ argocd_gitea_namespace }}"
+    name: argocd-applicationset-controller
+  run_once: true
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_venv_interpreter }}"
+  register: appset_controller_status
+  until: >
+    appset_controller_status.resources[0].status.readyReplicas is defined and
+    appset_controller_status.resources[0].status.readyReplicas ==
+    appset_controller_status.resources[0].status.replicas
+  retries: 30
+  delay: 2
+  when: applicationset_crd_apply is defined and applicationset_crd_apply is changed
+  tags:
+    - argocd
+    - argocd-applicationset

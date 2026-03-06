@@ -1,0 +1,15 @@
+---
+# ArgoCD Gitea Repository Configuration
+
+argocd_gitea_repo_url: "http://192.168.1.200:3000/giteaadmin/gitops-apps.git"
+argocd_gitea_repo_name: "gitops-apps"
+argocd_gitea_namespace: "argocd"
+
+# Gitea credentials - should be stored in Vault
+argocd_gitea_username: "{{ vault_argocd_gitea_username | default('') }}"
+argocd_gitea_password: "{{ vault_argocd_gitea_password | default('') }}"
+
+# GitOps manifest paths
+argocd_gitops_base_path: "{{ playbook_dir }}/../../gitops"
+argocd_ingress_manifest: "{{ argocd_gitops_base_path }}/apps/argocd/ingress.yaml"
+argocd_applicationset_manifest: "{{ argocd_gitops_base_path }}/argocd/applicationset.yaml"

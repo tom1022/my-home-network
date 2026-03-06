@@ -1,0 +1,42 @@
+---
+- name: Register Gitea repository as ArgoCD source
+  hosts: k3s
+  gather_facts: yes
+  vars:
+    ansible_venv_interpreter: ~/.ansible-venv/bin/python3
+    kubeconfig_path: /tmp/ansible_argocd_kubeconfig
+    k3s_master_host: "{{ hostvars['k3s-server'].ansible_host }}"
+  pre_tasks:
+    - name: Fetch k3s kubeconfig
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      become: yes
+      register: k3s_kubeconfig_raw
+      delegate_to: k3s-server
+      run_once: true
+
+    - name: Decode and rewrite kubeconfig
+      ansible.builtin.set_fact:
+        k3s_kubeconfig_content: |
+          {{ k3s_kubeconfig_raw.content | b64decode | replace('https://127.0.0.1:6443', 'https://' + k3s_master_host + ':6443') | replace('127.0.0.1:6443', k3s_master_host + ':6443') }}
+      run_once: true
+
+    - name: Write rewritten kubeconfig to temp file
+      ansible.builtin.copy:
+        content: "{{ k3s_kubeconfig_content }}"
+        dest: "{{ kubeconfig_path }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+  roles:
+    - argocd_gitea_source
+  
+  post_tasks:
+    - name: Clean up temporary kubeconfig
+      ansible.builtin.file:
+        path: "{{ kubeconfig_path }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+      run_once: true
