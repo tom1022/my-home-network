@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: tom1022
+  description: "Ansible role to bootstrap Argo CD into k3s cluster"
+  license: MIT
+  min_ansible_version: 2.12
+dependencies: []

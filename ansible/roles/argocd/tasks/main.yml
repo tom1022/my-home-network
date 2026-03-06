@@ -1,0 +1,197 @@
+---
+- name: Ensure k3s_master_group exists
+  ansible.builtin.assert:
+    that:
+      - groups[k3s_master_group] is defined
+      - groups[k3s_master_group] | length > 0
+    fail_msg: "k3s_master_group must contain at least one host"
+
+- name: Fetch Argo CD install manifest
+  ansible.builtin.set_fact:
+    argocd_manifest: "{{ lookup('url', argocd_install_manifest_url) }}"
+  run_once: true
+
+- name: Read kubeconfig from k3s master
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/k3s.yaml
+  register: k3s_master_kubeconfig
+  run_once: true
+  delegate_to: "{{ hostvars[groups[k3s_master_group][0]]['inventory_hostname'] }}"
+  become: true
+
+- name: Set master API endpoint usable from control node
+  ansible.builtin.set_fact:
+    master_api_endpoint: "https://{{ hostvars[groups[k3s_master_group][0]].ansible_host | default(groups[k3s_master_group][0]) }}:{{ k3s_master_port | default(6443) }}"
+  run_once: true
+  delegate_to: localhost
+
+- name: Set master API endpoint without scheme
+  ansible.builtin.set_fact:
+    master_api_endpoint_no_scheme: "{{ master_api_endpoint | replace('https://','') | replace('http://','') }}"
+  run_once: true
+  delegate_to: localhost
+
+- name: Decode kubeconfig content on control node
+  ansible.builtin.set_fact:
+    argocd_kubeconfig_decoded: "{{ k3s_master_kubeconfig.content | b64decode }}"
+  run_once: true
+  delegate_to: localhost
+
+- name: Rewrite kubeconfig server to reachable master endpoint (preserve indentation and quotes)
+  ansible.builtin.set_fact:
+    argocd_kubeconfig_content: >-
+      {{ argocd_kubeconfig_decoded
+         | replace('https://127.0.0.1:6443', master_api_endpoint)
+         | replace('https://localhost:6443', master_api_endpoint)
+         | replace('127.0.0.1:6443', master_api_endpoint_no_scheme) }}
+  run_once: true
+  delegate_to: localhost
+
+- name: "Debug: show server line from rewritten kubeconfig"
+  ansible.builtin.debug:
+    msg: "{{ argocd_kubeconfig_content | regex_search('(?m)^\\s*server:\\s*.*', multiline=True) }}"
+  run_once: true
+  delegate_to: localhost
+
+- name: Write kubeconfig to control node as temporary file
+  ansible.builtin.copy:
+    content: "{{ argocd_kubeconfig_content }}"
+    dest: /tmp/ansible_argocd_kubeconfig
+    mode: '0600'
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Set local kubeconfig path for argocd tasks
+  ansible.builtin.set_fact:
+    argocd_kubeconfig: /tmp/ansible_argocd_kubeconfig
+  run_once: true
+  delegate_to: localhost
+
+- name: Fail if Argo CD manifest download produced no content
+  ansible.builtin.fail:
+    msg: "argocd manifest download failed (length={{ argocd_manifest | length }})."
+  when: (argocd_manifest | default('') | trim) == ''
+  run_once: true
+  delegate_to: localhost
+
+- name: Create temporary file for Argo CD manifest
+  ansible.builtin.tempfile:
+    state: file
+    suffix: _argocd.yaml
+  register: argocd_manifest_tempfile
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Write Argo CD manifest to temp file
+  ansible.builtin.copy:
+    content: "{{ argocd_manifest }}"
+    dest: "{{ argocd_manifest_tempfile.path }}"
+    mode: '0644'
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Ensure argocd namespace exists
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ argocd_namespace }}"
+    state: present
+    kubeconfig: "{{ argocd_kubeconfig }}"
+  become: false
+  run_once: true
+  delegate_to: localhost
+
+- name: Apply Argo CD manifest using kubernetes.core.k8s (delegated to localhost)
+  kubernetes.core.k8s:
+    src: "{{ argocd_manifest_tempfile.path }}"
+    namespace: "{{ argocd_namespace }}"
+    apply: true
+    kubeconfig: "{{ argocd_kubeconfig }}"
+  register: argocd_manifest_apply
+  become: false
+  run_once: true
+  delegate_to: localhost
+
+- name: Report manifest apply result
+  ansible.builtin.debug:
+    var: argocd_manifest_apply
+  when: argocd_manifest_apply is defined
+  run_once: true
+  delegate_to: localhost
+
+- name: Remove temporary manifest file
+  ansible.builtin.file:
+    path: "{{ argocd_manifest_tempfile.path }}"
+    state: absent
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Check for argocd-server deployment (one-shot)
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    api_version: apps/v1
+    namespace: "{{ argocd_namespace }}"
+    name: argocd-server
+    kubeconfig: "{{ argocd_kubeconfig }}"
+  register: argocd_server_one_shot
+  become: false
+  run_once: true
+  delegate_to: localhost
+
+- name: Evaluate argocd-server readiness
+  ansible.builtin.set_fact:
+    argocd_server_ready: >-
+      {{ (argocd_server_one_shot.resources | length > 0)
+         and ((argocd_server_one_shot.resources[0].status.availableReplicas | default(0)) > 0) }}
+  run_once: true
+  delegate_to: localhost
+
+- name: If fail-fast enabled and argocd-server missing, gather recent events
+  kubernetes.core.k8s_info:
+    kind: Event
+    namespace: "{{ argocd_namespace }}"
+    kubeconfig: "{{ argocd_kubeconfig }}"
+  register: argocd_events
+  become: false
+  run_once: true
+  delegate_to: localhost
+  when: (argocd_server_one_shot.resources | length == 0) and (argocd_fail_fast | default(false))
+
+- name: Fail fast with recent events when argocd-server not found
+  ansible.builtin.fail:
+    msg: >-
+      ArgoCD server not found after manifest apply. Recent events: {{ (argocd_events.resources | map(attribute='message') | list)[:8] }}
+  when: (argocd_server_one_shot.resources | length == 0) and (argocd_fail_fast | default(false))
+  run_once: true
+  delegate_to: localhost
+
+- name: Gather events when argocd-server failed to become ready
+  kubernetes.core.k8s_info:
+    kind: Event
+    namespace: "{{ argocd_namespace }}"
+    kubeconfig: "{{ argocd_kubeconfig }}"
+  register: argocd_events_when_not_ready
+  become: false
+  run_once: true
+  delegate_to: localhost
+  when: not (argocd_server_ready | default(false))
+
+- name: Fail cleanly when argocd-server is not ready
+  ansible.builtin.fail:
+    msg: >-
+      ArgoCD server has not become available. Current status: {{ argocd_server_one_shot.resources | first | default({}) | to_json }}. Recent events: {{ (argocd_events_when_not_ready.resources | map(attribute='message') | list)[:8] }}
+  when: not (argocd_server_ready | default(false))
+  run_once: true
+  delegate_to: localhost
+
+- name: Remove local temporary kubeconfig
+  ansible.builtin.file:
+    path: /tmp/ansible_argocd_kubeconfig
+    state: absent
+  run_once: true
+  delegate_to: localhost
+  become: false
