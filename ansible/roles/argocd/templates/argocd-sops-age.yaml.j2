@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-sops-age
+  namespace: {{ argocd_namespace }}
+type: Opaque
+stringData:
+  keys.txt: |
+    {{ vault_argocd_sops_age_key }}

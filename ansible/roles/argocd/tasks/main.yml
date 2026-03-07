@@ -1,430 +1,130 @@
 ---
-- name: Ensure k3s_master_group exists
+- name: Ensure required k3s variables are provided
   ansible.builtin.assert:
     that:
-      - groups[k3s_master_group] is defined
-      - groups[k3s_master_group] | length > 0
-    fail_msg: "k3s_master_group must contain at least one host"
+      - k3s_control_plane is defined
+    fail_msg: "k3s_control_plane must be defined (host name of the master node)"
 
-- name: Fetch Argo CD install manifest
-  ansible.builtin.set_fact:
-    argocd_manifest: "{{ lookup('url', argocd_install_manifest_url) }}"
-  run_once: true
-
-- name: Read kubeconfig from k3s master
-  ansible.builtin.slurp:
-    src: /etc/rancher/k3s/k3s.yaml
-  register: k3s_master_kubeconfig
-  run_once: true
-  delegate_to: "{{ hostvars[groups[k3s_master_group][0]]['inventory_hostname'] }}"
+- name: Ensure target directory for k3s manifests exists
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server/manifests
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  delegate_to: "{{ k3s_control_plane }}"
   become: true
 
-- name: Set master API endpoint usable from control node
-  ansible.builtin.set_fact:
-    master_api_endpoint: >-
-      https://{{ hostvars[groups[k3s_master_group][0]].ansible_host | default(groups[k3s_master_group][0]) }}:{{ k3s_master_port | default(6443) }}
-  run_once: true
-  delegate_to: localhost
-
-- name: Set master API endpoint without scheme
-  ansible.builtin.set_fact:
-    master_api_endpoint_no_scheme: "{{ master_api_endpoint | replace('https://', '') | replace('http://', '') }}"
-  run_once: true
-  delegate_to: localhost
-
-- name: Decode kubeconfig content on control node
-  ansible.builtin.set_fact:
-    argocd_kubeconfig_decoded: "{{ k3s_master_kubeconfig.content | b64decode }}"
-  run_once: true
-  delegate_to: localhost
-
-- name: Rewrite kubeconfig server to reachable master endpoint (preserve indentation and quotes)
-  ansible.builtin.set_fact:
-    argocd_kubeconfig_content: >-
-      {{ argocd_kubeconfig_decoded
-         | replace('https://127.0.0.1:6443', master_api_endpoint)
-         | replace('https://localhost:6443', master_api_endpoint)
-         | replace('127.0.0.1:6443', master_api_endpoint_no_scheme) }}
-  run_once: true
-  delegate_to: localhost
-
-- name: "Debug: show server line from rewritten kubeconfig"
-  ansible.builtin.debug:
-    msg: "{{ argocd_kubeconfig_content | regex_search('(?m)^\\s*server:\\s*.*', multiline=True) }}"
-  run_once: true
-  delegate_to: localhost
-
-- name: Write kubeconfig to control node as temporary file
+- name: Create required namespaces
   ansible.builtin.copy:
-    content: "{{ argocd_kubeconfig_content }}"
-    dest: /tmp/ansible_argocd_kubeconfig
-    mode: '0600'
-  run_once: true
-  delegate_to: localhost
-  become: false
-
-- name: Set local kubeconfig path for argocd tasks
-  ansible.builtin.set_fact:
-    argocd_kubeconfig: /tmp/ansible_argocd_kubeconfig
-  run_once: true
-  delegate_to: localhost
-
-# Optional: copy TLS secret from a central namespace and create Ingress for Argo CD
-- name: Optionally copy TLS secret to argocd namespace
-  when:
-    - argocd_tls_enabled | default(false)
-    - argocd_tls_manage_secret_copy | default(false)
-  run_once: true
-  block:
-    - name: Get source TLS secret
-      kubernetes.core.k8s_info:
-        kind: Secret
-        api_version: v1
-        name: "{{ argocd_tls_source_secret }}"
-        namespace: "{{ argocd_tls_source_namespace }}"
-        kubeconfig: "{{ argocd_kubeconfig }}"
-      register: argocd_source_secret
-      run_once: true
-      delegate_to: localhost
-      become: false
-      no_log: true
-
-    - name: Fail if source TLS secret is missing
-      ansible.builtin.fail:
-        msg: "Source TLS secret '{{ argocd_tls_source_secret }}' not found in namespace '{{ argocd_tls_source_namespace }}'"
-      when: (argocd_source_secret.resources | default([]) | length) == 0
-      run_once: true
-      delegate_to: localhost
-
-    - name: Create or update TLS secret in argocd namespace
-      kubernetes.core.k8s:
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: "{{ argocd_tls_target_secret }}"
-            namespace: "{{ argocd_namespace }}"
-          type: kubernetes.io/tls
-          data: "{{ argocd_source_secret.resources[0].data }}"
-        kubeconfig: "{{ argocd_kubeconfig }}"
-      run_once: true
-      delegate_to: localhost
-      become: false
-      no_log: true
-
-- name: Ensure Ingress for argocd exists (optional)
-  kubernetes.core.k8s:
-    definition:
-      apiVersion: networking.k8s.io/v1
-      kind: Ingress
+    content: |
+      apiVersion: v1
+      kind: Namespace
       metadata:
-        name: argocd-server-ingress
-        namespace: "{{ argocd_namespace }}"
-        annotations: "{{ argocd_ingress_annotations | default({}) }}"
-      spec:
-        ingressClassName: "{{ argocd_ingress_class }}"
-        tls:
-          - hosts:
-              - "{{ argocd_ingress_host }}"
-            secretName: >-
-              {{
-                (argocd_tls_target_secret)
-                if (argocd_tls_manage_secret_copy | default(false) | bool)
-                else (argocd_tls_secret_name)
-              }}
-        rules:
-          - host: "{{ argocd_ingress_host }}"
-            http:
-              paths:
-                - path: "{{ argocd_ingress_path | default('/') }}"
-                  pathType: Prefix
-                  backend:
-                    service:
-                      name: "{{ argocd_ingress_service_name }}"
-                      port:
-                        number: "{{ argocd_ingress_service_port }}"
-    kubeconfig: "{{ argocd_kubeconfig }}"
-  run_once: true
-  delegate_to: localhost
-  become: false
-  when: argocd_ingress_enabled | default(false)
-
-- name: Fail if Argo CD manifest download produced no content
-  ansible.builtin.fail:
-    msg: "argocd manifest download failed (length={{ argocd_manifest | length }})."
-  when: (argocd_manifest | default('') | trim) == ''
-  run_once: true
-  delegate_to: localhost
-
-- name: Create temporary file for Argo CD manifest
-  ansible.builtin.tempfile:
-    state: file
-    suffix: _argocd.yaml
-  register: argocd_manifest_tempfile
-  run_once: true
-  delegate_to: localhost
-  become: false
-
-- name: Write Argo CD manifest to temp file
-  ansible.builtin.copy:
-    content: "{{ argocd_manifest }}"
-    dest: "{{ argocd_manifest_tempfile.path }}"
+        name: {{ item }}
+    dest: "/var/lib/rancher/k3s/server/manifests/{{ item }}-namespace.yaml"
     mode: '0644'
-  run_once: true
-  delegate_to: localhost
-  become: false
+  loop:
+    - "{{ argocd_namespace }}"
+    - "cert-manager"
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-- name: Ensure argocd namespace exists
-  kubernetes.core.k8s:
-    api_version: v1
-    kind: Namespace
-    name: "{{ argocd_namespace }}"
-    state: present
-    kubeconfig: "{{ argocd_kubeconfig }}"
-  become: false
-  run_once: true
-  delegate_to: localhost
+- name: Create cert-manager HelmChart manifest
+  ansible.builtin.template:
+    src: cert-manager-helmchart.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/cert-manager-helmchart.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-- name: Apply Argo CD manifest using kubernetes.core.k8s (delegated to localhost)
-  kubernetes.core.k8s:
-    src: "{{ argocd_manifest_tempfile.path }}"
-    namespace: "{{ argocd_namespace }}"
-    apply: true
-    kubeconfig: "{{ argocd_kubeconfig }}"
-  register: argocd_manifest_apply
-  become: false
-  run_once: true
-  delegate_to: localhost
+- name: Create reflector HelmChart manifest
+  ansible.builtin.template:
+    src: reflector-helmchart.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/reflector-helmchart.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-- name: Report manifest apply result
-  ansible.builtin.debug:
-    var: argocd_manifest_apply
-  when: argocd_manifest_apply is defined
-  run_once: true
-  delegate_to: localhost
+- name: Create cert-manager issuer and cloudflare secret
+  ansible.builtin.template:
+    src: cert-manager-issuer.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/cert-manager-issuer.yaml
+    mode: '0600'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-- name: Remove temporary manifest file
-  ansible.builtin.file:
-    path: "{{ argocd_manifest_tempfile.path }}"
-    state: absent
-  run_once: true
-  delegate_to: localhost
-  become: false
+- name: Create wildcard certificate manifest
+  ansible.builtin.template:
+    src: wildcard-cert.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/wildcard-cert.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-- name: Optionally ensure Argo CD external URL is set in argocd-cm
-  when: (argocd_url is defined) and (argocd_url | trim != '')
-  run_once: true
-  block:
-    - name: Get current argocd-cm
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: ConfigMap
-        name: argocd-cm
-        namespace: "{{ argocd_namespace }}"
-        kubeconfig: "{{ argocd_kubeconfig }}"
-      register: argocd_cm_info
-      run_once: true
-      delegate_to: localhost
-      become: false
+- name: Create reloader HelmChart manifest
+  ansible.builtin.template:
+    src: reloader-helmchart.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/reloader-helmchart.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-    - name: Fail if argocd-cm is missing
-      ansible.builtin.fail:
-        msg: "ConfigMap 'argocd-cm' was not found in namespace '{{ argocd_namespace }}'."
-      when: (argocd_cm_info.resources | default([]) | length) == 0
-      run_once: true
-      delegate_to: localhost
-      become: false
+- name: Create argocd-sops-age secret manifest
+  ansible.builtin.template:
+    src: argocd-sops-age.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/argocd-sops-age.yaml
+    mode: '0600'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
+  when: vault_argocd_sops_age_key is defined
 
-    - name: Merge URL and required labels into argocd-cm
-      ansible.builtin.set_fact:
-        argocd_cm_data: "{{ (argocd_cm_info.resources[0].data | default({})) | combine({'url': argocd_url}) }}"
-        argocd_cm_labels: >-
-          {{ (argocd_cm_info.resources[0].metadata.labels | default({}))
-             | combine({'app.kubernetes.io/name': 'argocd-cm', 'app.kubernetes.io/part-of': 'argocd'}) }}
-        argocd_cm_annotations: "{{ argocd_cm_info.resources[0].metadata.annotations | default({}) }}"
-      run_once: true
-      delegate_to: localhost
-      become: false
+- name: Create Argo CD Traefik IngressRoute manifest
+  ansible.builtin.template:
+    src: argocd-ingressroute.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/argocd-ingressroute.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-    - name: Apply updated argocd-cm with url
-      kubernetes.core.k8s:
-        definition:
-          apiVersion: v1
-          kind: ConfigMap
-          metadata:
-            name: argocd-cm
-            namespace: "{{ argocd_namespace }}"
-            labels: "{{ argocd_cm_labels }}"
-            annotations: "{{ argocd_cm_annotations }}"
-          data: "{{ argocd_cm_data }}"
-        kubeconfig: "{{ argocd_kubeconfig }}"
-        apply: true
-      register: argocd_cm_apply_result
-      run_once: true
-      delegate_to: localhost
-      become: false
+- name: Create Argo CD HelmChart manifest
+  ansible.builtin.template:
+    src: argocd-helmchart.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/argocd-helmchart.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-    - name: Restart argocd-server deployment to pick up config changes
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - --kubeconfig
-          - "{{ argocd_kubeconfig }}"
-          - rollout
-          - restart
-          - deployment/argocd-server
-          - -n
-          - "{{ argocd_namespace }}"
-      changed_when: true
-      register: argocd_rollout_result
-      run_once: true
-      delegate_to: localhost
-      become: false
-      when:
-        - argocd_restart_on_config_change | default(true)
-        - argocd_cm_apply_result is defined
-        - argocd_cm_apply_result.changed
+- name: Create Argo CD repository secret manifest
+  ansible.builtin.template:
+    src: argocd-repo.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/argocd-repo.yaml
+    mode: '0600'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-- name: Optionally configure argocd-server insecure mode for ingress TLS termination
-  when: argocd_manage_server_insecure | default(true)
-  run_once: true
-  block:
-    - name: Get current argocd-cmd-params-cm
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: ConfigMap
-        name: argocd-cmd-params-cm
-        namespace: "{{ argocd_namespace }}"
-        kubeconfig: "{{ argocd_kubeconfig }}"
-      register: argocd_cmd_params_cm_info
-      run_once: true
-      delegate_to: localhost
-      become: false
+- name: Create Argo CD ApplicationSet bootstrap manifest
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../gitops/apps/gitops-apps-set.yaml"
+    dest: /var/lib/rancher/k3s/server/manifests/gitops-apps-set.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
 
-    - name: Fail if argocd-cmd-params-cm is missing
-      ansible.builtin.fail:
-        msg: "ConfigMap 'argocd-cmd-params-cm' was not found in namespace '{{ argocd_namespace }}'."
-      when: (argocd_cmd_params_cm_info.resources | default([]) | length) == 0
-      run_once: true
-      delegate_to: localhost
-      become: false
-
-    - name: Merge server.insecure and required labels into argocd-cmd-params-cm
-      ansible.builtin.set_fact:
-        argocd_cmd_params_cm_data: >-
-          {{ (argocd_cmd_params_cm_info.resources[0].data | default({}))
-             | combine({'server.insecure': ((argocd_server_insecure | bool) | ternary('true', 'false'))}) }}
-        argocd_cmd_params_cm_labels: >-
-          {{ (argocd_cmd_params_cm_info.resources[0].metadata.labels | default({}))
-             | combine({'app.kubernetes.io/name': 'argocd-cmd-params-cm', 'app.kubernetes.io/part-of': 'argocd'}) }}
-        argocd_cmd_params_cm_annotations: "{{ argocd_cmd_params_cm_info.resources[0].metadata.annotations | default({}) }}"
-      run_once: true
-      delegate_to: localhost
-      become: false
-
-    - name: Apply updated argocd-cmd-params-cm
-      kubernetes.core.k8s:
-        definition:
-          apiVersion: v1
-          kind: ConfigMap
-          metadata:
-            name: argocd-cmd-params-cm
-            namespace: "{{ argocd_namespace }}"
-            labels: "{{ argocd_cmd_params_cm_labels }}"
-            annotations: "{{ argocd_cmd_params_cm_annotations }}"
-          data: "{{ argocd_cmd_params_cm_data }}"
-        kubeconfig: "{{ argocd_kubeconfig }}"
-        apply: true
-      register: argocd_cmd_params_apply_result
-      run_once: true
-      delegate_to: localhost
-      become: false
-
-    - name: Restart argocd-server deployment to pick up cmd params changes
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - --kubeconfig
-          - "{{ argocd_kubeconfig }}"
-          - rollout
-          - restart
-          - deployment/argocd-server
-          - -n
-          - "{{ argocd_namespace }}"
-      changed_when: true
-      register: argocd_cmd_params_rollout_result
-      run_once: true
-      delegate_to: localhost
-      become: false
-      when:
-        - argocd_restart_on_config_change | default(true)
-        - argocd_cmd_params_apply_result is defined
-        - argocd_cmd_params_apply_result.changed
-
-- name: Check for argocd-server deployment (one-shot)
-  kubernetes.core.k8s_info:
-    kind: Deployment
-    api_version: apps/v1
-    namespace: "{{ argocd_namespace }}"
-    name: argocd-server
-    kubeconfig: "{{ argocd_kubeconfig }}"
-  register: argocd_server_one_shot
-  become: false
-  run_once: true
-  delegate_to: localhost
-
-- name: Evaluate argocd-server readiness
-  ansible.builtin.set_fact:
-    argocd_server_ready: >-
-      {{ (argocd_server_one_shot.resources | length > 0)
-         and ((argocd_server_one_shot.resources[0].status.availableReplicas | default(0)) > 0) }}
-  run_once: true
-  delegate_to: localhost
-
-- name: If fail-fast enabled and argocd-server missing, gather recent events
-  kubernetes.core.k8s_info:
-    kind: Event
-    namespace: "{{ argocd_namespace }}"
-    kubeconfig: "{{ argocd_kubeconfig }}"
-  register: argocd_events
-  become: false
-  run_once: true
-  delegate_to: localhost
-  when: (argocd_server_one_shot.resources | length == 0) and (argocd_fail_fast | default(false))
-
-- name: Fail fast with recent events when argocd-server not found
-  ansible.builtin.fail:
-    msg: >-
-      ArgoCD server not found after manifest apply. Recent events: {{ (argocd_events.resources | map(attribute='message') | list)[:8] }}
-  when: (argocd_server_one_shot.resources | length == 0) and (argocd_fail_fast | default(false))
-  run_once: true
-  delegate_to: localhost
-
-- name: Gather events when argocd-server failed to become ready
-  kubernetes.core.k8s_info:
-    kind: Event
-    namespace: "{{ argocd_namespace }}"
-    kubeconfig: "{{ argocd_kubeconfig }}"
-  register: argocd_events_when_not_ready
-  become: false
-  run_once: true
-  delegate_to: localhost
-  when: not (argocd_server_ready | default(false))
-
-- name: Fail cleanly when argocd-server is not ready
-  ansible.builtin.fail:
-    msg: >-
-      ArgoCD server has not become available.
-      Current status: {{ argocd_server_one_shot.resources | first | default({}) | to_json }}.
-      Recent events: {{ (argocd_events_when_not_ready.resources | map(attribute='message') | list)[:8] }}
-  when: not (argocd_server_ready | default(false))
-  run_once: true
-  delegate_to: localhost
-
-- name: Remove local temporary kubeconfig
-  ansible.builtin.file:
-    path: /tmp/ansible_argocd_kubeconfig
-    state: absent
-  run_once: true
-  delegate_to: localhost
-  become: false
+- name: Wait for Argo CD server to be ready
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - wait
+      - --for=condition=available
+      - deployment/argocd-server
+      - -n
+      - "{{ argocd_namespace }}"
+      - --timeout=300s
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
+  changed_when: false
+  retries: 10
+  delay: 10
+  register: argocd_wait_result
+  until: argocd_wait_result.rc == 0

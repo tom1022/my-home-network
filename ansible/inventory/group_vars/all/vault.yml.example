@@ -21,3 +21,7 @@ vault_proxmox_api_token_secret: "CHANGEME_PROXMOX_API_TOKEN_SECRET"
 vault_proxmox_pbs_username: "backup@pbs"
 vault_proxmox_pbs_password: "CHANGEME_PBS_STORAGE_PASSWORD"
 vault_proxmox_pbs_fingerprint: "AA:BB:CC:DD:EE:FF:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA"
+
+# ArgoCD Vault Plugin (AVP) with SOPS/age.
+# Store the age secret key (starts with AGE-SECRET-KEY-...)
+vault_argocd_sops_age_key: "CHANGEME_AGE_SECRET_KEY"

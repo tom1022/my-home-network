@@ -1,0 +1,110 @@
+---
+- name: Setup external storage for MinIO on k3s agent
+  hosts: k3s-agent-z440
+  become: true
+  tasks:
+    - name: Ensure storage prerequisite packages are installed
+      ansible.builtin.apt:
+        name:
+          - parted
+          - xfsprogs
+        state: present
+        update_cache: yes
+      when: minio_data_disk_enabled
+
+    - name: Find MinIO data disk by SCSI address from by-path
+      ansible.builtin.find:
+        paths: /dev/disk/by-path
+        recurse: false
+        file_type: link
+        patterns:
+          - "*-scsi-{{ minio_data_disk_scsi_address }}"
+      register: minio_data_disk_by_path_links
+      when: minio_data_disk_enabled
+
+    - name: Validate exactly one MinIO data disk by-path link is found
+      ansible.builtin.assert:
+        that:
+          - minio_data_disk_by_path_links.matched == 1
+        fail_msg: >-
+          Expected exactly one /dev/disk/by-path link for scsi address {{ minio_data_disk_scsi_address }},
+          but found {{ minio_data_disk_by_path_links.matched }}.
+      when: minio_data_disk_enabled
+
+    - name: Inspect selected MinIO data disk by-path link
+      ansible.builtin.stat:
+        path: "{{ minio_data_disk_by_path_links.files[0].path }}"
+        follow: false
+      register: minio_data_disk_symlink
+      when: minio_data_disk_enabled
+
+    - name: Set MinIO data disk paths
+      ansible.builtin.set_fact:
+        minio_data_disk_by_path: "{{ minio_data_disk_by_path_links.files[0].path }}"
+        minio_data_disk_device: "/dev/{{ minio_data_disk_symlink.stat.lnk_source | basename }}"
+        minio_data_partition_suffix: "{{ 'p' if (minio_data_disk_symlink.stat.lnk_source | basename) is search('^(nvme|mmcblk|loop)') else '' }}"
+      when: minio_data_disk_enabled
+
+    - name: Gather MinIO data disk partition table info
+      community.general.parted:
+        device: "{{ minio_data_disk_device }}"
+        unit: MiB
+        state: info
+      register: minio_data_disk_parted_info
+      when: minio_data_disk_enabled
+
+    - name: Validate MinIO data disk has at most one partition before managing
+      ansible.builtin.assert:
+        that:
+          - minio_data_disk_parted_info.partitions | length <= 1
+          - minio_data_disk_parted_info.partitions | length == 0 or minio_data_disk_parted_info.partitions[0].num == minio_data_partition_number
+        fail_msg: >-
+          Unexpected partition layout on {{ minio_data_disk_device }}. Refusing to proceed automatically.
+      when: minio_data_disk_enabled
+
+    - name: Ensure MinIO data partition exists
+      community.general.parted:
+        device: "{{ minio_data_disk_device }}"
+        label: gpt
+        number: "{{ minio_data_partition_number }}"
+        part_start: 1MiB
+        part_end: 100%
+        state: present
+      when: minio_data_disk_enabled
+
+    - name: Set MinIO data partition paths
+      ansible.builtin.set_fact:
+        minio_data_partition_device: >-
+          {{ minio_data_disk_device }}{{ minio_data_partition_suffix }}{{ minio_data_partition_number }}
+        minio_data_partition_by_path: "{{ minio_data_disk_by_path }}-part{{ minio_data_partition_number }}"
+      when: minio_data_disk_enabled
+
+    - name: Wait for MinIO data partition by-path link
+      ansible.builtin.wait_for:
+        path: "{{ minio_data_partition_by_path }}"
+        timeout: 30
+      when: minio_data_disk_enabled and not ansible_check_mode
+
+    - name: Ensure filesystem exists on MinIO data partition
+      community.general.filesystem:
+        fstype: "{{ minio_data_filesystem_type }}"
+        dev: "{{ minio_data_partition_device }}"
+      when: minio_data_disk_enabled and not ansible_check_mode
+
+    - name: Ensure MinIO data mount directory exists
+      ansible.builtin.file:
+        path: "{{ minio_data_mount_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: minio_data_disk_enabled
+
+    - name: Ensure MinIO data partition is mounted persistently
+      ansible.posix.mount:
+        path: "{{ minio_data_mount_path }}"
+        src: "{{ minio_data_partition_by_path }}"
+        fstype: "{{ minio_data_filesystem_type }}"
+        opts: defaults
+        state: mounted
+      when: minio_data_disk_enabled and not ansible_check_mode

@@ -1,0 +1,80 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: argocd
+  namespace: kube-system
+  annotations:
+    helmcharts.cattle.io/force-upgrade: "20260308-14"
+spec:
+  chart: argo-cd
+  repo: https://argoproj.github.io/argo-helm
+  targetNamespace: argocd
+  version: 7.4.4
+  valuesContent: |
+    configs:
+      cm:
+        url: https://argocd.fickledev.com
+      params:
+        server.insecure: true
+      cmp:
+        create: true
+        plugins:
+          kustomize-sops:
+            allowConcurrency: true
+            discover:
+              fileName: "./kustomization.yaml"
+            generate:
+              command: ["sh", "-e", "-c"]
+              args:
+                - |
+                  for f in $(find . -type f -name 'sops-*.yaml'); do
+                    sops --decrypt --in-place "$f"
+                  done
+                  kustomize build .
+    repoServer:
+      initContainers:
+        - name: download-sops
+          image: curlimages/curl:latest
+          command: ["sh", "-c"]
+          args:
+            - |
+              curl -L -o /custom-tools/sops https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+              chmod +x /custom-tools/sops
+          volumeMounts:
+            - name: custom-tools
+              mountPath: /custom-tools
+      extraContainers:
+        - name: cmp-sops
+          command: [/var/run/argocd/argocd-cmp-server]
+          image: quay.io/argoproj/argocd:v2.12.1
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+          env:
+            - name: SOPS_AGE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: argocd-sops-age
+                  key: keys.txt
+          volumeMounts:
+            - name: var-files
+              mountPath: /var/run/argocd
+            - name: plugins
+              mountPath: /home/argocd/cmp-server/plugins
+            - name: tmp
+              mountPath: /tmp
+            - name: cmp-plugin
+              mountPath: /home/argocd/cmp-server/config/plugin.yaml
+              subPath: kustomize-sops.yaml
+            - name: custom-tools
+              mountPath: /usr/local/bin/sops
+              subPath: sops
+      volumes:
+        - name: custom-tools
+          emptyDir: {}
+        - name: cmp-plugin
+          configMap:
+            name: argocd-cmp-cm
+    server:
+      ingress:
+        enabled: false
