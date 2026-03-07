@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-fickledev-com
+  namespace: cert-manager
+spec:
+  secretName: tls-fickledev-com
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: "*.{{ domain_name | default('fickledev.com') }}"
+  dnsNames:
+    - "*.{{ domain_name | default('fickledev.com') }}"
+  secretTemplate:
+    annotations:
+      # Reflector が全ネームスペースにコピーするように指示
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: ".*"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: ".*"

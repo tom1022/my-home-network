@@ -1,0 +1,88 @@
+---
+- name: Find data disk by SCSI address from by-path ({{ disk_item.name }})
+  ansible.builtin.find:
+    paths: /dev/disk/by-path
+    recurse: false
+    file_type: link
+    patterns:
+      - "*-scsi-{{ disk_item.scsi_address }}"
+  register: _disk_by_path_links
+
+- name: Validate exactly one data disk by-path link is found ({{ disk_item.name }})
+  ansible.builtin.assert:
+    that:
+      - _disk_by_path_links.matched == 1
+    fail_msg: >-
+      Expected exactly one /dev/disk/by-path link for scsi address {{ disk_item.scsi_address }},
+      but found {{ _disk_by_path_links.matched }}.
+
+- name: Inspect selected data disk by-path link ({{ disk_item.name }})
+  ansible.builtin.stat:
+    path: "{{ _disk_by_path_links.files[0].path }}"
+    follow: false
+  register: _disk_symlink
+
+- name: Set data disk paths ({{ disk_item.name }})
+  ansible.builtin.set_fact:
+    _disk_by_path: "{{ _disk_by_path_links.files[0].path }}"
+    _disk_device: "/dev/{{ _disk_symlink.stat.lnk_source | basename }}"
+    _partition_suffix: "{{ 'p' if (_disk_symlink.stat.lnk_source | basename) is search('^(nvme|mmcblk|loop)') else '' }}"
+
+- name: Gather data disk partition table info ({{ disk_item.name }})
+  community.general.parted:
+    device: "{{ _disk_device }}"
+    unit: MiB
+    state: info
+  register: _disk_parted_info
+
+- name: Validate data disk has at most one partition before managing ({{ disk_item.name }})
+  ansible.builtin.assert:
+    that:
+      - _disk_parted_info.partitions | length <= 1
+      - _disk_parted_info.partitions | length == 0 or _disk_parted_info.partitions[0].num == disk_item.partition_number
+    fail_msg: >-
+      Unexpected partition layout on {{ _disk_device }}. Refusing to proceed automatically.
+
+- name: Ensure data partition exists ({{ disk_item.name }})
+  community.general.parted:
+    device: "{{ _disk_device }}"
+    label: gpt
+    number: "{{ disk_item.partition_number }}"
+    part_start: 1MiB
+    part_end: 100%
+    state: present
+
+- name: Set data partition paths ({{ disk_item.name }})
+  ansible.builtin.set_fact:
+    _partition_device: >-
+      {{ _disk_device }}{{ _partition_suffix }}{{ disk_item.partition_number }}
+    _partition_by_path: "{{ _disk_by_path }}-part{{ disk_item.partition_number }}"
+
+- name: Wait for data partition by-path link ({{ disk_item.name }})
+  ansible.builtin.wait_for:
+    path: "{{ _partition_by_path }}"
+    timeout: 30
+  when: not ansible_check_mode
+
+- name: Ensure filesystem exists on data partition ({{ disk_item.name }})
+  community.general.filesystem:
+    fstype: "{{ disk_item.filesystem_type }}"
+    dev: "{{ _partition_device }}"
+  when: not ansible_check_mode
+
+- name: Ensure data mount directory exists ({{ disk_item.name }})
+  ansible.builtin.file:
+    path: "{{ disk_item.mount_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure data partition is mounted persistently ({{ disk_item.name }})
+  ansible.posix.mount:
+    path: "{{ disk_item.mount_path }}"
+    src: "{{ _partition_by_path }}"
+    fstype: "{{ disk_item.filesystem_type }}"
+    opts: defaults
+    state: mounted
+  when: not ansible_check_mode

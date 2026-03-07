@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-{{ argocd_gitea_repo_name }}
+  namespace: {{ argocd_namespace }}
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: git
+  url: {{ argocd_gitea_repo_url }}
+  username: {{ argocd_gitea_username }}
+  password: {{ argocd_gitea_password }}

@@ -30,3 +30,9 @@ argocd_restart_on_config_change: true
 # to avoid HTTPS redirect loops at the backend.
 argocd_manage_server_insecure: "{{ argocd_ingress_enabled | bool }}"
 argocd_server_insecure: true
+
+# Gitea Repository Configuration
+argocd_gitea_repo_url: "http://192.168.1.200:3000/giteaadmin/gitops-apps.git"
+argocd_gitea_repo_name: "gitops-apps"
+argocd_gitea_username: "{{ vault_argocd_gitea_username | default('giteaadmin') }}"
+argocd_gitea_password: "{{ vault_argocd_gitea_password | default('') }}"
