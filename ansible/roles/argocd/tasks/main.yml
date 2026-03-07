@@ -21,13 +21,14 @@
 
 - name: Set master API endpoint usable from control node
   ansible.builtin.set_fact:
-    master_api_endpoint: "https://{{ hostvars[groups[k3s_master_group][0]].ansible_host | default(groups[k3s_master_group][0]) }}:{{ k3s_master_port | default(6443) }}"
+    master_api_endpoint: >-
+      https://{{ hostvars[groups[k3s_master_group][0]].ansible_host | default(groups[k3s_master_group][0]) }}:{{ k3s_master_port | default(6443) }}
   run_once: true
   delegate_to: localhost
 
 - name: Set master API endpoint without scheme
   ansible.builtin.set_fact:
-    master_api_endpoint_no_scheme: "{{ master_api_endpoint | replace('https://','') | replace('http://','') }}"
+    master_api_endpoint_no_scheme: "{{ master_api_endpoint | replace('https://', '') | replace('http://', '') }}"
   run_once: true
   delegate_to: localhost
 
@@ -70,6 +71,10 @@
 
 # Optional: copy TLS secret from a central namespace and create Ingress for Argo CD
 - name: Optionally copy TLS secret to argocd namespace
+  when:
+    - argocd_tls_enabled | default(false)
+    - argocd_tls_manage_secret_copy | default(false)
+  run_once: true
   block:
     - name: Get source TLS secret
       kubernetes.core.k8s_info:
@@ -107,9 +112,6 @@
       become: false
       no_log: true
 
-  when: argocd_tls_enabled | default(false)
-  run_once: true
-
 - name: Ensure Ingress for argocd exists (optional)
   kubernetes.core.k8s:
     definition:
@@ -124,7 +126,12 @@
         tls:
           - hosts:
               - "{{ argocd_ingress_host }}"
-            secretName: "{{ argocd_tls_target_secret }}"
+            secretName: >-
+              {{
+                (argocd_tls_target_secret)
+                if (argocd_tls_manage_secret_copy | default(false) | bool)
+                else (argocd_tls_secret_name)
+              }}
         rules:
           - host: "{{ argocd_ingress_host }}"
             http:
@@ -205,6 +212,8 @@
   become: false
 
 - name: Optionally ensure Argo CD external URL is set in argocd-cm
+  when: (argocd_url is defined) and (argocd_url | trim != '')
+  run_once: true
   block:
     - name: Get current argocd-cm
       kubernetes.core.k8s_info:
@@ -276,10 +285,9 @@
         - argocd_cm_apply_result is defined
         - argocd_cm_apply_result.changed
 
-  when: (argocd_url is defined) and (argocd_url | trim != '')
-  run_once: true
-
 - name: Optionally configure argocd-server insecure mode for ingress TLS termination
+  when: argocd_manage_server_insecure | default(true)
+  run_once: true
   block:
     - name: Get current argocd-cmd-params-cm
       kubernetes.core.k8s_info:
@@ -353,9 +361,6 @@
         - argocd_cmd_params_apply_result is defined
         - argocd_cmd_params_apply_result.changed
 
-  when: argocd_manage_server_insecure | default(true)
-  run_once: true
-
 - name: Check for argocd-server deployment (one-shot)
   kubernetes.core.k8s_info:
     kind: Deployment
@@ -409,7 +414,9 @@
 - name: Fail cleanly when argocd-server is not ready
   ansible.builtin.fail:
     msg: >-
-      ArgoCD server has not become available. Current status: {{ argocd_server_one_shot.resources | first | default({}) | to_json }}. Recent events: {{ (argocd_events_when_not_ready.resources | map(attribute='message') | list)[:8] }}
+      ArgoCD server has not become available.
+      Current status: {{ argocd_server_one_shot.resources | first | default({}) | to_json }}.
+      Recent events: {{ (argocd_events_when_not_ready.resources | map(attribute='message') | list)[:8] }}
   when: not (argocd_server_ready | default(false))
   run_once: true
   delegate_to: localhost

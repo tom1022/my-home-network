@@ -12,8 +12,11 @@
 - name: Configure PBS host
   import_playbook: pbs.yml
 
-- name: Distribute Let's Encrypt certificates
+- name: Ensure certificates on NAS and distribute to VPS
   import_playbook: letsencrypt.yml
+
+- name: Configure cert-manager certificates for k3s
+  import_playbook: cert_manager.yml
 
 # VPS reverse proxy
 - name: Configure VPS reverse proxy

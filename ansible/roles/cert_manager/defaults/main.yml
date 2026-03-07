@@ -1,0 +1,35 @@
+---
+cert_manager_manifest_url: "https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml"
+cert_manager_namespace: cert-manager
+
+cert_manager_install_reflector: true
+cert_manager_reflector_manifest_url: "https://github.com/emberstack/kubernetes-reflector/releases/latest/download/reflector.yaml"
+cert_manager_reflector_namespace: kube-system
+cert_manager_reflector_deployment_name: reflector
+
+cert_manager_cluster_issuer_name: letsencrypt-cloudflare
+cert_manager_acme_server: "https://acme-v02.api.letsencrypt.org/directory"
+cert_manager_acme_email: ""
+cert_manager_cloudflare_api_token: ""
+cert_manager_cloudflare_api_token_secret_name: cloudflare-api-token
+cert_manager_cloudflare_api_token_secret_key: api-token
+
+cert_manager_certificate_namespace: ingress
+cert_manager_certificate_name: wildcard-fickledev-com
+cert_manager_secret_name: tls-fickledev
+cert_manager_dns_names:
+  - fickledev.com
+  - "*.fickledev.com"
+cert_manager_duration: 2160h
+cert_manager_renew_before: 360h
+cert_manager_private_key_algorithm: RSA
+cert_manager_private_key_size: 2048
+
+cert_manager_secret_annotations:
+  reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+  reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+  reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "argocd"
+
+cert_manager_wait_retries: 30
+cert_manager_wait_delay: 10
+cert_manager_kubeconfig_temp_path: /tmp/ansible_cert_manager_kubeconfig
