@@ -27,3 +27,16 @@ letsencrypt_live_dir: "{{ letsencrypt_source_base_dir }}/live/{{ letsencrypt_cer
 letsencrypt_certificates:
   - cert_name: fickledev.com
 letsencrypt_shared_files: []
+
+# Per-host toggle: when true, this host will receive copied cert files
+# Set this in host_vars for the hosts that should receive files.
+letsencrypt_cert_target: false
+
+# Cleanup control: when true, hosts without `letsencrypt_cert_target` will have
+# previously-copied certificate directories removed. Default is false.
+letsencrypt_cleanup_unwanted: false
+
+# Kubernetes distribution settings
+letsencrypt_k8s_secrets_enabled: false
+# Example: [{ cert_name: "fickledev.com", secret_name: "tls-fickledev", namespace: "ingress" }]
+letsencrypt_k8s_secrets: []

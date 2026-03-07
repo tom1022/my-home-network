@@ -6,6 +6,16 @@ vault_sssd_bind_password: "CHANGEME_SSSD_BIND_PASSWORD"
 vault_letsencrypt_contact_email: "admin@fickledev.com"
 vault_letsencrypt_cloudflare_api_token: "CHANGEME_CLOUDFLARE_DNS_API_TOKEN"
 
+# Optional: distribute certificates into k3s as TLS Secrets
+# Set to true to enable creation of Kubernetes TLS Secrets from the
+# Let's Encrypt files copied from the source host. Define an array of
+# mappings with `cert_name`, `secret_name`, and `namespace`.
+vault_letsencrypt_k8s_secrets_enabled: false
+vault_letsencrypt_k8s_secrets:
+	- cert_name: "fickledev.com"
+		secret_name: "tls-fickledev"
+		namespace: "ingress"
+
 # Proxmox VE API credentials (token auth)
 # vault_proxmox_api_token_id should be token name (example: ansible).
 # Full form root@pam!ansible is also accepted and normalized by role logic.

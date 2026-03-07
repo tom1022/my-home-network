@@ -32,6 +32,7 @@
     state: present
     update_cache: true
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   when: letsencrypt_manage_source_issuance
   run_once: true
 
@@ -43,6 +44,7 @@
     group: root
     mode: '0700'
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   when: letsencrypt_manage_source_issuance
   run_once: true
 
@@ -54,6 +56,7 @@
     group: root
     mode: '0600'
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   no_log: true
   when: letsencrypt_manage_source_issuance
   run_once: true
@@ -63,6 +66,7 @@
     path: "{{ letsencrypt_live_dir }}/fullchain.pem"
   register: letsencrypt_source_live_cert_stat
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   when: letsencrypt_manage_source_issuance
   run_once: true
 
@@ -87,6 +91,7 @@
   changed_when: false
   failed_when: letsencrypt_source_cert_metadata.rc != 0
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   when:
     - letsencrypt_manage_source_issuance
     - letsencrypt_source_live_cert_stat.stat.exists
@@ -185,6 +190,7 @@
       - -d
       - "{{ letsencrypt_wildcard_domain }}"
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   register: letsencrypt_issue_result
   changed_when: "'successfully received certificate' in (letsencrypt_issue_result.stdout | lower)"
   failed_when: letsencrypt_issue_result.rc != 0
@@ -199,6 +205,7 @@
     enabled: true
     state: started
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   when: letsencrypt_manage_source_issuance
   run_once: true
 
@@ -209,6 +216,19 @@
     owner: root
     group: root
     mode: '0755'
+  when: letsencrypt_cert_target | default(false)
+
+- name: Cleanup previously copied cert directories on non-target hosts (optional)
+  ansible.builtin.file:
+    path: "{{ letsencrypt_destination_base_dir }}/live/{{ item.cert_name }}"
+    state: absent
+  loop: "{{ letsencrypt_certificates }}"
+  when:
+    - not (letsencrypt_cert_target | default(false))
+    - letsencrypt_cleanup_unwanted | default(false)
+    - inventory_hostname != letsencrypt_source_host
+    - inventory_hostname != 'localhost'
+  become: true
 
 - name: Ensure destination live directory exists
   ansible.builtin.file:
@@ -217,6 +237,7 @@
     owner: root
     group: root
     mode: '0755'
+  when: letsencrypt_cert_target | default(false)
 
 - name: Ensure destination certificate directories exist
   ansible.builtin.file:
@@ -226,11 +247,13 @@
     group: root
     mode: '0755'
   loop: "{{ letsencrypt_certificates }}"
+  when: letsencrypt_cert_target | default(false)
 
 - name: Ensure source fullchain files exist
   ansible.builtin.stat:
     path: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/fullchain.pem"
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   loop: "{{ letsencrypt_certificates }}"
   register: letsencrypt_source_fullchain_stats
 
@@ -238,6 +261,7 @@
   ansible.builtin.stat:
     path: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/privkey.pem"
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   loop: "{{ letsencrypt_certificates }}"
   register: letsencrypt_source_privkey_stats
 
@@ -252,6 +276,7 @@
   ansible.builtin.slurp:
     src: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/fullchain.pem"
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   loop: "{{ letsencrypt_certificates }}"
   register: letsencrypt_source_fullchain_contents
 
@@ -259,6 +284,7 @@
   ansible.builtin.slurp:
     src: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/privkey.pem"
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   loop: "{{ letsencrypt_certificates }}"
   register: letsencrypt_source_privkey_contents
   no_log: true
@@ -271,6 +297,7 @@
     group: root
     mode: '0644'
   loop: "{{ letsencrypt_source_fullchain_contents.results }}"
+  when: letsencrypt_cert_target | default(false)
 
 - name: Copy private key files to destination host
   ansible.builtin.copy:
@@ -281,11 +308,13 @@
     mode: '0600'
   loop: "{{ letsencrypt_source_privkey_contents.results }}"
   no_log: true
+  when: letsencrypt_cert_target | default(false)
 
 - name: Ensure source shared SSL files exist
   ansible.builtin.stat:
     path: "{{ letsencrypt_source_base_dir }}/{{ item.source }}"
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   loop: "{{ letsencrypt_shared_files }}"
   register: letsencrypt_source_shared_file_stats
 
@@ -300,6 +329,7 @@
   ansible.builtin.slurp:
     src: "{{ letsencrypt_source_base_dir }}/{{ item.source }}"
   delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
   loop: "{{ letsencrypt_shared_files }}"
   register: letsencrypt_source_shared_file_contents
 
@@ -311,3 +341,184 @@
     group: root
     mode: "{{ item.item.mode }}"
   loop: "{{ letsencrypt_source_shared_file_contents.results }}"
+  when: letsencrypt_cert_target | default(false)
+
+- name: "Create Kubernetes TLS secrets from Let's Encrypt certificates (optional)"
+  ansible.builtin.debug:
+    msg: "Kubernetes secret creation is disabled. Set letsencrypt_k8s_secrets_enabled=true to enable."
+  when: not (letsencrypt_k8s_secrets_enabled | default(false))
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Ensure k3s_master_group exists for kubeconfig retrieval
+  ansible.builtin.assert:
+    that:
+      - groups[k3s_master_group] is defined
+      - groups[k3s_master_group] | length > 0
+    fail_msg: "k3s_master_group must contain at least one host"
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Slurp fullchain for k8s secret creation from source host (control node copy)
+  ansible.builtin.slurp:
+    src: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/fullchain.pem"
+  loop: "{{ letsencrypt_certificates }}"
+  delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
+  register: letsencrypt_k8s_local_fullchain
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+
+- name: Slurp privkey for k8s secret creation from source host (control node copy)
+  ansible.builtin.slurp:
+    src: "{{ letsencrypt_source_base_dir }}/live/{{ item.cert_name }}/privkey.pem"
+  loop: "{{ letsencrypt_certificates }}"
+  delegate_to: "{{ letsencrypt_source_host }}"
+  become: true
+  register: letsencrypt_k8s_local_privkey
+  no_log: true
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+
+- name: Write temporary cert files on control node
+  ansible.builtin.copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "/tmp/ansible_letsencrypt_{{ item.item.cert_name }}_fullchain.pem"
+    mode: '0644'
+  loop: "{{ letsencrypt_k8s_local_fullchain.results }}"
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+
+- name: Write temporary privkey files on control node
+  ansible.builtin.copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "/tmp/ansible_letsencrypt_{{ item.item.cert_name }}_privkey.pem"
+    mode: '0600'
+  loop: "{{ letsencrypt_k8s_local_privkey.results }}"
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  no_log: true
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+
+- name: Fetch k3s kubeconfig for local k8s operations
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/k3s.yaml
+  delegate_to: "{{ hostvars[groups[k3s_master_group][0]]['inventory_hostname'] }}"
+  become: true
+  register: letsencrypt_k3s_kubeconfig_raw
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+
+- name: Set master API endpoint for local k8s operations
+  ansible.builtin.set_fact:
+    letsencrypt_master_api_endpoint: "https://{{ hostvars[groups[k3s_master_group][0]].ansible_host | default(groups[k3s_master_group][0]) }}:{{ k3s_master_port | default(6443) }}"
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Set master API endpoint without scheme
+  ansible.builtin.set_fact:
+    letsencrypt_master_api_endpoint_no_scheme: "{{ letsencrypt_master_api_endpoint | replace('https://','') | replace('http://','') }}"
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Decode and rewrite kubeconfig server to reachable endpoint
+  ansible.builtin.set_fact:
+    letsencrypt_kubeconfig_content: >-
+      {{
+        (letsencrypt_k3s_kubeconfig_raw.content | b64decode)
+        | replace('https://127.0.0.1:6443', letsencrypt_master_api_endpoint)
+        | replace('https://localhost:6443', letsencrypt_master_api_endpoint)
+        | replace('127.0.0.1:6443', letsencrypt_master_api_endpoint_no_scheme)
+      }}
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Write temporary kubeconfig for k8s operations
+  ansible.builtin.copy:
+    content: "{{ letsencrypt_kubeconfig_content }}"
+    dest: /tmp/ansible_letsencrypt_kubeconfig
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+
+- name: Ensure target namespaces exist for TLS secrets
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ item.namespace | default('default') }}"
+    kubeconfig: /tmp/ansible_letsencrypt_kubeconfig
+    state: present
+  loop: "{{ letsencrypt_k8s_secrets | default([]) }}"
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Create or update Kubernetes TLS secrets
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ (item.secret_name | default('tls-' + item.cert_name)) }}"
+        namespace: "{{ item.namespace | default('default') }}"
+      type: kubernetes.io/tls
+      stringData:
+        tls.crt: "{{ lookup('file', '/tmp/ansible_letsencrypt_' + item.cert_name + '_fullchain.pem') }}"
+        tls.key: "{{ lookup('file', '/tmp/ansible_letsencrypt_' + item.cert_name + '_privkey.pem') }}"
+    kubeconfig: /tmp/ansible_letsencrypt_kubeconfig
+    state: present
+  loop: "{{ letsencrypt_k8s_secrets | default([]) }}"
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Remove temporary cert files
+  ansible.builtin.file:
+    path: "/tmp/ansible_letsencrypt_{{ item.cert_name }}_fullchain.pem"
+    state: absent
+  loop: "{{ letsencrypt_certificates }}"
+  delegate_to: localhost
+  become: false
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+
+- name: Remove temporary privkey files
+  ansible.builtin.file:
+    path: "/tmp/ansible_letsencrypt_{{ item.cert_name }}_privkey.pem"
+    state: absent
+  loop: "{{ letsencrypt_certificates }}"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true
+
+- name: Remove temporary kubeconfig
+  ansible.builtin.file:
+    path: /tmp/ansible_letsencrypt_kubeconfig
+    state: absent
+  delegate_to: localhost
+  become: false
+  when: letsencrypt_k8s_secrets_enabled | default(false)
+  run_once: true

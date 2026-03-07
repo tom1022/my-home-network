@@ -68,6 +68,80 @@
   run_once: true
   delegate_to: localhost
 
+# Optional: copy TLS secret from a central namespace and create Ingress for Argo CD
+- name: Optionally copy TLS secret to argocd namespace
+  block:
+    - name: Get source TLS secret
+      kubernetes.core.k8s_info:
+        kind: Secret
+        api_version: v1
+        name: "{{ argocd_tls_source_secret }}"
+        namespace: "{{ argocd_tls_source_namespace }}"
+        kubeconfig: "{{ argocd_kubeconfig }}"
+      register: argocd_source_secret
+      run_once: true
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Fail if source TLS secret is missing
+      ansible.builtin.fail:
+        msg: "Source TLS secret '{{ argocd_tls_source_secret }}' not found in namespace '{{ argocd_tls_source_namespace }}'"
+      when: (argocd_source_secret.resources | default([]) | length) == 0
+      run_once: true
+      delegate_to: localhost
+
+    - name: Create or update TLS secret in argocd namespace
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ argocd_tls_target_secret }}"
+            namespace: "{{ argocd_namespace }}"
+          type: kubernetes.io/tls
+          data: "{{ argocd_source_secret.resources[0].data }}"
+        kubeconfig: "{{ argocd_kubeconfig }}"
+      run_once: true
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+  when: argocd_tls_enabled | default(false)
+  run_once: true
+
+- name: Ensure Ingress for argocd exists (optional)
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: argocd-server-ingress
+        namespace: "{{ argocd_namespace }}"
+        annotations: "{{ argocd_ingress_annotations | default({}) }}"
+      spec:
+        ingressClassName: "{{ argocd_ingress_class }}"
+        tls:
+          - hosts:
+              - "{{ argocd_ingress_host }}"
+            secretName: "{{ argocd_tls_target_secret }}"
+        rules:
+          - host: "{{ argocd_ingress_host }}"
+            http:
+              paths:
+                - path: "{{ argocd_ingress_path | default('/') }}"
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: "{{ argocd_ingress_service_name }}"
+                      port:
+                        number: "{{ argocd_ingress_service_port }}"
+    kubeconfig: "{{ argocd_kubeconfig }}"
+  run_once: true
+  delegate_to: localhost
+  become: false
+  when: argocd_ingress_enabled | default(false)
+
 - name: Fail if Argo CD manifest download produced no content
   ansible.builtin.fail:
     msg: "argocd manifest download failed (length={{ argocd_manifest | length }})."
@@ -129,6 +203,158 @@
   run_once: true
   delegate_to: localhost
   become: false
+
+- name: Optionally ensure Argo CD external URL is set in argocd-cm
+  block:
+    - name: Get current argocd-cm
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ConfigMap
+        name: argocd-cm
+        namespace: "{{ argocd_namespace }}"
+        kubeconfig: "{{ argocd_kubeconfig }}"
+      register: argocd_cm_info
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Fail if argocd-cm is missing
+      ansible.builtin.fail:
+        msg: "ConfigMap 'argocd-cm' was not found in namespace '{{ argocd_namespace }}'."
+      when: (argocd_cm_info.resources | default([]) | length) == 0
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Merge URL and required labels into argocd-cm
+      ansible.builtin.set_fact:
+        argocd_cm_data: "{{ (argocd_cm_info.resources[0].data | default({})) | combine({'url': argocd_url}) }}"
+        argocd_cm_labels: >-
+          {{ (argocd_cm_info.resources[0].metadata.labels | default({}))
+             | combine({'app.kubernetes.io/name': 'argocd-cm', 'app.kubernetes.io/part-of': 'argocd'}) }}
+        argocd_cm_annotations: "{{ argocd_cm_info.resources[0].metadata.annotations | default({}) }}"
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Apply updated argocd-cm with url
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: argocd-cm
+            namespace: "{{ argocd_namespace }}"
+            labels: "{{ argocd_cm_labels }}"
+            annotations: "{{ argocd_cm_annotations }}"
+          data: "{{ argocd_cm_data }}"
+        kubeconfig: "{{ argocd_kubeconfig }}"
+        apply: true
+      register: argocd_cm_apply_result
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Restart argocd-server deployment to pick up config changes
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig
+          - "{{ argocd_kubeconfig }}"
+          - rollout
+          - restart
+          - deployment/argocd-server
+          - -n
+          - "{{ argocd_namespace }}"
+      changed_when: true
+      register: argocd_rollout_result
+      run_once: true
+      delegate_to: localhost
+      become: false
+      when:
+        - argocd_restart_on_config_change | default(true)
+        - argocd_cm_apply_result is defined
+        - argocd_cm_apply_result.changed
+
+  when: (argocd_url is defined) and (argocd_url | trim != '')
+  run_once: true
+
+- name: Optionally configure argocd-server insecure mode for ingress TLS termination
+  block:
+    - name: Get current argocd-cmd-params-cm
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ConfigMap
+        name: argocd-cmd-params-cm
+        namespace: "{{ argocd_namespace }}"
+        kubeconfig: "{{ argocd_kubeconfig }}"
+      register: argocd_cmd_params_cm_info
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Fail if argocd-cmd-params-cm is missing
+      ansible.builtin.fail:
+        msg: "ConfigMap 'argocd-cmd-params-cm' was not found in namespace '{{ argocd_namespace }}'."
+      when: (argocd_cmd_params_cm_info.resources | default([]) | length) == 0
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Merge server.insecure and required labels into argocd-cmd-params-cm
+      ansible.builtin.set_fact:
+        argocd_cmd_params_cm_data: >-
+          {{ (argocd_cmd_params_cm_info.resources[0].data | default({}))
+             | combine({'server.insecure': ((argocd_server_insecure | bool) | ternary('true', 'false'))}) }}
+        argocd_cmd_params_cm_labels: >-
+          {{ (argocd_cmd_params_cm_info.resources[0].metadata.labels | default({}))
+             | combine({'app.kubernetes.io/name': 'argocd-cmd-params-cm', 'app.kubernetes.io/part-of': 'argocd'}) }}
+        argocd_cmd_params_cm_annotations: "{{ argocd_cmd_params_cm_info.resources[0].metadata.annotations | default({}) }}"
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Apply updated argocd-cmd-params-cm
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: argocd-cmd-params-cm
+            namespace: "{{ argocd_namespace }}"
+            labels: "{{ argocd_cmd_params_cm_labels }}"
+            annotations: "{{ argocd_cmd_params_cm_annotations }}"
+          data: "{{ argocd_cmd_params_cm_data }}"
+        kubeconfig: "{{ argocd_kubeconfig }}"
+        apply: true
+      register: argocd_cmd_params_apply_result
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Restart argocd-server deployment to pick up cmd params changes
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig
+          - "{{ argocd_kubeconfig }}"
+          - rollout
+          - restart
+          - deployment/argocd-server
+          - -n
+          - "{{ argocd_namespace }}"
+      changed_when: true
+      register: argocd_cmd_params_rollout_result
+      run_once: true
+      delegate_to: localhost
+      become: false
+      when:
+        - argocd_restart_on_config_change | default(true)
+        - argocd_cmd_params_apply_result is defined
+        - argocd_cmd_params_apply_result.changed
+
+  when: argocd_manage_server_insecure | default(true)
+  run_once: true
 
 - name: Check for argocd-server deployment (one-shot)
   kubernetes.core.k8s_info:
