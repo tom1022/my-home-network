@@ -3,7 +3,22 @@
   import_playbook: refresh_known_hosts.yml
 
 - name: Distribute Let's Encrypt certificates from NAS
-  hosts: "{{ letsencrypt_copy_target_hosts }}"
+  hosts: target_hosts
   become: true
+  vars:
+    # Avoid running k8s secret creation while distributing files to hosts
+    letsencrypt_k8s_secrets_enabled: false
+  roles:
+    - letsencrypt
+
+- name: Create Kubernetes TLS Secrets from copied certificates (control node)
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars:
+    # Enable only the k8s-related portion of the role for this play
+    letsencrypt_k8s_secrets_enabled: true
+    # Do not run source issuance / Cloudflare credential copy in this control-node play
+    letsencrypt_manage_source_issuance: false
   roles:
     - letsencrypt

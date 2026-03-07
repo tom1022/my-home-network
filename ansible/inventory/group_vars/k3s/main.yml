@@ -29,3 +29,5 @@ k3s_internal_ips:
 # Resolve per-host internal IP from the map. If not found, default to empty.
 # Roles/templates check for non-empty `k3s_internal_ip` before applying.
 k3s_internal_ip: "{{ k3s_internal_ips[inventory_hostname] | default('') }}"
+
+letsencrypt_cert_target: true

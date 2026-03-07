@@ -5,3 +5,26 @@ argocd_namespace: argocd
 argocd_kubeconfig: "{{ lookup('env','KUBECONFIG') | default((ansible_env.HOME | default('~')) + '/.kube/config') }}"
 # Fail-fast diagnostic helper
 argocd_fail_fast: false
+
+# TLS / Ingress options for Argo CD UI
+argocd_tls_enabled: false
+argocd_tls_source_secret: "tls-fickledev"
+argocd_tls_source_namespace: "ingress"
+argocd_tls_target_secret: "argocd-tls"
+argocd_ingress_enabled: false
+argocd_ingress_host: "argocd.fickledev.com"
+argocd_ingress_class: "traefik"
+argocd_ingress_annotations: {}
+argocd_ingress_path: "/"
+argocd_ingress_service_name: "argocd-server"
+argocd_ingress_service_port: 80
+
+# Optional external URL for Argo CD (set to enable and persist in argocd-cm)
+argocd_url: ""
+argocd_restart_on_config_change: true
+
+# Optional server mode tuning for ingress TLS termination.
+# When ingress terminates TLS, Argo CD should usually run in insecure mode
+# to avoid HTTPS redirect loops at the backend.
+argocd_manage_server_insecure: "{{ argocd_ingress_enabled | bool }}"
+argocd_server_insecure: true
