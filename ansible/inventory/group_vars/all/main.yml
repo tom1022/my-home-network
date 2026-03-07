@@ -11,9 +11,9 @@ letsencrypt_copy_target_hosts: vps
 letsencrypt_contact_email: "{{ vault_letsencrypt_contact_email | default('') }}"
 letsencrypt_cloudflare_api_token: "{{ vault_letsencrypt_cloudflare_api_token | default('') }}"
 
-# Optional: enable creation of TLS Secrets in k3s from copied certs
-letsencrypt_k8s_secrets_enabled: "{{ vault_letsencrypt_k8s_secrets_enabled | default(false) }}"
-letsencrypt_k8s_secrets: "{{ vault_letsencrypt_k8s_secrets | default([]) }}"
+# cert-manager settings for k3s wildcard certificates
+cert_manager_acme_email: "{{ vault_letsencrypt_contact_email | default('') }}"
+cert_manager_cloudflare_api_token: "{{ vault_letsencrypt_cloudflare_api_token | default('') }}"
 
 proxmox_api_host: "{{ vault_proxmox_api_host | default('') }}"
 proxmox_api_user: "{{ vault_proxmox_api_user | default('') }}"

@@ -8,9 +8,11 @@ argocd_fail_fast: false
 
 # TLS / Ingress options for Argo CD UI
 argocd_tls_enabled: false
+argocd_tls_manage_secret_copy: false
 argocd_tls_source_secret: "tls-fickledev"
 argocd_tls_source_namespace: "ingress"
 argocd_tls_target_secret: "argocd-tls"
+argocd_tls_secret_name: "tls-fickledev"
 argocd_ingress_enabled: false
 argocd_ingress_host: "argocd.fickledev.com"
 argocd_ingress_class: "traefik"

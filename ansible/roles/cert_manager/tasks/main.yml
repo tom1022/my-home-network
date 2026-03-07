@@ -1,0 +1,390 @@
+---
+- name: Ensure k3s_master_group exists for kubeconfig retrieval
+  ansible.builtin.assert:
+    that:
+      - groups[k3s_master_group] is defined
+      - groups[k3s_master_group] | length > 0
+    fail_msg: "k3s_master_group must contain at least one host"
+  run_once: true
+
+- name: Ensure required cert-manager variables are provided
+  ansible.builtin.assert:
+    that:
+      - cert_manager_acme_email | length > 0
+      - cert_manager_cloudflare_api_token | length > 0
+      - cert_manager_cluster_issuer_name | length > 0
+      - cert_manager_certificate_namespace | length > 0
+      - cert_manager_certificate_name | length > 0
+      - cert_manager_secret_name | length > 0
+      - cert_manager_dns_names | length > 0
+    fail_msg: >-
+      cert_manager_acme_email, cert_manager_cloudflare_api_token,
+      cert_manager_cluster_issuer_name, cert_manager_certificate_namespace,
+      cert_manager_certificate_name, cert_manager_secret_name, cert_manager_dns_names are required.
+  run_once: true
+
+- name: Read kubeconfig from k3s master
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/k3s.yaml
+  register: cert_manager_k3s_kubeconfig_raw
+  delegate_to: "{{ hostvars[groups[k3s_master_group][0]]['inventory_hostname'] }}"
+  become: true
+  run_once: true
+
+- name: Set master API endpoint usable from control node
+  ansible.builtin.set_fact:
+    cert_manager_master_api_endpoint: >-
+      https://{{ hostvars[groups[k3s_master_group][0]].ansible_host | default(groups[k3s_master_group][0]) }}:{{ k3s_master_port | default(6443) }}
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Set master API endpoint without scheme
+  ansible.builtin.set_fact:
+    cert_manager_master_api_endpoint_no_scheme: "{{ cert_manager_master_api_endpoint | replace('https://', '') | replace('http://', '') }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Decode and rewrite kubeconfig endpoint
+  ansible.builtin.set_fact:
+    cert_manager_kubeconfig_content: >-
+      {{
+        (cert_manager_k3s_kubeconfig_raw.content | b64decode)
+        | replace('https://127.0.0.1:6443', cert_manager_master_api_endpoint)
+        | replace('https://localhost:6443', cert_manager_master_api_endpoint)
+        | replace('127.0.0.1:6443', cert_manager_master_api_endpoint_no_scheme)
+      }}
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Write temporary kubeconfig on control node
+  ansible.builtin.copy:
+    content: "{{ cert_manager_kubeconfig_content }}"
+    dest: "{{ cert_manager_kubeconfig_temp_path }}"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Download cert-manager manifest content
+  ansible.builtin.set_fact:
+    cert_manager_manifest_content: "{{ lookup('ansible.builtin.url', cert_manager_manifest_url, split_lines=False) }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Ensure cert-manager manifest download is not empty
+  ansible.builtin.assert:
+    that:
+      - cert_manager_manifest_content | trim | length > 0
+    fail_msg: "cert-manager manifest download returned empty content"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Create temporary file for cert-manager manifest
+  ansible.builtin.tempfile:
+    state: file
+    suffix: _cert_manager.yaml
+  register: cert_manager_manifest_tempfile
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Write cert-manager manifest to temporary file
+  ansible.builtin.copy:
+    content: "{{ cert_manager_manifest_content }}"
+    dest: "{{ cert_manager_manifest_tempfile.path }}"
+    mode: '0644'
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Apply cert-manager manifest
+  kubernetes.core.k8s:
+    src: "{{ cert_manager_manifest_tempfile.path }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+    apply: true
+    state: present
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Wait for cert-manager deployment to become ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: cert-manager
+    namespace: "{{ cert_manager_namespace }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+  register: cert_manager_deployment_status
+  delegate_to: localhost
+  become: false
+  run_once: true
+  retries: "{{ cert_manager_wait_retries }}"
+  delay: "{{ cert_manager_wait_delay }}"
+  until: >-
+    (cert_manager_deployment_status.resources | length > 0)
+    and
+    ((cert_manager_deployment_status.resources[0].status.availableReplicas | default(0) | int) > 0)
+
+- name: Wait for cert-manager-webhook deployment to become ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: cert-manager-webhook
+    namespace: "{{ cert_manager_namespace }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+  register: cert_manager_webhook_status
+  delegate_to: localhost
+  become: false
+  run_once: true
+  retries: "{{ cert_manager_wait_retries }}"
+  delay: "{{ cert_manager_wait_delay }}"
+  until: >-
+    (cert_manager_webhook_status.resources | length > 0)
+    and
+    ((cert_manager_webhook_status.resources[0].status.availableReplicas | default(0) | int) > 0)
+
+- name: Wait for cert-manager-cainjector deployment to become ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: cert-manager-cainjector
+    namespace: "{{ cert_manager_namespace }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+  register: cert_manager_cainjector_status
+  delegate_to: localhost
+  become: false
+  run_once: true
+  retries: "{{ cert_manager_wait_retries }}"
+  delay: "{{ cert_manager_wait_delay }}"
+  until: >-
+    (cert_manager_cainjector_status.resources | length > 0)
+    and
+    ((cert_manager_cainjector_status.resources[0].status.availableReplicas | default(0) | int) > 0)
+
+- name: Download reflector manifest content
+  ansible.builtin.set_fact:
+    cert_manager_reflector_manifest_content: "{{ lookup('ansible.builtin.url', cert_manager_reflector_manifest_url, split_lines=False) }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: cert_manager_install_reflector | bool
+
+- name: Ensure reflector manifest download is not empty
+  ansible.builtin.assert:
+    that:
+      - cert_manager_reflector_manifest_content | trim | length > 0
+    fail_msg: "reflector manifest download returned empty content"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: cert_manager_install_reflector | bool
+
+- name: Create temporary file for reflector manifest
+  ansible.builtin.tempfile:
+    state: file
+    suffix: _reflector.yaml
+  register: cert_manager_reflector_manifest_tempfile
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: cert_manager_install_reflector | bool
+
+- name: Write reflector manifest to temporary file
+  ansible.builtin.copy:
+    content: "{{ cert_manager_reflector_manifest_content }}"
+    dest: "{{ cert_manager_reflector_manifest_tempfile.path }}"
+    mode: '0644'
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: cert_manager_install_reflector | bool
+
+- name: Apply reflector manifest
+  kubernetes.core.k8s:
+    src: "{{ cert_manager_reflector_manifest_tempfile.path }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+    apply: true
+    state: present
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: cert_manager_install_reflector | bool
+
+- name: Wait for reflector deployment to become ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ cert_manager_reflector_deployment_name }}"
+    namespace: "{{ cert_manager_reflector_namespace }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+  register: cert_manager_reflector_status
+  delegate_to: localhost
+  become: false
+  run_once: true
+  retries: "{{ cert_manager_wait_retries }}"
+  delay: "{{ cert_manager_wait_delay }}"
+  until: >-
+    (cert_manager_reflector_status.resources | length > 0)
+    and
+    ((cert_manager_reflector_status.resources[0].status.availableReplicas | default(0) | int) > 0)
+  when: cert_manager_install_reflector | bool
+
+- name: Ensure cert-manager namespace exists
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cert_manager_namespace }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+    state: present
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Build Cloudflare API token secret stringData
+  ansible.builtin.set_fact:
+    cert_manager_secret_string_data: >-
+      {{ {cert_manager_cloudflare_api_token_secret_key: cert_manager_cloudflare_api_token} }}
+  delegate_to: localhost
+  become: false
+  run_once: true
+  no_log: true
+
+- name: Ensure Cloudflare API token secret exists
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ cert_manager_cloudflare_api_token_secret_name }}"
+        namespace: "{{ cert_manager_namespace }}"
+      type: Opaque
+      stringData: "{{ cert_manager_secret_string_data }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+    state: present
+  delegate_to: localhost
+  become: false
+  run_once: true
+  no_log: true
+
+- name: Ensure ClusterIssuer for Cloudflare DNS challenge exists
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: "{{ cert_manager_cluster_issuer_name }}"
+      spec:
+        acme:
+          email: "{{ cert_manager_acme_email }}"
+          server: "{{ cert_manager_acme_server }}"
+          privateKeySecretRef:
+            name: "{{ cert_manager_cluster_issuer_name }}-account-key"
+          solvers:
+            - dns01:
+                cloudflare:
+                  apiTokenSecretRef:
+                    name: "{{ cert_manager_cloudflare_api_token_secret_name }}"
+                    key: "{{ cert_manager_cloudflare_api_token_secret_key }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+    state: present
+    apply: true
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Ensure certificate namespace exists
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cert_manager_certificate_namespace }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+    state: present
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Build certificate definition with proper types
+  ansible.builtin.set_fact:
+    cert_manager_certificate_definition: |
+      {
+        "apiVersion": "cert-manager.io/v1",
+        "kind": "Certificate",
+        "metadata": {
+          "name": "{{ cert_manager_certificate_name }}",
+          "namespace": "{{ cert_manager_certificate_namespace }}"
+        },
+        "spec": {
+          "secretName": "{{ cert_manager_secret_name }}",
+          "issuerRef": {
+            "name": "{{ cert_manager_cluster_issuer_name }}",
+            "kind": "ClusterIssuer"
+          },
+          "dnsNames": {{ cert_manager_dns_names | to_json }},
+          "duration": "{{ cert_manager_duration }}",
+          "renewBefore": "{{ cert_manager_renew_before }}",
+          "privateKey": {
+            "algorithm": "{{ cert_manager_private_key_algorithm }}",
+            "size": {{ cert_manager_private_key_size | int }}
+          },
+          "secretTemplate": {
+            "annotations": {{ cert_manager_secret_annotations | to_json }}
+          }
+        }
+      }
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Parse certificate definition
+  ansible.builtin.set_fact:
+    cert_manager_certificate_definition: "{{ cert_manager_certificate_definition | from_json }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Ensure wildcard certificate exists
+  kubernetes.core.k8s:
+    definition: "{{ cert_manager_certificate_definition }}"
+    kubeconfig: "{{ cert_manager_kubeconfig_temp_path }}"
+    state: present
+    apply: true
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Remove temporary cert-manager manifest file
+  ansible.builtin.file:
+    path: "{{ cert_manager_manifest_tempfile.path }}"
+    state: absent
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: cert_manager_manifest_tempfile is defined
+
+- name: Remove temporary reflector manifest file
+  ansible.builtin.file:
+    path: "{{ cert_manager_reflector_manifest_tempfile.path }}"
+    state: absent
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when:
+    - cert_manager_install_reflector | bool
+    - cert_manager_reflector_manifest_tempfile is defined
+
+- name: Remove temporary kubeconfig file
+  ansible.builtin.file:
+    path: "{{ cert_manager_kubeconfig_temp_path }}"
+    state: absent
+  delegate_to: localhost
+  become: false
+  run_once: true

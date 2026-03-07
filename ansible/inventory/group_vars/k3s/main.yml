@@ -30,4 +30,5 @@ k3s_internal_ips:
 # Roles/templates check for non-empty `k3s_internal_ip` before applying.
 k3s_internal_ip: "{{ k3s_internal_ips[inventory_hostname] | default('') }}"
 
-letsencrypt_cert_target: true
+# k3s certificates are managed in-cluster via cert-manager (no NAS copy)
+letsencrypt_cert_target: false

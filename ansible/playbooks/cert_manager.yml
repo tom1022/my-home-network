@@ -1,0 +1,9 @@
+---
+- name: Refresh SSH known_hosts entries
+  import_playbook: refresh_known_hosts.yml
+
+- name: Configure cert-manager and reflector for k3s TLS
+  hosts: k3s
+  become: true
+  roles:
+    - cert_manager
