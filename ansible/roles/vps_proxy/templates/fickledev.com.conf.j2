@@ -6,7 +6,7 @@ server {
 }
 
 server {
-    listen 443 ssl http2;
+    listen 127.0.0.1:8443 ssl http2;
     server_name {{ vps_proxy_domain_www }};
 
     ssl_certificate /etc/letsencrypt/live/{{ vps_proxy_domain_main }}/fullchain.pem;
@@ -41,7 +41,7 @@ server {
 }
 
 server {
-    listen 443 ssl http2;
+    listen 127.0.0.1:8443 ssl http2;
     server_name {{ vps_proxy_domain_main }};
 
     ssl_certificate /etc/letsencrypt/live/{{ vps_proxy_domain_main }}/fullchain.pem;
