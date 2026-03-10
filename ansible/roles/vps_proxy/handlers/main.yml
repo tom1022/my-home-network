@@ -1,4 +1,9 @@
----
+- name: Reload nginx
+  ansible.builtin.service:
+    name: "{{ vps_proxy_nginx_service_name }}"
+    state: reloaded
+    enabled: true
+
 - name: Restart nginx service
   ansible.builtin.systemd:
     name: "{{ vps_proxy_nginx_service_name }}"
