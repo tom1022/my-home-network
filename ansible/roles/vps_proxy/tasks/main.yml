@@ -1,4 +1,20 @@
----
+- name: Ensure nginx stream config directory exists
+  ansible.builtin.file:
+    path: /etc/nginx/stream.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy nginx stream config for TCP passthrough
+  ansible.builtin.template:
+    src: nginx_stream.conf.j2
+    dest: /etc/nginx/stream.d/nginx_stream.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload nginx
+  when: vps_proxy_tcp_listeners | length > 0
 - name: Ensure target host is Debian family
   ansible.builtin.assert:
     that:
@@ -186,6 +202,16 @@
     name: "{{ vps_proxy_haproxy_service_name }}"
     enabled: true
     state: started
+
+- name: Ensure nginx stream module load file exists
+  ansible.builtin.copy:
+    dest: /etc/nginx/modules-enabled/50-mod-stream.conf
+    content: |
+      load_module /usr/lib/nginx/modules/ngx_stream_module.so;
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart nginx service
 
 - name: Flush handlers to apply config changes immediately
   ansible.builtin.meta: flush_handlers

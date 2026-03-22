@@ -18,16 +18,8 @@ k3s_master_port: 6443
 k3s_master_extra_args: []
 k3s_agent_extra_args: []
 
-# Best-practice: central map of internal IPs for k3s nodes (172.16.0.0/16)
-# This keeps per-host IPs in a single authoritative place and avoids
-# duplicating node-specific values across multiple files.
-k3s_internal_ips:
-  k3s-server: "172.16.0.150"
-  k3s-agent-minipc: "172.16.0.151"
-  k3s-agent-z440: "172.16.0.152"
-
-# Resolve per-host internal IP from the map. If not found, default to empty.
-# Roles/templates check for non-empty `k3s_internal_ip` before applying.
+# Resolve per-host internal IP from the map (defined in group_vars/all/main.yml).
+# If not found, default to empty. Roles/templates check for non-empty value before applying.
 k3s_internal_ip: "{{ k3s_internal_ips[inventory_hostname] | default('') }}"
 
 # k3s certificates are managed in-cluster via cert-manager (no NAS copy)

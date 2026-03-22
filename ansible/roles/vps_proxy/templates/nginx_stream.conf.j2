@@ -1,0 +1,93 @@
+## nginx stream config for TCP passthrough (xray VPN)
+# - Supports TLS SNI routing via `ssl_preread` and `map` to upstream names
+# - Supports plain TCP proxy_pass to a fixed upstream
+# Variables expected (examples):
+# vps_proxy_tcp_upstreams:
+#   - name: xray_backend
+#     members:
+#       - host: 10.0.0.10
+#         port: 443
+# vps_proxy_tcp_listeners:
+#   - name: xray_listener
+#     listen_port: 443
+#     bind_address: 0.0.0.0
+#     tls: true            # enable ssl_preread + SNI routing
+#     sni_map_default: xray_backend
+#     sni_map:
+#       - server_name: "example.com"
+#         upstream: xray_backend
+
+stream {
+    # Increase buffer sizes if necessary
+
+    # Map SNI to upstream name (used when tls:true on a listener)
+    {# Always generate a map so $upstream_name exists in stream context. #}
+    {% set default_upstream = '' %}
+    {% for l in vps_proxy_tcp_listeners %}
+        {% if l.tls and l.sni_map_default is defined and default_upstream == '' %}
+            {% set default_upstream = l.sni_map_default %}
+        {% endif %}
+    {% endfor %}
+
+    map $ssl_preread_server_name $upstream_name {
+        {% if default_upstream != '' %}
+        default {{ default_upstream }};
+        {% else %}
+        default "";
+        {% endif %}
+        {% for l in vps_proxy_tcp_listeners %}
+            {% if l.tls and l.sni_map is defined %}
+                {% for m in l.sni_map %}
+        {{ m.server_name }} {{ m.upstream }};
+                {% endfor %}
+            {% endif %}
+        {% endfor %}
+    }
+
+    # Upstream blocks
+    {% for u in vps_proxy_tcp_upstreams %}
+    {# Render upstream only if members present or k3s_internal_ips available #}
+    {% set members_defined = (u.members is defined and u.members | length > 0) %}
+    {% if members_defined or (k3s_internal_ips is defined and k3s_internal_ips | length > 0) %}
+    upstream {{ u.name }} {
+        least_conn;
+        {% if members_defined %}
+            {% for m in u.members %}
+        server {{ m.host }}:{{ m.port }} max_fails=3 fail_timeout=10s;
+            {% endfor %}
+        {% else %}
+            {% for ip in k3s_internal_ips.values() %}
+        server {{ ip }}:{{ vps_proxy_backend_port | default(32080) }} max_fails=3 fail_timeout=10s;
+            {% endfor %}
+        {% endif %}
+    }
+    {% else %}
+    # Skipping upstream {{ u.name }} because no members and no k3s_internal_ips available
+    {% endif %}
+    {% endfor %}
+
+    # Listener blocks
+    {% for l in vps_proxy_tcp_listeners %}
+    server {
+        {# Determine address safely and format as addr:port #}
+        {# Prefer an explicit bind address: listener.bind_address -> ansible_host -> default IPv4 -> 0.0.0.0 #}
+        {% set _addr = l.bind_address | default( hostvars[inventory_hostname].ansible_host | default(hostvars[inventory_hostname].ansible_default_ipv4.address | default('0.0.0.0')) ) %}
+        {% if ':' in _addr and not _addr.startswith('[') %}
+        {% set _addr = '[' ~ _addr ~ ']' %}
+        {% endif %}
+        listen {{ _addr }}:{{ l.listen_port }};
+        proxy_timeout {{ l.proxy_timeout | default('600s') }};
+        proxy_connect_timeout {{ l.proxy_connect_timeout | default('10s') }};
+
+        {% if l.tls %}
+        # TLS passthrough: use ssl_preread to select upstream by SNI
+        ssl_preread on;
+        # proxy_pass will use $upstream_name (map provides default if configured)
+        proxy_pass $upstream_name;
+        {% else %}
+        # Plain TCP passthrough to a fixed upstream name
+        proxy_pass {{ l.upstream }};
+        {% endif %}
+    }
+    {% endfor %}
+}
