@@ -23,3 +23,9 @@ proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret | default('') }}"
 proxmox_pbs_username: "{{ vault_proxmox_pbs_username | default('') }}"
 proxmox_pbs_password: "{{ vault_proxmox_pbs_password | default('') }}"
 proxmox_pbs_fingerprint: "{{ vault_proxmox_pbs_fingerprint | default('') }}"
+
+# k3s node internal IPs (172.16.0.0/16) - used by various roles including vps_proxy
+k3s_internal_ips:
+  k3s-server: "172.16.0.150"
+  k3s-agent-minipc: "172.16.0.151"
+  k3s-agent-z440: "172.16.0.152"

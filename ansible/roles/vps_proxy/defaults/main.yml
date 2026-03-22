@@ -1,8 +1,37 @@
 ---
+# Defaults for vps_proxy role: configure TCP passthrough upstreams/listeners
+# Build `tcp_upstreams` from `k3s_internal_ips` (group_vars/k3s/main.yml)
+# Each member will use port 32080 as requested.
+
+## TCP upstreams for passthrough services
+## - This role supports multiple TCP upstreams; the following entry
+##   is the xray VPN backend (port 32080 on all k3s nodes).
+## - Upstream name explicitly contains `xray_vpn` to avoid ambiguity
+vps_proxy_tcp_upstreams:
+  - name: xray_vpn_backend
+    # Populate `members` with backend hosts (list of dicts with `host` and `port`).
+    # Example:
+    #   members:
+    #     - host: 172.16.0.10
+    #       port: 32080
+    # If you need to generate this dynamically from `k3s_internal_ips`, do that
+    # in a template or playbook rather than here so this defaults file stays
+    # valid YAML for linters and editors.
+    members: []
+
+vps_proxy_tcp_listeners: []
 vps_proxy_haproxy_certs_dir: /etc/haproxy/certs
 
+# Default backend port for generated upstreams (xray VPN uses 32080)
+vps_proxy_backend_port: 32080
+
+# SNI names that should be routed to xray VPN backend (exact match, case-insensitive)
+vps_proxy_xray_sni:
+  - appflowy.fickledev.com
+
 vps_proxy_required_packages:
-  - nginx
+  # Use nginx package that includes the `stream` module (Debian/Ubuntu: nginx-full)
+  - nginx-full
   - haproxy
 
 vps_proxy_domain_main: ""
@@ -31,4 +60,6 @@ vps_proxy_legacy_nginx_container_name: nginx-proxy
 vps_proxy_legacy_haproxy_container_name: haproxy-proxy
 
 vps_proxy_haproxy_pem_dest: "{{ vps_proxy_haproxy_certs_dir }}/haproxy.pem"
-vps_proxy_letsencrypt_live_dir: "/etc/letsencrypt/live/{{ vps_proxy_domain_main }}"
+## Prefer letsencrypt role's `letsencrypt_live_dir` when available; fall back
+## to constructing path from `vps_proxy_domain_main` for backward compat.
+vps_proxy_letsencrypt_live_dir: "{{ letsencrypt_live_dir | default('/etc/letsencrypt/live/' ~ (vps_proxy_domain_main | default('')) ) }}"
