@@ -42,6 +42,7 @@ resource "proxmox_virtual_environment_vm" "this" {
   cpu {
     cores   = var.cores
     sockets = 1
+    type    = "host"
   }
 
   memory {
