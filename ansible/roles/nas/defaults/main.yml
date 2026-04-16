@@ -24,6 +24,8 @@ nas_gitea_user: gitea
 # Example: ["n100"] or use CIDRs in `nas_gitea_allowed_cidrs` below.
 nas_gitea_allowed_hosts:
   - "n100"
+  - "hp-z440"
+  - "frontier"
 # Optional allowed CIDRs (strings). These are merged with resolved host addresses.
 nas_gitea_allowed_cidrs: []
 

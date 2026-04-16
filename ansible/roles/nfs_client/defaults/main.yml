@@ -10,7 +10,7 @@ nfs_client_export_path: /srv/nas-data/shares/gitea
 nfs_client_mount_path: /mnt/pve/nas-gitea
 
 # Mount options
-nfs_client_mount_opts: "defaults,_netdev,nofail"
+nfs_client_mount_opts: "defaults,_netdev,nofail,x-systemd.automount,x-systemd.device-timeout=10"
 
 # Filesystem type
 nfs_client_fstype: nfs
