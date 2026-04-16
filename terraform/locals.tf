@@ -32,6 +32,15 @@ locals {
       ip0       = "192.168.1.152"
       ip1       = "172.16.0.152"
     }
+    # "k3s-agent-frontier" = {
+    #   vmid  = 153
+    #   node  = "frontier"
+    #   cores = 8
+    #   mem   = 32768
+    #   disk  = 128
+    #   ip0   = "192.168.1.153"
+    #   ip1   = "172.16.0.153"
+    # }
     "nas" = {
       vmid      = 201
       node      = "hp-z440"
