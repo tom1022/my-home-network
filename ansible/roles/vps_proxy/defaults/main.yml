@@ -34,6 +34,17 @@ vps_proxy_required_packages:
   - nginx-full
   - haproxy
 
+vps_proxy_manage_ufw: true
+vps_proxy_ufw_allow_tcp_ports:
+  - 25
+  - 80
+  - 143
+  - 443
+  - 465
+  - 587
+  - 993
+  - 4190
+
 vps_proxy_domain_main: ""
 vps_proxy_domain_www: ""
 vps_proxy_domain_mail: ""

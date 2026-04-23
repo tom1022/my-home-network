@@ -26,47 +26,39 @@ frontend ft_tls
     {% endif %}
     default_backend bk_web
 
-#### MAIL LISTENERS - temporarily disabled
-# listen imaps_offload
-#     bind *:993 ssl crt {{ vps_proxy_haproxy_cert_path }}
-#     mode tcp
-#     server mail_server_imap {{ vps_proxy_upstream_mail }}:143 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_imap_port }}
-#
-# listen smtps_offload
-#     bind *:465 ssl crt {{ vps_proxy_haproxy_cert_path }}
-#     mode tcp
-#     server mail_server_smtp {{ vps_proxy_upstream_mail }}:587 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_smtp_tls_port }}
-#
-# listen pop3s_offload
-#     bind *:995 ssl crt {{ vps_proxy_haproxy_cert_path }}
-#     mode tcp
-#     server mail_server_pop3 {{ vps_proxy_upstream_mail }}:110 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_pop3_port }}
-#
-# listen smtp_proxy
-#     bind *:25
-#     mode tcp
-#     server mail_server_smtp_plain {{ vps_proxy_upstream_mail }}:25 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_smtp_tls_port }}
-#
-# listen submission_proxy
-#     bind *:587
-#     mode tcp
-#     server mail_server_submission {{ vps_proxy_upstream_mail }}:587 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_submission_port }}
-#
-# listen imap_proxy
-#     bind *:143
-#     mode tcp
-#     server mail_server_imap_plain {{ vps_proxy_upstream_mail }}:143 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_imap_port }}
-#
-# listen pop3_proxy
-#     bind *:110
-#     mode tcp
-#     server mail_server_pop3_plain {{ vps_proxy_upstream_mail }}:110 check send-proxy-v2 inter 10s port {{ vps_proxy_haproxy_check_pop3_port }}
+{% set _default_listen = {'smtp':25, 'submission':587, 'smtps':465, 'imap':143, 'imaps':993, 'sieve':4190} %}
+{% set _listen_map = vps_proxy_mail_listen_ports | default(_default_listen) %}
+{% set _proxy_opt = ' send-proxy-v2' if (vps_proxy_send_proxy | default(false)) else '' %}
+
+{% if vps_proxy_k3s_nodeports is defined and vps_proxy_k3s_nodeports | length > 0 %}
+{% for svc, nodeport in vps_proxy_k3s_nodeports.items() %}
+frontend ft_{{ svc }}
+    bind *:{{ _listen_map[svc] | default(nodeport) }}
+    mode tcp
+    default_backend bk_k3s_{{ svc }}
+{% endfor %}
+
+{% for svc, nodeport in vps_proxy_k3s_nodeports.items() %}
+backend bk_k3s_{{ svc }}
+    mode tcp
+    balance roundrobin
+{% if groups['k3s'] is defined and groups['k3s'] | length > 0 %}
+{% for h in groups['k3s'] %}
+{% set _ip = hostvars[h].ansible_host | default(hostvars[h].inventory_hostname) %}
+    server {{ svc }}_{{ loop.index }} {{ _ip }}:{{ nodeport }} check inter 10s{{ _proxy_opt }}
+{% endfor %}
+{% elif k3s_internal_ips is defined and k3s_internal_ips | length > 0 %}
+{% for ip in k3s_internal_ips.values() %}
+    server {{ svc }}_{{ loop.index }} {{ ip }}:{{ nodeport }} check inter 10s{{ _proxy_opt }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endif %}
 
 # XRay backend (TCP passthrough to k3s nodes)
 backend bk_xray
     mode tcp
     balance leastconn
-{# Prefer using inventory group 'k3s' and hostvars. Fallback to k3s_internal_ips, then to vps_proxy_tcp_upstreams. #}
 {% if groups['k3s'] is defined and groups['k3s'] | length > 0 %}
 {% for h in groups['k3s'] %}
 {% set _ip = hostvars[h].ansible_host | default(hostvars[h].inventory_hostname) %}
@@ -76,17 +68,6 @@ backend bk_xray
 {% for ip in k3s_internal_ips.values() %}
     server xray_{{ loop.index }} {{ ip }}:{{ vps_proxy_backend_port | default(32080) }} check inter 10s
 {% endfor %}
-{% else %}
-# No k3s inventory group or internal IPs defined; configure backend members via `vps_proxy_tcp_upstreams` if provided
-{% if vps_proxy_tcp_upstreams is defined %}
-    {% for u in vps_proxy_tcp_upstreams %}
-        {% if u.name == 'xray_vpn_backend' and u.members is defined %}
-            {% for m in u.members %}
-    server xray_cfg_{{ loop.index }} {{ m.host }}:{{ m.port }} check inter 10s
-            {% endfor %}
-        {% endif %}
-    {% endfor %}
-{% endif %}
 {% endif %}
 
 # Default web passthrough backend -> local nginx on loopback
