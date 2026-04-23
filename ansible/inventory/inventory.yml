@@ -43,7 +43,7 @@ vms:
     k3s-server: {}
     k3s-agent-minipc: {}
     k3s-agent-z440: {}
-    k3s-agent-frontier: {}
+    # k3s-agent-frontier: {}
     nas: {}
 
 containers:
@@ -60,4 +60,4 @@ k3s:
     k3s-server: {}
     k3s-agent-minipc: {}
     k3s-agent-z440: {}
-    k3s-agent-frontier: {}
+    # k3s-agent-frontier: {}
