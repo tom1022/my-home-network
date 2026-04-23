@@ -38,6 +38,14 @@
     state: present
     update_cache: true
 
+- name: Ensure required TCP ports are allowed in UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ vps_proxy_ufw_allow_tcp_ports }}"
+  when: vps_proxy_manage_ufw | bool
+
 - name: Check whether docker command exists
   ansible.builtin.command:
     argv:
@@ -215,3 +223,42 @@
 
 - name: Flush handlers to apply config changes immediately
   ansible.builtin.meta: flush_handlers
+
+- name: Ensure IPv4 packet forwarding is enabled
+  ansible.builtin.sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    state: present
+    reload: yes
+
+- name: Set external interface fact from default route
+  ansible.builtin.set_fact:
+    vps_external_interface: "{{ ansible_default_ipv4.interface }}"
+  when: ansible_default_ipv4 is defined
+
+- name: Fail when external interface could not be detected
+  ansible.builtin.assert:
+    that:
+      - vps_external_interface is defined
+    fail_msg: |
+      外向きインターフェースが自動検出できませんでした。ansible_default_ipv4 が未設定です。
+
+- name: Ensure NAT (MASQUERADE) rule exists for external interface
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  when: vps_external_interface is defined
+
+- name: Deploy iptables persistent rules file
+  ansible.builtin.template:
+    src: iptables_rules.v4.j2
+    dest: /etc/iptables/rules.v4
+    owner: root
+    group: root
+    mode: '0644'
+  when: vps_external_interface is defined
+  notify: Restart netfilter-persistent
+
