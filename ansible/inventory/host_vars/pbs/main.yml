@@ -65,8 +65,8 @@ pbs_backup_targets:
     service: MariaDB
     mariadb_dump_enabled: true
     mariadb_dump_databases: all
-    mariadb_dump_user: "{{ vault_mariadb_dump_user | default('') }}"
-    mariadb_dump_password: "{{ vault_mariadb_dump_password | default('') }}"
+    mariadb_dump_user: "{{ lookup('env', 'MARIADB_DUMP_USER') }}"
+    mariadb_dump_password: "{{ lookup('env', 'MARIADB_DUMP_PASSWORD') }}"
 
   - name: mirakurun-epgstation
     vmid: 110

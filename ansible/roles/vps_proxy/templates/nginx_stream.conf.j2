@@ -24,7 +24,7 @@ stream {
     {# Always generate a map so $upstream_name exists in stream context. #}
     {% set default_upstream = '' %}
     {% for l in vps_proxy_tcp_listeners %}
-        {% if l.tls and l.sni_map_default is defined and default_upstream == '' %}
+        {% if l.tls | default(false) and l.sni_map_default is defined and default_upstream == '' %}
             {% set default_upstream = l.sni_map_default %}
         {% endif %}
     {% endfor %}
@@ -36,7 +36,7 @@ stream {
         default "";
         {% endif %}
         {% for l in vps_proxy_tcp_listeners %}
-            {% if l.tls and l.sni_map is defined %}
+            {% if l.tls | default(false) and l.sni_map is defined %}
                 {% for m in l.sni_map %}
         {{ m.server_name }} {{ m.upstream }};
                 {% endfor %}
@@ -75,11 +75,11 @@ stream {
         {% if ':' in _addr and not _addr.startswith('[') %}
         {% set _addr = '[' ~ _addr ~ ']' %}
         {% endif %}
-        listen {{ _addr }}:{{ l.listen_port }};
+        listen {{ _addr }}:{{ l.listen_port }}{% if l.udp | default(false) %} udp{% endif %};
         proxy_timeout {{ l.proxy_timeout | default('600s') }};
         proxy_connect_timeout {{ l.proxy_connect_timeout | default('10s') }};
 
-        {% if l.tls %}
+        {% if l.tls | default(false) %}
         # TLS passthrough: use ssl_preread to select upstream by SNI
         ssl_preread on;
         # proxy_pass will use $upstream_name (map provides default if configured)

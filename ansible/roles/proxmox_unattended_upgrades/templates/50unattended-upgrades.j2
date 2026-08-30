@@ -1,0 +1,8 @@
+// Managed by Ansible role proxmox_unattended_upgrades. Local edits will be overwritten.
+Unattended-Upgrade::Origins-Pattern {
+{% for origin in proxmox_unattended_upgrades_origins_pattern %}
+    "{{ origin }}";
+{% endfor %}
+};
+
+Unattended-Upgrade::Automatic-Reboot "{{ proxmox_unattended_upgrades_automatic_reboot | string | lower }}";

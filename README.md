@@ -186,9 +186,16 @@ flowchart TB
 このREADMEは概要説明を主目的とし、以下は再現性確認の最小コマンドです（**相対パスのみ**）。
 
 ```bash
+# Terraform 用シークレットは Infisical から供給する（ローカルの .env / terraform.tfvars は使わない）
+set -a; source ~/.config/infisical/universal-auth.env; set +a
+INFTOK=$(infisical login --method=universal-auth \
+  --client-id="$INFISICAL_UNIVERSAL_AUTH_CLIENT_ID" \
+  --client-secret="$INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET" \
+  --plain --silent)
+
 cd terraform
-terraform init
-terraform validate
+infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- terraform init
+infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- terraform validate
 
 cd ../ansible
 ansible-galaxy collection install -r collections/requirements.yml
@@ -197,5 +204,7 @@ ansible-lint playbooks/site.yml
 
 ## 補足
 
-- 秘密情報は `inventory/**/vault.yml` に集約し、平文で管理しない設計です
+- 秘密情報は Infisical（`prod` 環境）に集約し、平文で管理しない設計です
+- Terraform 用シークレットは `TF_VAR_` 接頭辞を保持したまま Infisical に格納し、`infisical run` で子プロセスの環境変数として供給します
+- Proxmox への認証はパスワードではなく API トークンで行います（`proxmox_auth_method = "token"`）
 - `terraform.tfstate` は機微情報を含み得るため、保管と共有ポリシーを分離して運用します

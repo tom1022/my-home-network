@@ -3,12 +3,8 @@ title = "my-home-network gitleaks config"
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "Allow placeholder secrets in example files"
-paths = [
-  '''ansible/inventory/.*/vault\.yml\.example$''',
-  '''terraform/\.env\.example$'''
-]
-regexes = [
-  '''CHANGEME_[A-Z0-9_]+'''
-]
+[[rules]]
+id = "k3s-node-token"
+description = "k3s node token (K10<64 hex>::server:<32 hex> format, not matched by default gitleaks rules)"
+regex = '''K10[0-9a-f]{64}::(server|node):[0-9a-f]{16,64}'''
+keywords = ["k3s", "node_token", "K10"]

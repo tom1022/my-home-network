@@ -15,11 +15,11 @@
 - name: Ensure certificates on NAS and distribute to VPS
   import_playbook: letsencrypt.yml
 
-- name: Configure cert-manager certificates for k3s
-  import_playbook: cert_manager.yml
-
 # VPS reverse proxy
 - name: Configure VPS reverse proxy
   import_playbook: vps.yml
 
 - import_playbook: proxmox_backup.yml
+
+- name: Configure unattended security upgrades on Proxmox nodes
+  import_playbook: proxmox_unattended_upgrades.yml

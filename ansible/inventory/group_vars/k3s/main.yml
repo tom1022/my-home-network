@@ -24,3 +24,9 @@ k3s_internal_ip: "{{ k3s_internal_ips[inventory_hostname] | default('') }}"
 
 # k3s certificates are managed in-cluster via cert-manager (no NAS copy)
 letsencrypt_cert_target: false
+
+# Gitea repository configuration used by the argocd role
+argocd_gitea_repo_url: "http://192.168.1.200:3000/giteaadmin/gitops-apps.git"
+argocd_gitea_repo_name: "gitops-apps"
+argocd_gitea_username: "{{ lookup('env', 'ARGOCD_GITEA_USERNAME') | default('giteaadmin', true) }}"
+argocd_gitea_password: "{{ lookup('env', 'ARGOCD_GITEA_PASSWORD') }}"

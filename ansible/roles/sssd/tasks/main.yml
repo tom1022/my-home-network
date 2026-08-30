@@ -3,7 +3,7 @@
   ansible.builtin.assert:
     that:
       - sssd_bind_password | length > 0
-    fail_msg: sssd_bind_password is required. Define it via ansible-vault.
+    fail_msg: sssd_bind_password is required. Supply it via Infisical (SSSD_BIND_PASSWORD).
 
 - name: Ensure SSSD dependencies are installed
   ansible.builtin.apt:

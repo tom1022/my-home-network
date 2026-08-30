@@ -3,11 +3,11 @@
 gitea_admin_username: admin
 gitea_admin_email: admin@example.local
 
-gitea_db_host: "{{ vault_gitea_db_host | default('') }}"
-gitea_db_name: "{{ vault_gitea_db_name | default('') }}"
-gitea_db_user: "{{ vault_gitea_db_user | default('') }}"
-gitea_db_password: "{{ vault_gitea_db_password | default('') }}"
+gitea_db_host: "{{ lookup('env', 'GITEA_DB_HOST') }}"
+gitea_db_name: "{{ lookup('env', 'GITEA_DB_NAME') }}"
+gitea_db_user: "{{ lookup('env', 'GITEA_DB_USER') }}"
+gitea_db_password: "{{ lookup('env', 'GITEA_DB_PASSWORD') }}"
 
-gitea_admin_password: "{{ vault_gitea_admin_password | default('') }}"
-gitea_security_secret_key: "{{ vault_gitea_security_secret_key | default('') }}"
-gitea_security_internal_token: "{{ vault_gitea_security_internal_token | default('') }}"
+gitea_admin_password: "{{ lookup('env', 'GITEA_ADMIN_PASSWORD') }}"
+gitea_security_secret_key: "{{ lookup('env', 'GITEA_SECURITY_SECRET_KEY') }}"
+gitea_security_internal_token: "{{ lookup('env', 'GITEA_SECURITY_INTERNAL_TOKEN') }}"

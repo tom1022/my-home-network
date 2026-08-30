@@ -7,6 +7,20 @@
   hosts: k3s
   become: true
   vars: {}
+  pre_tasks:
+    # rlex.k3s is an external, version-pinned role (not vendored here), so this
+    # check lives in the playbook instead of the role: non-initial-master hosts
+    # (additional masters and agents) read the master's persisted
+    # k3s_node_token from hostvars to join, rather than generating their own.
+    - name: Ensure k3s_node_token is provided for hosts joining an existing cluster
+      ansible.builtin.assert:
+        that:
+          - hostvars[groups[k3s_master_group][0]]['k3s_node_token'] | default('') | length > 0
+        fail_msg: >-
+          k3s_node_token is required to join the k3s cluster and was not supplied.
+          Run this playbook via `infisical run -- ansible-playbook ...` so K3S_NODE_TOKEN
+          is present in the environment.
+      when: not k3s_initial_master
   tasks:
   roles:
     - role: rlex.k3s

@@ -1,3 +1,11 @@
+- name: Ensure become password is provided for privileged tasks
+  ansible.builtin.assert:
+    that:
+      - ansible_become_password | default('') | length > 0
+    fail_msg: >-
+      ansible_become_password is required to run vps_proxy (sudo on the VPS host
+      needs a password). Supply it via Infisical (VPS_BECOME_PASSWORD).
+
 - name: Ensure nginx stream config directory exists
   ansible.builtin.file:
     path: /etc/nginx/stream.d

@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  role_name: proxmox_unattended_upgrades
+  author: tom1022
+  description: >-
+    Configure unattended security upgrades on Proxmox VE hosts
+    (Debian security + Proxmox repo only, no auto-reboot)
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

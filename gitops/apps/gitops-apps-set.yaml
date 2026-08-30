@@ -1,32 +1,30 @@
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: gitops-apps
+  name: apps
   namespace: argocd
 spec:
   generators:
-    - git:
-        repoURL: http://192.168.1.200:3000/giteaadmin/gitops-apps.git
-        revision: HEAD
-        directories:
-          - path: apps/*
+  - git:
+      repoURL: http://192.168.1.200:3000/giteaadmin/gitops-apps.git
+      revision: HEAD
+      directories:
+      - path: "apps/*"
   template:
     metadata:
-      name: '{{ path.basename }}'
+      name: "{{path.basename}}"
     spec:
       project: default
       source:
         repoURL: http://192.168.1.200:3000/giteaadmin/gitops-apps.git
         targetRevision: HEAD
-        path: '{{ path }}'
-        # Auto-detect if it's a Helm chart or Kustomization
-        # AVP is used if annotations are found in the files.
+        path: "{{path}}"
       destination:
         server: https://kubernetes.default.svc
-        namespace: '{{ path.basename }}'
+        namespace: "{{path.basename}}"
       syncPolicy:
         automated:
           prune: true
           selfHeal: true
         syncOptions:
-          - CreateNamespace=true
+        - CreateNamespace=true

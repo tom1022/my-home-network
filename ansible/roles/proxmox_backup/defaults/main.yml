@@ -1,8 +1,8 @@
 ---
-proxmox_backup_api_host: "{{ vault_proxmox_api_host | default('') }}"
-proxmox_backup_api_user: "{{ vault_proxmox_api_user | default('') }}"
-proxmox_backup_api_token_id: "{{ vault_proxmox_api_token_id | default('') }}"
-proxmox_backup_api_token_secret: "{{ vault_proxmox_api_token_secret | default('') }}"
+proxmox_backup_api_host: "{{ lookup('env', 'PROXMOX_API_HOST') }}"
+proxmox_backup_api_user: "{{ lookup('env', 'PROXMOX_API_USER') }}"
+proxmox_backup_api_token_id: "{{ lookup('env', 'PROXMOX_API_TOKEN_ID') }}"
+proxmox_backup_api_token_secret: "{{ lookup('env', 'PROXMOX_API_TOKEN_SECRET') }}"
 proxmox_backup_api_validate_certs: false
 proxmox_backup_sensitive_no_log: true
 proxmox_backup_api_token_name: "{{ proxmox_backup_api_token_id | regex_replace('^.*!', '') }}"
@@ -35,9 +35,9 @@ proxmox_backup_job_enabled: true
 proxmox_backup_pbs_storage_name: pbs-zfs-pool
 proxmox_backup_pbs_server: "{{ hostvars[proxmox_backup_target_host].ansible_host | default('') }}"
 proxmox_backup_pbs_datastore: "{{ hostvars[proxmox_backup_target_host].pbs_backup_target_datastore_id | default('') }}"
-proxmox_backup_pbs_username: "{{ vault_proxmox_pbs_username | default('') }}"
-proxmox_backup_pbs_password: "{{ vault_proxmox_pbs_password | default('') }}"
-proxmox_backup_pbs_fingerprint: "{{ vault_proxmox_pbs_fingerprint | default('') }}"
+proxmox_backup_pbs_username: "{{ lookup('env', 'PROXMOX_PBS_USERNAME') }}"
+proxmox_backup_pbs_password: "{{ lookup('env', 'PROXMOX_PBS_PASSWORD') }}"
+proxmox_backup_pbs_fingerprint: "{{ lookup('env', 'PROXMOX_PBS_FINGERPRINT') }}"
 
 proxmox_backup_pbs_storage_nodes:
   - n100

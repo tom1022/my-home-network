@@ -1,0 +1,6 @@
+---
+- name: Configure unattended security upgrades on Proxmox nodes
+  hosts: proxmox_nodes
+  become: true
+  roles:
+    - proxmox_unattended_upgrades

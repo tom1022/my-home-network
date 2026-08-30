@@ -11,8 +11,6 @@ crash.*.log
 
 *.log
 
-.terraform.lock.hcl
-
 *.pyc
 *.pyo
 __pycache__/
@@ -22,8 +20,13 @@ collections/
 
 *.retry
 
-ansible.cfg
-
 .env
 
+# ansible-vault encrypted secrets; supply values via Infisical instead
+ansible/inventory/**/*vault.yml
+
 .vscode/
+
+terraform/.discovery/
+
+.kiro/specs/infisical-cloudflare-iac-refactor/artifacts/cert-backup/

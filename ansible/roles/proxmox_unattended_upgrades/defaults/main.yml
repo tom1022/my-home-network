@@ -1,0 +1,18 @@
+---
+# Debian のセキュリティ更新と Proxmox 公式リポジトリのみを自動更新対象とする。
+# PVE のバージョン更新（no-subscription/enterprise リポジトリ経由の dist-upgrade 相当）は
+# 意図せず含めない。origin/label は `apt-cache policy` の出力に対応させる。
+proxmox_unattended_upgrades_origins_pattern:
+  - "origin=Debian,codename=${distro_codename},label=Debian-Security"
+  - "origin=Debian,codename=${distro_codename}-security,label=Debian-Security"
+  - "origin=Proxmox,label=Proxmox Debian Repository"
+
+proxmox_unattended_upgrades_packages:
+  - unattended-upgrades
+  # PVE は最小構成のため update-notifier-common が既定で入っておらず、
+  # それが無いと /var/run/reboot-required がカーネル更新後も作成されない。
+  - update-notifier-common
+
+# 再起動を伴う更新が適用されても自動では再起動しない。
+# 要再起動の状態は /var/run/reboot-required で運用者が確認する（自動化しない）。
+proxmox_unattended_upgrades_automatic_reboot: false

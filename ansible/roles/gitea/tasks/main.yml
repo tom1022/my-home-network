@@ -93,7 +93,7 @@
     fail_msg: >-
       Gitea requires MySQL settings gitea_db_host, gitea_db_name,
       gitea_db_user and gitea_db_password.
-      Define them with vaulted variables.
+      Supply them via Infisical (GITEA_DB_HOST, GITEA_DB_NAME, GITEA_DB_USER, GITEA_DB_PASSWORD).
 
 - name: Ensure Gitea app.ini is configured
   ansible.builtin.template:
@@ -117,7 +117,7 @@
       - gitea_admin_password | length > 0
     fail_msg: >-
       gitea_admin_password is required when gitea_admin_create=true.
-      Define it in a vaulted variable (for example vault_gitea_admin_password).
+      Supply it via Infisical (GITEA_ADMIN_PASSWORD).
   when: gitea_admin_create
 
 - name: Ensure Gitea admin command can access configured backend

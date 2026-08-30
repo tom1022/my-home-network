@@ -8,8 +8,8 @@
       - proxmox_backup_api_token_secret | length > 0
     fail_msg: >-
       Proxmox API credentials are required.
-      Define vault_proxmox_api_host, vault_proxmox_api_user,
-      vault_proxmox_api_token_id and vault_proxmox_api_token_secret.
+      Supply them via Infisical (PROXMOX_API_HOST, PROXMOX_API_USER,
+      PROXMOX_API_TOKEN_ID, PROXMOX_API_TOKEN_SECRET).
 
 - name: Ensure PBS storage settings are provided
   ansible.builtin.assert:
@@ -22,8 +22,9 @@
       - proxmox_backup_pbs_fingerprint | length > 0
     fail_msg: >-
       PBS storage settings are required.
-      Define proxmox_backup_pbs_storage_name, proxmox_backup_pbs_server, proxmox_backup_pbs_datastore,
-      vault_proxmox_pbs_username, vault_proxmox_pbs_password and vault_proxmox_pbs_fingerprint.
+      Define proxmox_backup_pbs_storage_name, proxmox_backup_pbs_server, proxmox_backup_pbs_datastore.
+      Supply proxmox_backup_pbs_username, proxmox_backup_pbs_password and proxmox_backup_pbs_fingerprint
+      via Infisical (PROXMOX_PBS_USERNAME, PROXMOX_PBS_PASSWORD, PROXMOX_PBS_FINGERPRINT).
 
 - name: Ensure backup targets are provided
   ansible.builtin.assert:
