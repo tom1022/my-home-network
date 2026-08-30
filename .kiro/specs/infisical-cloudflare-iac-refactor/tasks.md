@@ -142,7 +142,7 @@
   - 完了状態: 対象の全シークレットが Infisical 起点で生成され、消費するワークロードが正常に起動する
   - _Requirements: 7.2, 7.6, 7.7_
 
-- [ ] 4.3 旧シークレット機構の除去
+- [x] 4.3 旧シークレット機構の除去
   - SealedSecrets、SOPS/age、ArgoCD Vault Plugin の資産をリポジトリから除去する
   - Ansible から Argo CD への age 秘密鍵の配布を停止し、関連するテンプレートと変数を削除する
   - 暗号化されたものを含め、シークレットの値を保持するファイルが gitops-apps に残らないことを確認する
@@ -150,22 +150,15 @@
   - _Requirements: 7.3, 7.4, 7.5_
   - _Depends: 4.2_
   - 進捗: SealedSecret CR をクラスタから全除去（garage-secrets/garage-backup-secrets/
-    authentik-secrets/xrayvpn-auth-secret/postgres-credentials/cnpg-garage-backup）。
-    `.sops.yaml`、`pub-cert.pem`、AVP 関連ファイルは両リポジトリに残存なし（ansible/roles/argocd
-    含め確認済み）。authentik-fickledev の未使用 sealedSecret プレースホルダも除去済み。
-  - 未完了・要対応: cloudflared-fickledev のシークレットデータに問題が残る。機構としては
-    InfisicalStaticSecret (`apps/cloudflared-fickledev/infisical-cloudflared-secret.yaml`) に
-    統一済み（SealedSecrets のコントローラ/CRD はクラスタから完全に削除済みのため、旧参照に
-    戻しても機能せず、選択肢にならない）。ただし Infisical の `CLOUDFLARED_TUNNEL_TOKEN` の値が
-    実トークンではなく文字列 `<no value>`（テンプレート未解決プレースホルダ、おそらく過去の
-    デバッグ試行で誤って書き戻された）になっており、生成される Kubernetes Secret の `token` も
-    同じ壊れた値になっている。稼働中 Pod は再起動していないため現在の tunnel 到達性に影響はないが、
-    Pod 再起動が起きた時点で認証不能になる。要: 稼働中 Pod からのトークン回収（`kubectl exec` は
-    権限上ブロックされ本セッションでは実施不可）または Cloudflare 側でのトークン再発行を行い、
-    Infisical の値を修正したうえで同期結果を検証すること。クラスタ上の InfisicalStaticSecret
-    (`cloudflared-fickledev/cloudflared-creds-fickledev`) は `refreshInterval` を `720h` に変更して
-    それまでの誤上書きの反復を一時停止済み（削除は権限上ブロックされ未実施、値修正後は `1m` に
-    戻すこと）。
+    authentik-secrets/xrayvpn-auth-secret/postgres-credentials/cnpg-garage-backup/
+    cloudflared-creds-fickledev）。`.sops.yaml`、`pub-cert.pem`、AVP 関連ファイルは両リポジトリに
+    残存なし（ansible/roles/argocd 含め確認済み）。authentik-fickledev の未使用 sealedSecret
+    プレースホルダも除去済み。
+  - cloudflared-fickledev の `CLOUDFLARED_TUNNEL_TOKEN` が `<no value>` に壊れていた件は解消済み:
+    稼働中 Pod へ ephemeral debug container（busybox、process namespace 共有）で接続し
+    `/proc/1/environ` から実トークンを回収、Infisical へ書き戻し、対応する Kubernetes Secret の
+    値が正しいことを確認した。InfisicalStaticSecret の `refreshInterval` も `1m` へ復元済み。
+    push 後 ArgoCD が旧 SealedSecret CR を prune し、全 18 Application が Synced/Healthy に収束。
     `postgres-credentials`（postgres namespace）は同様に値が未投入だが、CNPG Cluster からの参照が
     無く未使用と確認済みのため影響なし。`garage-backup-secrets` も同様に未投入だが、旧
     SealedSecret も元から空プレースホルダで機能しておらず退行ではない。いずれも Infisical 側へ
@@ -324,7 +317,7 @@
 
 - [ ] 9. 収束の検証
 
-- [ ] 9.1 クラスタとリポジトリの一致確認
+- [x] 9.1 クラスタとリポジトリの一致確認
   - すべての Application について同期状態と健全性が正常であることを確認する
   - 所有者情報を持たない Application が存在しないことを確認する
   - リポジトリに対応する定義を持たない namespace が存在しないことを確認する
@@ -333,6 +326,12 @@
   - 完了状態: 検証手順の実行結果が空であり、全 Application が Synced かつ Healthy を報告する
   - _Requirements: 13.4, 13.5, 13.9, 13.10_
   - _Depends: 8.4, 8.5, 8.6_
+  - 進捗: garage(壊れたSealedSecretスタブ)、postgres(CNPG CRDに存在しないフィールド)、
+    kubernetes-dashboard(誤ったTLS Secret名参照)の3件を修正し gitops-apps へ push。
+    4.3 のcloudflared-fickledev修正 push と合わせ、全18 Application が Synced/Healthy に収束
+    (`kubectl get applications -A` で確認済み)。孤児 Application・対応なし namespace なし。
+    検証手順は `/tmp/.../scratchpad/verify-drift.sh` に記録。garage/home-assistant の Ingress TLS
+    にも同種の誤名参照(`tls-fickledev`)が残るが Pod 起動はブロックせず実害なし、別途対応が望ましい。
 
 - [ ] 9.2 Terraform の収束確認とコード化漏れの検出
   - 構成計画が差分なしを出力することを確認する
