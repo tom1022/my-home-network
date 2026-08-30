@@ -27,15 +27,6 @@
   delegate_to: "{{ k3s_control_plane }}"
   become: true
 
-- name: Create argocd-sops-age secret manifest
-  ansible.builtin.template:
-    src: argocd-sops-age.yaml.j2
-    dest: /var/lib/rancher/k3s/server/manifests/argocd-sops-age.yaml
-    mode: '0600'
-  delegate_to: "{{ k3s_control_plane }}"
-  become: true
-  when: vault_argocd_sops_age_key is defined
-
 - name: Create Argo CD Traefik IngressRoute manifest
   ansible.builtin.template:
     src: argocd-ingressroute.yaml.j2
