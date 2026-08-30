@@ -149,6 +149,23 @@
   - 完了状態: 3系統の旧機構の資産が両リポジトリに存在せず、全ワークロードが Infisical 起点のシークレットで稼働している
   - _Requirements: 7.3, 7.4, 7.5_
   - _Depends: 4.2_
+  - 進捗: SealedSecret CR をクラスタから全除去（garage-secrets/garage-backup-secrets/
+    authentik-secrets/xrayvpn-auth-secret/postgres-credentials/cnpg-garage-backup）。
+    `.sops.yaml`、`pub-cert.pem`、AVP 関連ファイルは両リポジトリに残存なし（ansible/roles/argocd
+    含め確認済み）。authentik-fickledev の未使用 sealedSecret プレースホルダも除去済み。
+  - 未完了・要対応: cloudflared-fickledev のみ据え置き。Infisical の `CLOUDFLARED_TUNNEL_TOKEN` の
+    値が実トークンではなく文字列 `<no value>`（テンプレート未解決プレースホルダ）になっており、
+    InfisicalStaticSecret へ切り替えると稼働中の Secret を破壊するため、SealedSecret 参照を復元して
+    据え置いた。稼働中 Pod は再起動していないため現在の tunnel 到達性に影響はないが、Pod 再起動が
+    起きた時点で認証不能になる。要: 稼働中 Pod からのトークン回収（`kubectl exec` は権限上ブロック
+    され本セッションでは実施不可）または Cloudflare 側でのトークン再発行を行い、Infisical の値を
+    修正したうえで同期を検証してから移行を完了させること。クラスタ上の InfisicalStaticSecret
+    (`cloudflared-fickledev/cloudflared-creds-fickledev`) は `refreshInterval: 720h` に変更して
+    上書きを一時停止済み（削除は権限上ブロックされ未実施）。
+    `postgres-credentials`（postgres namespace）は同様に値が未投入だが、CNPG Cluster からの参照が
+    無く未使用と確認済みのため影響なし。`garage-backup-secrets` も同様に未投入だが、旧
+    SealedSecret も元から空プレースホルダで機能しておらず退行ではない。いずれも Infisical 側へ
+    正しい値を投入すれば解消する。
 
 ---
 
