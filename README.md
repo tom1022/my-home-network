@@ -83,13 +83,7 @@ flowchart TB
         LXC_MARIADB["LXC: MariaDB"]
         LXC_GITEA["LXC: Gitea"]
   end
- subgraph K3S_PINNED["k3s Pinned Pods"]
-        POD_NEXTCLOUD["Pod: Nextcloud"]
-        POD_OLLAMA["Pod: Ollama"]
-        POD_MINIO["Pod: MinIO<br>(S3 Object Storage)"]
-  end
  subgraph HW_SERVER_Z440["Node: Z440 Workstation<br>[Xeon 8C/16T+, ECC RAM]"]
-        K3S_PINNED
         K3S_AGENT_Z440["VM: k3s Agent<br>Worker Node 2"]
         LXC_PBS["LXC: Proxmox Backup Server"]
         VM_NAS["VM: NAS<br>NFS / SMB Manager"]
@@ -97,14 +91,20 @@ flowchart TB
         VM_WINDOWS["VM: Windows"]
         STORAGE_HDD[("IronWolf 4TB<br>ZFS Pool")]
         STORAGE_NVME[("NVMe SSD")]
-        GPU_GTX1650["NVIDIA GTX1650 GPU"]
   end
- subgraph K3S_FLOATING["k3s Floating Workloads"]
-        POD_INGRESS["Ingress Controller<br>Traefik/Nginx"]
-        POD_STALWART["Pod: Stalwart Mail"]
-        POD_GHOST["Pod: Ghost"]
-        POD_PORTFOLIO["Pod: Portfolio"]
+ subgraph K3S_FLOATING["k3s Workloads (Argo CD 管理)"]
+        POD_INGRESS["Ingress Controller<br>Traefik"]
         POD_ARGO["Argo CD (GitOps)"]
+        POD_AUTHENTIK["Pod: Authentik<br>(fickledev SSO/IdP)"]
+        POD_CLOUDFLARED["Pod: cloudflared<br>(fickledev Tunnel)"]
+        POD_XRAYVPN["Pod: xrayvpn<br>(VPN Proxy)"]
+        POD_MAILU["Pod: Mailu<br>(Mail Server)"]
+        POD_HOMEASSISTANT["Pod: Home Assistant"]
+        POD_MINECRAFT["Pod: Minecraft Bedrock"]
+        POD_GARAGE["Pod: Garage<br>(S3 Object Storage)"]
+        POD_POSTGRES["Pod: PostgreSQL<br>(CloudNativePG)"]
+        POD_K8SDASH["Pod: Kubernetes Dashboard"]
+        POD_PLATFORM["Platform Controllers<br>cert-manager / cluster-issuer /<br>cnpg-operator / infisical-operator /<br>reflector / reloader"]
   end
  subgraph HW_VCLUSTER["Proxmox Cluster"]
         HW_SERVER_MINIPC
@@ -138,20 +138,19 @@ flowchart TB
     HW_SWITCH_TPLink -- "LAN-VLAN" --> HW_SWITCH_TPLINK_LAN
     HW_SWITCH_TPLink -- "CONSOLE-VLAN" --> HW_ADMIN_PC
     HW_ROUTER_OPNSENSE -- Port Fwd/Routing --> POD_INGRESS
-    POD_INGRESS --> POD_NEXTCLOUD & POD_GHOST & POD_PORTFOLIO
-    POD_INGRESS -- TCP --> POD_STALWART & POD_ARGO & POD_MINIO
+    POD_INGRESS --> POD_ARGO & POD_GARAGE & POD_HOMEASSISTANT & POD_K8SDASH & POD_MAILU
+    POD_INGRESS -- TCP --> POD_MAILU
+    HW_ROUTER_OPNSENSE -- "Port Fwd (NodePort)" --> POD_XRAYVPN
+    HW_ROUTER_OPNSENSE -- "Port Fwd (UDP 19132)" --> POD_MINECRAFT
+    NET_CFZT -- "Tunnel (idp/crafty)" --> POD_CLOUDFLARED
+    POD_CLOUDFLARED --> POD_AUTHENTIK & POD_MINECRAFT
+    POD_AUTHENTIK --> POD_POSTGRES
     STORAGE_HDD == ZFS === VM_NAS
     STORAGE_HDD === LXC_PBS
     VM_NAS -- NFS --> LXC_GITEA & VM_REC & K3S_FLOATING
     VM_NAS -- SMB --> HW_CLIENT_DEVICES
-    POD_NEXTCLOUD -. S3 API .-> POD_MINIO
-    LXC_GITEA -. S3 LFS/Artifacts .-> POD_MINIO
     LXC_GITEA --> LXC_MARIADB
-    POD_NEXTCLOUD --> LXC_MARIADB
-    POD_STALWART --> LXC_MARIADB
-    POD_PORTFOLIO --> LXC_MARIADB
     STORAGE_NVME == PCIe Passthrough === VM_WINDOWS
-    GPU_GTX1650 == PCIe Passthrough === POD_OLLAMA
     HW_SERVER_MINIPC <== Cluster Network ==> HW_SERVER_Z440
     LXC_GITEA -. Terraform Apply .-> K3S_CP
     LXC_GITEA -- Watch / Sync --> POD_ARGO
@@ -163,7 +162,6 @@ flowchart TB
     HW_CLIENT_AP --> HW_CLIENT_DEVICES
     UPS_MAIN -- USB Signal --- HW_ROUTER_OPNSENSE
     UPS_MAIN ==> HW_ROUTER_ONU & HW_ROUTER_OPNSENSE & HW_SWITCH_TPLink & HW_SERVER_Z440 & HW_SERVER_MINIPC & HW_ADMIN_PC
-    STORAGE_HDD == ZFS ==> POD_MINIO & POD_NEXTCLOUD
 ```
 
 ## 実装ハイライト
@@ -175,11 +173,13 @@ flowchart TB
 
 ## ディレクトリガイド
 
-- `terraform/`: Proxmox リソース定義
+- `terraform/`: Proxmox リソース定義（単一ルートモジュール）
 - `terraform/modules/`: VM / Container モジュール
 - `ansible/playbooks/`: 適用エントリポイント
 - `ansible/roles/`: 各コンポーネントの構成管理
 - `ansible/inventory/`: ホスト定義・変数・Vault
+- `scripts/dump_cloudflare_config.sh`: 既存 Cloudflare 構成のダンプ（Terraform 化の下調べ用）
+- `scripts/migrate-vault-to-infisical.py`: Ansible Vault から Infisical へのシークレット移送
 
 ## 再現性の確認（参考）
 
