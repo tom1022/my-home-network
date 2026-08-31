@@ -111,4 +111,11 @@ resource "proxmox_virtual_environment_container" "this" {
   }
 
   started = var.start
+
+  lifecycle {
+    ignore_changes = [
+      initialization[0].user_account,
+      operating_system,
+    ]
+  }
 }

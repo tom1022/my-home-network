@@ -142,3 +142,19 @@ variable "container_bind_mounts" {
   type        = map(any)
   default     = {}
 }
+
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token used by Terraform, separate from the DNS-01 token used for certificate issuance"
+  type        = string
+  sensitive   = true
+}
+
+variable "cloudflare_account_id" {
+  description = "Cloudflare account identifier"
+  type        = string
+}
+
+variable "cloudflare_zone_id" {
+  description = "Cloudflare zone identifier for the managed zone"
+  type        = string
+}

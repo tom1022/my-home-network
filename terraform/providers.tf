@@ -7,3 +7,7 @@ provider "proxmox" {
 
   insecure = var.insecure
 }
+
+provider "cloudflare" {
+  api_token = var.cloudflare_api_token
+}

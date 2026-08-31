@@ -107,4 +107,8 @@ resource "proxmox_virtual_environment_vm" "this" {
       mtu    = lookup(network_device.value, "mtu", null)
     }
   }
+
+  lifecycle {
+    ignore_changes = [clone, disk, serial_device, operating_system, machine]
+  }
 }
