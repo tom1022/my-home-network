@@ -23,11 +23,17 @@ OS/ミドルウェア構成を適用する。Gitea（自前 CI 起点）から T
 ## Development Standards
 
 ### Secrets
-- 秘匿情報は Ansible Vault (`inventory/**/vault.yml`) に集約。各 vault ファイルは
-  `vault.yml.example`（構造のみ、平文値なし）を併置する。
+- シークレットの単一の正は Infisical（workspace は `.infisical.json` の `workspaceId` で固定、
+  環境は `prod` 単一）。Ansible / Terraform / Kubernetes のいずれもここから値を取得する。
+- Ansible: ロール本体は一般名の変数のみ参照する既存の変数間接化層を維持し、`group_vars` /
+  `host_vars` の右辺だけを `lookup('env', 'VAR_NAME')` に束縛する。`inventory/**/vault.yml`
+  （Ansible Vault 暗号化ファイル）は追跡対象から除去済みで、供給経路として使わない。
+  `vault.yml.example` は移行前の変数名一覧としてのみ残置している。
+- Terraform: 変数名を変えず `TF_VAR_` 接頭辞を保持したまま Infisical に格納し、`infisical run` で
+  子プロセスの環境変数として供給する。`terraform.tfvars` / `.env` はローカルでは使用しない。
+- Kubernetes: Infisical Operator（`InfisicalSecretSync` 等）が Infisical から Secret を同期する
+  一方向構成。SealedSecrets・SOPS/age・ArgoCD Vault Plugin は資産ごと除去済み。
 - `terraform.tfvars` / `terraform.tfstate` は機微情報を含むためコミット対象外方針。
-- シークレット管理基盤として Infisical（workspace は `.infisical.json` の `workspaceId` で固定、
-  環境は `prod` 単一）への移行を進めている（詳細: `infisical-cloudflare-iac-refactor` spec）。
 
 #### Infisical CLI の使い方（machine identity / 非対話）
 - machine identity（universal-auth）でのログインは以下の手順で行う。値は `~/.config/infisical/universal-auth.env`
@@ -67,17 +73,21 @@ OS/ミドルウェア構成を適用する。Gitea（自前 CI 起点）から T
 
 ### Common Commands
 ```bash
-# Terraform 検証
-cd terraform && terraform init && terraform validate
+# Terraform 検証（Infisical 経由でシークレットを供給）
+cd terraform
+infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- terraform init
+infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- terraform validate
 
 # Ansible 依存導入 + Lint
 cd ansible
 ansible-galaxy collection install -r collections/requirements.yml
 ansible-lint playbooks/site.yml
 
-# Playbook 適用（例: 単一コンポーネント）
-ansible-playbook playbooks/nas.yml
+# Playbook 適用（例: 単一コンポーネント。シークレット変数を解決するため Infisical 経由が必須）
+infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- \
+  ansible-playbook playbooks/nas.yml
 ```
+`$INFTOK` の取得手順は本ファイルの「Infisical CLI の使い方」を参照。
 
 ## Key Technical Decisions
 

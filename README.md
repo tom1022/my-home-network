@@ -7,7 +7,7 @@ Proxmox 上での VM/LXC 作成は Terraform、各ホストの設定は Ansible 
 
 - 単一リポジトリでリソース作成（Terraform）と構成適用（Ansible）を分離して管理する
 - 環境差分（ノード、VMID、ストレージなど）を変数で吸収し、再利用性を重視する
-- シークレットは Ansible Vault に集約し、平文でのコミットを避ける
+- シークレットは Infisical に集約し、平文でのコミットを避ける
 - ネットワーク境界（VPS / Firewall / DMZ / LAN）を意識した設計を保つ
 
 ## 技術スタック
@@ -18,7 +18,7 @@ Proxmox 上での VM/LXC 作成は Terraform、各ホストの設定は Ansible 
 - OS / Runtime: Debian 系ゲスト, systemd
 - Edge/Proxy: Nginx, HAProxy, Cloudflare, Tailscale
 - Data/Backup: MariaDB, Proxmox Backup Server
-- Security / Secrets: Ansible Vault
+- Security / Secrets: Infisical
 - Quality Gate: ansible-lint, pre-commit (gitleaks)
 
 ## 主要ワークロード
@@ -40,7 +40,7 @@ Proxmox 上での VM/LXC 作成は Terraform、各ホストの設定は Ansible 
 - **Ansible (`ansible/`)**
 	- Playbook で適用順序を定義し、Role で責務分離
 	- `inventory` でホスト特性を管理し、`group_vars` / `host_vars` で設定を分離
-	- Vault によるシークレット注入を前提化
+	- Infisical 起点の環境変数（`lookup('env', ...)`）によるシークレット注入を前提化
 
 - **Network Design**
 	- Public/Edge/DMZ/LAN/Console の層構造で運用境界を明確化
@@ -169,7 +169,7 @@ flowchart TB
 - インフラ作成（Terraform）と構成適用（Ansible）を分離し、変更影響を局所化
 - 役割ごとに Role を分割し、再利用性と保守性を確保
 - 変数設計により、環境差分（ノード、VMID、ストレージ）へ追従しやすい構造を採用
-- セキュリティを「運用手順」ではなく「設計」に組み込み（Vault + gitleaks）
+- セキュリティを「運用手順」ではなく「設計」に組み込み（Infisical + gitleaks）
 
 ## ディレクトリガイド
 
@@ -177,7 +177,7 @@ flowchart TB
 - `terraform/modules/`: VM / Container モジュール
 - `ansible/playbooks/`: 適用エントリポイント
 - `ansible/roles/`: 各コンポーネントの構成管理
-- `ansible/inventory/`: ホスト定義・変数・Vault
+- `ansible/inventory/`: ホスト定義・変数（シークレット値は Infisical から環境変数経由で注入）
 - `scripts/dump_cloudflare_config.sh`: 既存 Cloudflare 構成のダンプ（Terraform 化の下調べ用）
 - `scripts/migrate-vault-to-infisical.py`: Ansible Vault から Infisical へのシークレット移送
 
@@ -200,11 +200,41 @@ infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- terraform
 cd ../ansible
 ansible-galaxy collection install -r collections/requirements.yml
 ansible-lint playbooks/site.yml
+
+# 実機に触れない構文/差分確認も Infisical 経由で行う（vault パスワードの入力は発生しない）
+infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- \
+  ansible-playbook playbooks/site.yml --syntax-check
 ```
 
 ## 補足
 
 - 秘密情報は Infisical（`prod` 環境）に集約し、平文で管理しない設計です
 - Terraform 用シークレットは `TF_VAR_` 接頭辞を保持したまま Infisical に格納し、`infisical run` で子プロセスの環境変数として供給します
+- Ansible 用シークレットは一般名の変数から `lookup('env', ...)` で参照し、`infisical run` が子プロセスへ注入する環境変数を解決先とします
 - Proxmox への認証はパスワードではなく API トークンで行います（`proxmox_auth_method = "token"`）
 - `terraform.tfstate` は機微情報を含み得るため、保管と共有ポリシーを分離して運用します
+
+## 手動作業として残っている項目
+
+自動化の対象外、または本リファクタでは要否判断のみ行い実施を運用者に委ねた作業です。
+
+- **k3s node token のローテーション**: 移行前に平文でコミットされていた期間が git 履歴に残るため、
+  値そのもののローテーションが必要です（履歴の書き換えは対象外）。
+
+以下は 2026-08-31 時点で解消済みです（参考のため経緯を残します）:
+
+- ~~削除対象アプリの残存データ~~: 確認時点で `outline` / `planka` データベースと Garage バケット
+  `outline` は既に存在しないことを確認しました（記録時点以降に Garage・`postgres-cluster` 双方が
+  再構築されたため）。`minio-pv`（PersistentVolume）は不要と判断済みのため削除しました。
+- ~~`postgres-credentials`・`garage-backup-secrets` への値投入~~: `postgres-credentials` は
+  openssl で生成したダミー値を投入（参照元がなく実害なし）。`garage-backup-secrets` は
+  `GARAGE_BACKUP_ENCRYPTION_PASSWORD`（openssl 生成）と `GARAGE_BACKUP_RCLONE_CONFIG`（Google Drive
+  OAuth token）を投入し、rclone による定期バックアップの動作を確認済みです。
+- ~~`garage` / `home-assistant` の Ingress TLS 誤名参照~~: `secretName` を実在の `tls-fickledev-com`
+  へ修正しました。
+- ~~CNPG バックアップの不備~~: Garage に `cnpg-backups` バケットとアクセスキーを作成し、
+  `s3Credentials.region`（Garage の `s3_region = "garage"`）を Cluster 定義に追加、Infisical へ
+  `CNPG_GARAGE_BACKUP_ACCESS_KEY_ID` / `_ACCESS_SECRET_KEY` / `_REGION` を投入しました。
+  region 未指定のままだと Garage 側が `Authorization header malformed, unexpected scope` で
+  拒否するため、Pod 再起動を伴う反映が必要でした（`postgres-cluster` / `authentik-fickledev-cluster`
+  とも `ContinuousArchiving=True` に到達済み）。

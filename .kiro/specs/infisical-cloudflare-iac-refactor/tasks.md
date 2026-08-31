@@ -8,7 +8,7 @@
 
 ---
 
-- [ ] 1. 不可逆性への備えとシークレットの移送
+- [x] 1. 不可逆性への備えとシークレットの移送
 
 - [x] 1.1 Infisical プロジェクトの初期化とシークレット命名規約の確定
   - リポジトリルートに Infisical のプロジェクト参照ファイルを配置し、環境スラグ `prod` を単一の環境として用いる
@@ -43,7 +43,7 @@
 
 ---
 
-- [ ] 2. リポジトリ衛生とホスト更新の整備
+- [x] 2. リポジトリ衛生とホスト更新の整備
 
 - [x] 2.1 (P) 除外パターンの是正と追跡対象の復帰
   - Ansible の設定ファイルを巻き込んでいる除外パターンを限定し、当該ファイルを追跡対象に戻す
@@ -90,7 +90,7 @@
 
 ---
 
-- [ ] 3. Ansible / Terraform のシークレット供給の切り替え
+- [x] 3. Ansible / Terraform のシークレット供給の切り替え
 
 - [x] 3.1 Ansible 変数の束縛先を環境変数へ置換
   - 既存の変数間接化層の構造を変えず、シークレット変数の右辺のみを環境変数参照へ差し替える
@@ -125,7 +125,7 @@
 
 ---
 
-- [ ] 4. Kubernetes シークレット供給の Infisical への集約
+- [x] 4. Kubernetes シークレット供給の Infisical への集約
 
 - [x] 4.1 Infisical Operator の導入
   - Operator を Argo CD の管理対象アプリケーションとして定義し、クラスタへ導入する
@@ -166,7 +166,7 @@
 
 ---
 
-- [ ] 5. 不要なアプリケーションとクラスタ内残骸の除去
+- [x] 5. 不要なアプリケーションとクラスタ内残骸の除去
 
 - [x] 5.1 aramakisai 系アプリケーションの削除
   - authentik-aramakisai、cloudflared-aramakisai、outline、planka のマニフェストを除去する
@@ -200,9 +200,9 @@
 
 ---
 
-- [ ] 6. Terraform state の外部保管への移行
+- [x] 6. Terraform state の外部保管への移行
 
-- [ ] 6.1 state バックエンドへの接続と移行
+- [x] 6.1 state バックエンドへの接続と移行
   - ルートモジュールに外部の state バックエンドへの接続定義を追加し、ワークスペースを1件割り当てる
   - 組織名とワークスペース名は定数として記述する。接続定義は変数補間を受け付けないため、値を変数から与えない
   - 実行モードをローカルとし、構成計画と適用を作業者の環境で行う構成にする
@@ -214,10 +214,22 @@
   - 完了状態: state 移行後の構成計画が差分なしを出力し、ローカルの state ファイルに依存せず適用できる
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
   - _Depends: 3.3_
+  - 進捗: HCP Terraform への接続と state 移行自体は完了。検証で3件の既存ドリフトを発見・解消:
+    (1) Infisical の `TF_VAR_proxmox_api_token_id` が Ansible 用トークン(`root@pam!ansible`)を
+    指しており Terraform 用トークンが一度も使われていなかった。Proxmox 側で `terraform@pve!terraform`
+    を再作成し Infisical へ書き戻して解消。(2) state 上 `module.virtual_machines["omv"]` とコード上
+    `"nas"` の名前不一致(実体は同一VM、vmid=201)を `terraform state mv` で解消。(3) gitea/pbs/
+    k3s-agent-minipc/k3s-agent-z440/nas の5〜6リソースが `clone`/`disk`/`serial_device`/
+    `operating_system`/`machine` の未記録により force-replace 判定されていた件
+    (移行前の state から存在した既存の技術的負債、6.1 自体が生んだものではないと pre-migration
+    バックアップで確認済み)。`disk` は実在データ入りディスクの誤破壊リスクがあったため
+    `modules/vm/main.tf` と `modules/container/main.tf` に `lifecycle.ignore_changes` を追加して回避。
+    残る SSH 公開鍵差分(旧RSA→現行ed25519)は VM 4台を順次 graceful shutdown → apply → 起動で反映
+    (container 2台は無停止で適用)。最終 `terraform plan` は "No changes." で収束。
 
 ---
 
-- [ ] 7. Cloudflare 構成の Terraform 化と cloudflared の責務分離
+- [x] 7. Cloudflare 構成の Terraform 化と cloudflared の責務分離
 
 - [x] 7.1 現状構成のダンプ取得
   - Cloudflare API から現状の構成を取得し、コード化漏れの突き合わせ材料として保存する
@@ -226,7 +238,7 @@
   - 完了状態: 現状の全構成が構造化された形で手元に保存され、実在するリソース種別が判別できる
   - _Requirements: 3.5_
 
-- [ ] 7.2 Cloudflare プロバイダの追加と認証の分離
+- [x] 7.2 Cloudflare プロバイダの追加と認証の分離
   - 既存のルートモジュールに Cloudflare プロバイダを追加し、メジャーバージョンを明示的に固定する
   - 証明書発行用の既存トークンとは分離した Terraform 専用の認証情報を用いる構成にする
   - アカウントとゾーンの識別子を変数として受け取る形にする
@@ -235,7 +247,7 @@
   - _Requirements: 3.6, 3.7_
   - _Depends: 6.1_
 
-- [ ] 7.3 既存 Cloudflare 構成のコード化と state への取り込み
+- [x] 7.3 既存 Cloudflare 構成のコード化と state への取り込み
   - DNS レコード、ゾーン設定、WAF ルールセット、Zero Trust トンネル、Access のアプリケーションとポリシーをコードとして定義する
   - 7.1 のダンプで実在が確認できた R2 バケットと Workers スクリプトのみを定義する
   - 既存リソースを削除せずに state へ取り込む
@@ -245,14 +257,14 @@
   - 完了状態: 構成計画が差分なしを出力し、稼働中の Cloudflare 設定と Proxmox リソースがいずれも失われていない
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.8_
 
-- [ ] 7.4 cloudflared トンネルの Terraform への集約
+- [x] 7.4 cloudflared トンネルの Terraform への集約
   - トンネル本体と、公開ホスト名に対する経路定義を Terraform 側で管理する
   - トンネルトークンを Terraform の出力に含めず、Infisical が保持する構成とする
   - 経路定義の変更が Terraform 側の変更のみで完結することを確認する
   - 完了状態: トンネルと全公開ホスト名の経路が Terraform で管理され、state にトンネルトークンが記録されていない
   - _Requirements: 9.1, 9.4_
 
-- [ ] 7.5 Kubernetes 上の cloudflared の実行専任化
+- [x] 7.5 Kubernetes 上の cloudflared の実行専任化
   - マニフェストからトンネル識別子と認証情報の直接記述を除去する
   - 経路定義を保持せず、トンネルの実行のみを担う構成に変更する
   - 認証情報を Infisical 起点で供給する
@@ -263,7 +275,7 @@
 
 ---
 
-- [ ] 8. デプロイ経路の Argo CD への一本化
+- [x] 8. デプロイ経路の Argo CD への一本化
 
 - [x] 8.1 基盤コンポーネントの Argo CD 定義の追加
   - cert-manager、ClusterIssuer、ワイルドカード証明書、reflector、reloader を Argo CD が管理するアプリケーションとして定義する
@@ -315,7 +327,7 @@
 
 ---
 
-- [ ] 9. 収束の検証
+- [x] 9. 収束の検証
 
 - [x] 9.1 クラスタとリポジトリの一致確認
   - すべての Application について同期状態と健全性が正常であることを確認する
@@ -333,13 +345,23 @@
     検証手順は `/tmp/.../scratchpad/verify-drift.sh` に記録。garage/home-assistant の Ingress TLS
     にも同種の誤名参照(`tls-fickledev`)が残るが Pod 起動はブロックせず実害なし、別途対応が望ましい。
 
-- [ ] 9.2 Terraform の収束確認とコード化漏れの検出
+- [x] 9.2 Terraform の収束確認とコード化漏れの検出
   - 構成計画が差分なしを出力することを確認する
   - 7.1 のダンプと state の管理対象一覧を突き合わせ、コード化されていない Cloudflare リソースが残っていないことを確認する
   - 外形からの確認として DNS 応答と公開ホスト名への HTTPS 到達を検証する
   - 完了状態: 構成計画が差分なしで、ダンプに存在して state に存在しないリソースが検出されない
   - _Requirements: 3.4, 3.5, 4.2_
   - _Depends: 6.1, 7.3_
+  - 進捗: `infisical run` 経由の `terraform plan` は "No changes." で収束。`.discovery/` ダンプと
+    state を突合: R2 は未有効化(ダンプが `10042 Please enable R2` エラー)、Workers は空配列のため
+    いずれも未定義が正しい。WAF ruleset 4件は全て Cloudflare 管理デフォルト(カスタムルールなし)
+    のため `cloudflare_waf.tf` で意図的に未コード化(コメントで記録済み)。DNS レコード 21件中 14件が
+    state 管理下、残り 7件は cert-manager が動的に生成/削除する `_acme-challenge` TXT で対象外。
+    tunnel 2件・zone setting 45件・Access アプリ/ポリシー各1件は全て state 一致。外形確認:
+    トンネル経由の idp/crafty/console.fickledev.com は HTTPS 302 で到達正常。fickledev.com/
+    www.fickledev.com (オリジン 163.44.119.79 への直接プロキシ、gitops/README に記載なし =
+    本 spec の管理対象クラスタ外ホスト) は 521 だが、DNS レコードは既存インポート値のまま変更
+    しておらず、本リファクタによる回帰ではないと判断。
 
 - [x] 9.3 リポジトリ再現性の確認
   - clone した状態から、Infisical 経由での実行により Ansible と Terraform の双方が動作することを確認する
@@ -352,15 +374,25 @@
 
 ---
 
-- [ ] 10. ドキュメントと規約の同期
+- [x] 10. ドキュメントと規約の同期
 
-- [ ] 10.1 シークレット管理方式の記述更新
+- [x] 10.1 シークレット管理方式の記述更新
   - シークレット管理方式として Infisical を記載し、Ansible Vault・SealedSecrets・SOPS を前提とした記述を除去する
   - 再現性確認の手順を Infisical 経由での実行を前提とした形に更新する
   - コード生成時の前提を定める規約ファイルの記述を、実装後の方式と一致させる
   - 自動化されず手動作業として残る項目を、実施が必要な作業として明示する。k3s node token が git 履歴に残るためローテーションが必要である旨と、その対象を含める
   - 完了状態: 両リポジトリのドキュメントと規約に旧シークレット機構の記述が残らず、手動作業の一覧が存在する
   - _Requirements: 2.6, 6.1, 6.2, 6.4, 6.5_
+  - 進捗: my-home-network 側で旧機構(Ansible Vault)への言及を Infisical に置換
+    (`README.md`, `.kiro/steering/product.md`, `.kiro/steering/tech.md`,
+    `.kiro/steering/structure.md`)。コード生成規約 `.github/instructions/rule.instructions.md` の
+    「Ansible Vaultや外部シークレット管理を想定」も Infisical 前提へ更新。README の再現性確認手順に
+    Infisical 経由の Ansible 実行例（`infisical run -- ansible-playbook ... --syntax-check`）を追加。
+    gitops-apps 側の README/CLAUDE.md/docs は旧機構への言及が元から存在せず修正不要と確認済み。
+    README に「手動作業として残っている項目」セクションを新設し、k3s node token ローテーション、
+    削除対象アプリの残存データ4件（`deletion-verification.md` 参照）、
+    `postgres-credentials`/`garage-backup-secrets` の値未投入、`tls-fickledev` 誤名参照、
+    CNPG バックアップ不備を明示した。
 
 - [x] 10.2 (P) ネットワーク図の実態への同期
   - 実体を持たないコンポーネントを図から除去する

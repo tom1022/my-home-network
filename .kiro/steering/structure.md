@@ -30,8 +30,10 @@
 ### Inventory
 **Location**: `ansible/inventory/`
 **Purpose**: `inventory.yml` にホスト/グループ定義、`group_vars/<group>/`・`host_vars/<host>/` に
-変数を分離。秘匿値は同階層の `vault.yml`（Vault 暗号化）+ `vault.yml.example`（構造のみ）で管理。
-**Example**: `host_vars/vps/vault.yml` と `host_vars/vps/vault.yml.example` が対になる。
+変数を分離。秘匿値は一般名の変数から `lookup('env', 'VAR_NAME')` で参照し、Infisical が
+`infisical run` 経由で供給する環境変数を解決先とする。同階層の `vault.yml.example` は移行前の
+変数名一覧として残置しているのみで、供給経路としては使わない。
+**Example**: `group_vars/all/main.yml` の `proxmox_api_token_secret: "{{ lookup('env', 'PROXMOX_API_TOKEN_SECRET') }}"`。
 
 ### GitOps Bootstrap
 **Location**: `gitops/apps/`
@@ -45,7 +47,7 @@
 - **Ansible Role/Playbook**: snake_case（例: `vps_proxy`, `proxmox_backup`）
 - **Terraform Resource/Variable**: snake_case
 - **Inventory Host**: kebab-case（例: `k3s-agent-minipc`）
-- **Vault ファイル**: `vault.yml`（実体, 暗号化）+ `vault.yml.example`（サンプル, 平文プレースホルダ）
+- **Infisical シークレットキー**: `vault_` 接頭辞を除去した大文字スネークケース（例: `vault_proxmox_api_token_secret` → `PROXMOX_API_TOKEN_SECRET`）。Terraform 用のみ `TF_VAR_` 接頭辞を保持する。
 
 ## Code Organization Principles
 
