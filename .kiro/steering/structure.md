@@ -32,15 +32,19 @@
 **Purpose**: `inventory.yml` にホスト/グループ定義、`group_vars/<group>/`・`host_vars/<host>/` に
 変数を分離。秘匿値は一般名の変数から `lookup('env', 'VAR_NAME')` で参照し、Infisical が
 `infisical run` 経由で供給する環境変数を解決先とする。同階層の `vault.yml.example` は移行前の
-変数名一覧として残置しているのみで、供給経路としては使わない。
+変数名一覧として残置しているのみで、供給経路としては使わない。作業ツリーに残る暗号化済み
+`vault.yml` が全 play を停止させている点は `tech.md` の Secrets 節を参照。
 **Example**: `group_vars/all/main.yml` の `proxmox_api_token_secret: "{{ lookup('env', 'PROXMOX_API_TOKEN_SECRET') }}"`。
 
 ### GitOps Bootstrap
 **Location**: `gitops/apps/`
 **Purpose**: ArgoCD ApplicationSet の初期投入定義のみ（`gitops-apps-set.yaml`）。実際のアプリ
 マニフェストは別リポジトリ `gitops-apps`（Gitea: `giteaadmin/gitops-apps.git`, ローカルでは
-`../gitops-apps`）の `apps/*` を ApplicationSet が監視・同期する。本リポジトリはこの別repoの
-内容を管理しない。
+`../gitops-apps`）の `apps/*` を ApplicationSet が監視・同期する。通常の運用では本リポジトリは
+この別 repo の内容を管理しない。
+
+ただし `.kiro/specs/` に置く仕様は例外で、`gitops-apps` および `portfolio` への変更を含めて
+1 本の spec で横断管理することがある。各 spec の Boundary Commitments が対象範囲を定める。
 
 ## Naming Conventions
 
