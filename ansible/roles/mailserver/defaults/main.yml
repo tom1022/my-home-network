@@ -1,0 +1,88 @@
+---
+# 対象版: docker-mailserver v16.0.0 (Dovecot 2.4系。research.md 4/6で実証した系列と一致)。
+# タグではなくダイジェスト (マニフェストリスト) で固定する。2026-09-03に
+# `docker manifest inspect` および Docker Hub API でタグ16.0.0のマニフェストリストと
+# 一致することを確認済み。
+mailserver_image: "mailserver/docker-mailserver@sha256:5961d79488def84b030a2e164168dd64fb262ac6a2393a4f77b3ceebe5261d4f"
+mailserver_container_name: mailserver
+
+mailserver_hostname: "mail.{{ vps_proxy_domain_main }}"
+mailserver_postmaster_address: "postmaster@{{ vps_proxy_domain_main }}"
+
+mailserver_base_dir: /opt/mailserver
+mailserver_data_dir: "{{ mailserver_base_dir }}/data"
+# docker-mailserver 自身のステージングディレクトリ (dovecot.cf / user-patches.sh)。
+mailserver_dms_config_dir: "{{ mailserver_base_dir }}/config"
+# /etc/ldap/ldap.conf 専用。dms_config_dir と分けるのは、docker-mailserver のステージング
+# ディレクトリに紛れ込ませて誤読させないため (k3s 側の mailbox-config が configMap.items で
+# ldap.conf を conf.d ボリュームから分離しているのと同じ理由)。
+mailserver_ldap_config_dir: "{{ mailserver_base_dir }}/ldap"
+
+# VPS で終端する待受。取得 (IMAPS/993) は格納側 (k3s) へ経路透過で中継するため、この
+# コンテナには公開しない (中継定義は host_vars/vps/main.yml の vps_proxy_tcp_listeners)。
+# 143/4190 は用いないため待受も中継も持たない。
+mailserver_terminated_tcp_ports:
+  - 25
+  - 465
+  - 587
+
+# 認証基盤 (Kanidm、iac-hygiene-remediation が 1.11.1 に固定済み)。submission の認証は
+# bind DN テンプレート方式であり検索を行わないため、検索用サービスアカウント
+# (mail-ldap-search、6.3 で使用) の資格情報はここでは用いない。
+# VPS はクラスタ内 ClusterIP ではなくノードの NodePort へ直接到達する (k3s 側の
+# Dovecot が ldaps://...:3636 (Service ポート、CoreDNS経由でClusterIPへ解決) を使うのとは
+# 異なる。VPS はノードの実アドレスへ直接つなぐため NodePort (30636) を使う。3636で試すと
+# 何も待ち受けておらずConnection refusedになることを実機で確認した)。
+mailserver_kanidm_ldaps_host: ldaps.kanidm.fickledev.com
+mailserver_kanidm_ldaps_port: 30636
+mailserver_kanidm_base_dn: dc=kanidm,dc=fickledev,dc=com
+mailserver_kanidm_app_name: mail
+
+# 宛先照合 (task 6.3)。mail-ldap-search の bind DN はサーバ生成の API トークンによる
+# `dn=token` bind (research.md タスク3.2)。パスワードには Infisical の
+# MAIL_LDAP_SEARCH_PASSWORD (中身はトークン、mailserver_ldap_search_password) を使う。
+mailserver_ldap_search_bind_dn: "dn=token"
+
+# メール属性 (mail) はインデックスされていないため、必ずインデックス済み属性との論理積で
+# 検索する (research.md タスク3.2/6)。class はエントリの型を表す Kanidm の基幹属性であり、
+# person 型の絞り込みに標準的に使われるインデックス済み属性である。宛先ごとの照合
+# (LDAP_QUERY_FILTER_USER) とドメイン単位の照合 (LDAP_QUERY_FILTER_DOMAIN) を同じ形式
+# (mail との論理積) で組み立てる。ドメインの許可集合を別途静的に持たないのは、Kanidm 側の
+# person の mail 属性がそのまま真実の情報源であるため。
+mailserver_ldap_query_filter_user: "(&(mail=%s)(class=person))"
+mailserver_ldap_query_filter_domain: "(&(mail=*@%s)(class=person))"
+
+# メーリングリストとエイリアスは非対象 (design.md Non-Goals) だが、ACCOUNT_PROVISIONER=LDAP
+# を有効化すると DMS は virtual_alias_domains/virtual_alias_maps を無条件に
+# ldap:/etc/postfix/ldap-aliases.cf・ldap-groups.cf へ配線し、この2つを無効にする経路は
+# ない。フィルタを空文字列のまま残すと不正な LDAP フィルタとして検索そのものが失敗し
+# ("Can't contact LDAP server" という誤解を招く形でログに現れる、実際は空フィルタが原因。
+# research.md タスク6.3で実機確認済み)、trivial-rewrite の virtual_alias_domains 解決が
+# 全ての宛先に対して一律 451 (一時エラー) を返してしまう。要件2.7が求める「存在しない
+# 宛先の恒久的な拒否」を成立させるには、この2テーブルが構文的に有効かつ常に0件を返す
+# 状態にする必要がある。class=group は実在する属性名 (実在しない属性名を使うと Kanidm が
+# 未定義属性としてエラーを返す可能性があるため避ける) だが、Kanidm のグループエントリは
+# mail 属性を持たないため、この論理積は常に空を返す。
+mailserver_ldap_query_filter_alias: "(&(mail=%s)(class=group))"
+mailserver_ldap_query_filter_group: "(&(mail=%s)(class=group))"
+
+# 配送先 (task 6.3)。格納側 (k3s) の Dovecot LMTP 受け口。Pod は mailbox-data の PV
+# nodeAffinity により k3s-agent-minipc に固定されている (research.md タスク5.1-5.4)。
+# LDAPS 公開経路のようなホスト名は持たない (証明書の対象名一致を要する接続ではないため、
+# ノードを跨いで複数A レコードを持たせる必要がなく、固定ノードに対する固定IPの方が単純
+# かつ確実)。ノードの固定が崩れた場合は待ち行列への滞留として顕在化する。
+mailserver_mailbox_lmtp_host: 192.168.1.151
+mailserver_mailbox_lmtp_port: 30024
+
+# ldaps.kanidm.fickledev.com は公開DNS上、実在する複数のプライベート(RFC1918)アドレス
+# (k3sの各ノード) を指す (terraform/cloudflare_dns.tf の kanidm_ldaps_a_records)。ホストの
+# 既定リゾルバ経路 (systemd-resolved → tailscale0のcatch-allルート) は、公開ドメインが
+# プライベートアドレスへ解決する応答を DNS リバインディング対策として drop するため、ホスト
+# 側は /etc/hosts の静的登録 (vps_proxy の vps_static_dns_overrides) で回避している。
+# Dovecot の内部 DNS クライアントは /etc/hosts (NSS) を参照しない (research.md 段階5、k3s の
+# hostAliases で実機確認済み。同一の Dovecot 実装のためコンテナ側でも同じ制約を前提とする)。
+# コンテナの DNS を Tailscale のフィルタを経由しないパブリックリゾルバへ直接向け、公開DNSの
+# 応答をそのまま使わせる。
+mailserver_container_dns_servers:
+  - 1.1.1.1
+  - 1.0.0.1

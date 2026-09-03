@@ -1,0 +1,30 @@
+{{ ansible_managed | comment }}
+# docker-mailserver の公式な上書き経路 (/tmp/docker-mailserver/dovecot.cf →
+# コンテナ内 /etc/dovecot/local.conf。dovecot.conf 末尾の !include_try local.conf で
+# 読み込まれる)。既定の /etc/dovecot/conf.d/auth-ldap.conf.ext は user-patches.sh で
+# 空に置き換えている (Kanidm に存在しない uniqueIdentifier/userPassword を参照する既定の
+# fields ブロックが、ここに置く passdb ldap ブロックと同名でマージされ
+# "ldap: unknown user" になるため。research.md タスク1.3で実機確認済み)。
+# submission の認証もこの passdb を経由する (要件4.2)。
+
+passdb ldap {
+  ldap_uris = ldaps://{{ mailserver_kanidm_ldaps_host }}:{{ mailserver_kanidm_ldaps_port }}
+  ldap_base = {{ mailserver_kanidm_base_dn }}
+  # 検索で得た DN では bind しない。bind DN はテンプレートで組み立てる (要件2.4/4.3)。
+  bind = yes
+  bind_userdn = spn=%{user},app={{ mailserver_kanidm_app_name }},{{ mailserver_kanidm_base_dn }}
+  # bind 方式では値自体は評価されないが、Dovecot 2.4 は非空の値を要求する
+  # (空だと "No passdb_ldap_filter given" で起動に失敗する。未文書化の制約、
+  # research.md タスク1.3で実機確認済み)。
+  passdb_ldap_filter = (spn=%{user})
+}
+
+# submission の認証結果 (成否) のみを用いる。VPS はメールボックスの実体を持たないため
+# 静的な userdb は実際には参照されない。
+userdb static {
+  fields {
+    uid = vmail
+    gid = vmail
+    home = /tmp/dovecot-unused/%{user}
+  }
+}

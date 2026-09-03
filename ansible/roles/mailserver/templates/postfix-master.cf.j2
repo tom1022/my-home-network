@@ -1,0 +1,17 @@
+{{ ansible_managed | comment }}
+# docker-mailserver の公式な上書き経路 (/tmp/docker-mailserver/postfix-master.cf →
+# 行ごとに postconf -P へ渡される。形式は <service>/<type>/<parameter>=<value> で
+# 値との間に空白を置けない)。新規の service スタンザは追加できず、既存の master.cf
+# エントリのパラメータ上書きのみが可能。
+#
+# 格納側 (k3s) の Dovecot LMTP 受け口はポート名が "lmtps" で ssl = yes 固定であり、
+# 平文で接続してから STARTTLS するのではなく、接続直後から暗黙 TLS を要求する
+# (research.md タスク6.3、k3s 側 doveconf -n の service lmtp { inet_listener lmtps }
+# で実機確認済み)。main.cf の virtual_transport が使う既存の "lmtp" サービスに
+# 暗黙 TLS を要求させる。証明書はクラスタ内ワイルドカード証明書 (*.fickledev.com) だが
+# 接続先はホスト名を持たない固定IPであるため対象名の検証はできず、tailnet 自体が
+# 経路を認証済みの WireGuard 上に閉じることを踏まえ、暗号化のみを必須とする
+# (LDAPS のような証明書検証必須の接続とは要件の対象が異なる。要件3.3/3.4/4.10は
+# 認証基盤への接続を指し、この配送経路は対象外)。
+lmtp/unix/lmtp_tls_wrappermode=yes
+lmtp/unix/lmtp_tls_security_level=encrypt

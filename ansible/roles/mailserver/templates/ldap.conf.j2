@@ -1,0 +1,10 @@
+{{ ansible_managed | comment }}
+# 要件3.4/4.10: Dovecot の認証用 LDAP クライアント (libldap) は OpenSSL の既定 CA ストアを
+# 自動継承せず、環境変数 LDAPTLS_CACERT も Dovecot のプロセスモデルでは伝播しない
+# ("TLS: peer cert untrusted or revoked" で拒否される。research.md 段階5で k3s 側にて実機
+# 確認済み、同一の Dovecot 実装のため VPS 側も同じ制約で構成する)。libldap が直接読む
+# OpenLDAP 標準の設定ファイルにこの CA ストアを指定することで解消する。Kanidm の証明書は
+# 公開 CA (Let's Encrypt) が発行するため、コンテナ既定の CA バンドルで検証できる。
+TLS_CACERT /etc/ssl/certs/ca-certificates.crt
+# StartTLS は用いない (ldaps:// のみ) が、検証を無効化する設定を保持しないことを明示する。
+TLS_REQCERT demand

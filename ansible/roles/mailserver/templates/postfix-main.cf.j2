@@ -1,0 +1,12 @@
+{{ ansible_managed | comment }}
+# docker-mailserver の公式な上書き経路 (/tmp/docker-mailserver/postfix-main.cf →
+# 起動時に既定の main.cf へ追記され、postconf -nf で重複を除去)。
+#
+# 既定値 (lmtp:unix:/var/run/dovecot/lmtp) は VPS 自身のローカル Dovecot 宛であり、
+# メールボックスの実体を持たない本構成では宛先として誤り (要件5.2)。格納側 (k3s) の
+# LMTP 受け口へ直接引き渡す。到達できない場合は Postfix 標準の再試行機構により待ち行列に
+# 留まる (追加の実装を要しない、design.md 受信と配送フロー)。
+#
+# ホスト名解決を用いない (defaults/main.yml 参照)。角括弧はネクストホップの MX 参照を
+# 抑止し、直接そのアドレスへ接続させる。
+virtual_transport = lmtp:[{{ mailserver_mailbox_lmtp_host }}]:{{ mailserver_mailbox_lmtp_port }}

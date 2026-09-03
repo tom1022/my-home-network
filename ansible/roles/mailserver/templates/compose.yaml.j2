@@ -1,0 +1,62 @@
+{{ ansible_managed | comment }}
+services:
+  mailserver:
+    image: {{ mailserver_image }}
+    container_name: {{ mailserver_container_name }}
+    hostname: {{ mailserver_hostname }}
+    restart: unless-stopped
+    # 取得 (IMAPS/993) はここに公開しない。vps_proxy の nginx stream (host_vars/vps)
+    # が格納側 (k3s) の NodePort へ経路透過で中継し、この待受は使わない。143/4190 は
+    # 用いないため待受も中継も持たない。
+    ports:
+{% for port in mailserver_terminated_tcp_ports %}
+      - "{{ port }}:{{ port }}"
+{% endfor %}
+    dns:
+{% for ns in mailserver_container_dns_servers %}
+      - {{ ns }}
+{% endfor %}
+    environment:
+      OVERRIDE_HOSTNAME: {{ mailserver_hostname }}
+      POSTMASTER_ADDRESS: {{ mailserver_postmaster_address }}
+      # メール用ホスト名の証明書 (要件4.7)。vps_proxy が管理する ACME ワイルドカード
+      # 証明書 (*.{{ vps_proxy_domain_main }}) を /etc/letsencrypt ごと読み取り専用で
+      # マウントし (below の volumes)、DMS 自身の letsencrypt サポートに委ねる。
+      # SSL_DOMAIN を明示するのは、mailserver_hostname (mail.{{ vps_proxy_domain_main }})
+      # に一致するフォルダが live/ に存在しないため、DMS のホスト名フォールバック
+      # (完全一致 → 親ドメイン → 単一レイニージ) に依存せず対象を確定させるため。
+      # 証明書の更新反映 (要件4.13) は DMS 自身の changedetector が担う。DMS は
+      # /etc/letsencrypt/live/${SSL_DOMAIN}/*.pem の内容ハッシュを既定 2 秒間隔で
+      # 監視しており (docker-mailserver の change-detection.sh)、certbot renew による
+      # 更新後の symlink 差し替えを検知すると postfix と dovecot を自動で reload する。
+      # ACCOUNT_PROVISIONER=LDAP はこの監視・reload 自体を無効化しない
+      # (check-for-changes.sh に LDAP 分岐は存在しない、2026-09-03 に実装元を確認済み)。
+      SSL_TYPE: letsencrypt
+      SSL_DOMAIN: "{{ vps_proxy_domain_main }}"
+      # 宛先照合 (要件2.7/6.8)。Postfix 側の virtual_mailbox_domains/virtual_mailbox_maps を
+      # LDAP 検索で組み立てる。6.1/6.2 時点でこの変数を設定しなかったのは LDAP_BIND_DN 等を
+      # 与えずに有効化すると DMS既定のダミー bind DN (cn=admin,dc=example,dc=com) が使われ、
+      # resultCode 80 で submission ごと機能しなくなったため (research.md タスク6.1/6.2)。
+      # 今回は検索用サービスアカウントの bind DN とフィルタを明示して与える。
+      ACCOUNT_PROVISIONER: LDAP
+      LDAP_SERVER_HOST: "ldaps://{{ mailserver_kanidm_ldaps_host }}:{{ mailserver_kanidm_ldaps_port }}"
+      LDAP_SEARCH_BASE: "{{ mailserver_kanidm_base_dn }}"
+      LDAP_BIND_DN: "{{ mailserver_ldap_search_bind_dn }}"
+      LDAP_BIND_PW: "{{ mailserver_ldap_search_password }}"
+      LDAP_QUERY_FILTER_USER: "{{ mailserver_ldap_query_filter_user }}"
+      LDAP_QUERY_FILTER_DOMAIN: "{{ mailserver_ldap_query_filter_domain }}"
+      # メーリングリストとエイリアスは非対象 (design.md Non-Goals) だが、空文字列のままだと
+      # 不正な LDAP フィルタとして検索が失敗し宛先照合全体が道連れで壊れる
+      # (defaults/main.yml のコメント参照)。常に0件を返す構文的に有効なフィルタを与える。
+      LDAP_QUERY_FILTER_ALIAS: "{{ mailserver_ldap_query_filter_alias }}"
+      LDAP_QUERY_FILTER_GROUP: "{{ mailserver_ldap_query_filter_group }}"
+    volumes:
+      - {{ mailserver_data_dir }}/mail-data:/var/mail/
+      - {{ mailserver_data_dir }}/mail-state:/var/mail-state/
+      - {{ mailserver_data_dir }}/mail-logs:/var/log/mail/
+      - {{ mailserver_dms_config_dir }}:/tmp/docker-mailserver/
+      - {{ mailserver_ldap_config_dir }}/ldap.conf:/etc/ldap/ldap.conf:ro
+      # live/ の中身は archive/ を指すシンボリックリンクのため、live 配下だけを
+      # 切り出さずディレクトリ全体を読み取り専用でマウントする (DMS 公式手順どおり)。
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /etc/localtime:/etc/localtime:ro

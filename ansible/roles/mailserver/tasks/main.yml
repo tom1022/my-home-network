@@ -1,0 +1,147 @@
+---
+# 前提変数の検査 → 配置 → 起動。
+- name: Ensure mail platform credentials are supplied
+  ansible.builtin.assert:
+    that:
+      - mailserver_ldap_search_password | default('') | length > 0
+      - mailserver_dkim_private_key | default('') | length > 0
+    fail_msg: >-
+      Mail platform credentials are missing. Supply them via Infisical
+      (MAIL_LDAP_SEARCH_PASSWORD, MAIL_DKIM_PRIVATE_KEY) and run this
+      playbook through `infisical run --env=prod -- ansible-playbook ...`.
+
+# 受信/送信の待受に用いる証明書は本ロールでは発行しない。vps_proxy ロールが管理する
+# ACME ワイルドカード証明書 (*.{{ vps_proxy_domain_main }}) をコンテナへ読み取り専用で
+# マウントして流用するため (task 6.4)、vps_proxy が未適用のホストでは前提が崩れる。
+- name: Check for the ACME certificate that vps_proxy is expected to have provisioned
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ vps_proxy_domain_main }}/fullchain.pem"
+  register: mailserver_acme_cert_stat
+
+- name: Ensure the ACME certificate is present before deploying the mail server
+  ansible.builtin.assert:
+    that:
+      - mailserver_acme_cert_stat.stat.exists
+    fail_msg: >-
+      /etc/letsencrypt/live/{{ vps_proxy_domain_main }}/fullchain.pem is missing.
+      Run the vps_proxy role first so it obtains the ACME certificate that this
+      role mounts into the mailserver container.
+
+- name: Ensure mailserver config directories exist
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ mailserver_base_dir }}"
+    - "{{ mailserver_dms_config_dir }}"
+    - "{{ mailserver_ldap_config_dir }}"
+
+# owner/group/mode を指定しない。docker-mailserver のエントリポイントはコンテナ起動の
+# たびにこれらのディレクトリ配下 (postfix/dovecot/amavis 等、各サービス固有の非rootな
+# uid/gid) を自身の実行に必要な所有権へ chown する。ここで owner=root/mode=0750 を毎回
+# 強制すると、コンテナを再作成せずに本ロールだけ再適用した回に、稼働中の非root プロセス
+# (tlsmgr の prng_exch 再生成、postscreen のキャッシュ書き込み等) がディレクトリの
+# トラバース (実行ビット) を失い Permission denied でクラッシュループする
+# (task 6.3 で実機確認: 2回目の適用でこれらのディレクトリが root:root:0750 に戻され、
+# コンテナ未再作成のまま稼働中の tlsmgr が "tls_prng_exch_open: ... Permission denied"
+# で再起動ループに陥り、postscreen 経由の SMTP 接続がすべて応答なしでタイムアウトした)。
+# 初回作成のみ (存在しなければ become のユーザ = root で作成、以降は所有権を変更しない)。
+- name: Ensure mailserver data directories exist
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ mailserver_data_dir }}/mail-data"
+    - "{{ mailserver_data_dir }}/mail-state"
+    - "{{ mailserver_data_dir }}/mail-logs"
+
+# task 6.1/6.2 では submission の TLS を成立させるためだけの暫定的な自己署名証明書を
+# ここで生成していた。task 6.4 で vps_proxy が管理する ACME ワイルドカード証明書
+# (/etc/letsencrypt/live/{{ vps_proxy_domain_main }}、*.{{ vps_proxy_domain_main }} を含む)
+# へ切り替えたため、この生成物と専用ディレクトリは不要になった。
+- name: Remove the placeholder self-signed certificate directory (superseded by the ACME certificate)
+  become: true
+  ansible.builtin.file:
+    path: "{{ mailserver_dms_config_dir }}/ssl"
+    state: absent
+
+# 6.1/6.2 時点 (ACCOUNT_PROVISIONER 未設定=FILE方式) では、1件もアカウントが無いと
+# 起動から120秒でDovecotがシャットダウンするため、起動ゲートを満たすためだけの不使用の
+# プレースホルダアカウントを置いていた。ACCOUNT_PROVISIONER=LDAP を有効化した現在
+# (task 6.3)、この起動ゲート自体がFILE方式専用であることを実機で確認した
+# (postfix-accounts.cfを取り除いた状態でも120秒待たされずhealthyになった。
+# research.mdタスク6.3参照)。Dovecotのpassdb/userdbも本ロールの dovecot.cf 上書きのみで
+# 構成されており(6.1/6.2から変更なし)、postfix-accounts.cf由来のFILEベースのpassdb/userdb
+# はACCOUNT_PROVISIONER=LDAP下では生成されないことも確認した。したがって不要になった
+# このファイルを明示的に除去し、残置による不整合 (存在しない仮のドメインが
+# virtual_mailbox_domainsに混入する等) を避ける。
+- name: Remove the FILE-provisioner placeholder account (superseded by ACCOUNT_PROVISIONER=LDAP)
+  become: true
+  ansible.builtin.file:
+    path: "{{ mailserver_dms_config_dir }}/postfix-accounts.cf"
+    state: absent
+
+- name: Deploy the mailserver compose file (contains the LDAP search bind password)
+  become: true
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ mailserver_base_dir }}/compose.yaml"
+    owner: root
+    group: root
+    mode: "0640"
+  register: mailserver_compose_file
+  no_log: true
+
+- name: Deploy mailserver configuration files
+  become: true
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    # docker-mailserver の公式な上書き経路 (/tmp/docker-mailserver/dovecot.cf →
+    # コンテナ内 /etc/dovecot/local.conf)。
+    - src: dovecot.cf.j2
+      dest: "{{ mailserver_dms_config_dir }}/dovecot.cf"
+      mode: "0640"
+    # 起動処理の最後に実行され、既定の auth-ldap.conf.ext を完全に置き換える
+    # (直接のバインドマウントは "Device or resource busy" になるため使わない)。
+    - src: user-patches.sh.j2
+      dest: "{{ mailserver_dms_config_dir }}/user-patches.sh"
+      mode: "0750"
+    # libldap が直接読む OpenLDAP 標準の設定ファイル。/tmp/docker-mailserver/ とは別の
+    # ボリュームとしてマウントする (docker-mailserver がステージング対象と誤認しないため)。
+    - src: ldap.conf.j2
+      dest: "{{ mailserver_ldap_config_dir }}/ldap.conf"
+      mode: "0644"
+    # 配送先の LMTP 中継先 (要件5.2)。
+    - src: postfix-main.cf.j2
+      dest: "{{ mailserver_dms_config_dir }}/postfix-main.cf"
+      mode: "0640"
+    # 格納側 LMTP への暗黙 TLS 要求 (task 6.3)。
+    - src: postfix-master.cf.j2
+      dest: "{{ mailserver_dms_config_dir }}/postfix-master.cf"
+      mode: "0640"
+  register: mailserver_config_files
+
+# docker compose up -d 自身は compose.yaml (image/ports/env/volume 定義) の変更を検知して
+# 再作成するが、バインドマウントしたファイルの中身の変更までは検知しない
+# (dovecot.cf / ldap.conf / user-patches.sh の内容変更がこれに当たる) ため、
+# それらが変更された回のみ --force-recreate を足す。
+- name: Ensure mailserver container reflects the current configuration
+  become: true
+  ansible.builtin.command:
+    cmd: >-
+      docker compose up -d
+      {{ '--force-recreate' if mailserver_config_files.changed else '' }}
+    chdir: "{{ mailserver_base_dir }}"
+  register: mailserver_compose_up
+  changed_when: >-
+    (mailserver_compose_up.stdout ~ mailserver_compose_up.stderr) is regex('Container ' ~ mailserver_container_name ~ ' +(Created|Started|Recreated)\\b')

@@ -1,0 +1,14 @@
+#!/bin/bash
+{{ ansible_managed | comment }}
+# docker-mailserver の起動処理が最後に実行するフック。既定の
+# /etc/dovecot/conf.d/auth-ldap.conf.ext は検索+パスワード比較方式で、Kanidm に存在しない
+# uniqueIdentifier/userPassword 属性を参照する fields ブロックを持つ。dovecot.cf
+# (local.conf) 側に bind 方式の passdb ldap ブロックを追加するだけでは、同名ブロックが
+# マージされてこの fields が残り "ldap: unknown user" になる (research.md タスク1.3で実機
+# 確認済み)。既定ファイルを完全に空へ置き換えて無効化する。
+#
+# このパスを直接ホストからバインドマウントすると、コンテナの起動処理が同パスへ書き込もう
+# として "Device or resource busy" になる (research.md タスク1.3)。user-patches.sh 経由の
+# 通常のファイル書き込みであればこの制約に当たらない。
+set -euo pipefail
+: > /etc/dovecot/conf.d/auth-ldap.conf.ext

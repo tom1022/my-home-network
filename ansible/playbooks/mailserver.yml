@@ -1,0 +1,7 @@
+---
+- name: Configure mail platform on the VPS
+  hosts: vps
+  # become はロール側で /opt/mailserver への配置と docker compose 起動のタスクにのみ
+  # 個別に付けている (前提変数の検査自体は特権を要しない)。
+  roles:
+    - mailserver
