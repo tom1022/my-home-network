@@ -1,0 +1,25 @@
+{{ ansible_managed | comment }}
+# documentation: https://rspamd.com/doc/modules/dkim_signing.html
+#
+# DKIM 署名の担当を rspamd に一本化する (要件11.2)。旧来の OpenDKIM は
+# mailserver_enable_opendkim: false により無効化済み。両方を有効なまま残すと署名が二重に
+# 付与され、受信側の検証に失敗する。
+#
+# selector_map は使わない。送信ドメインは {{ mailserver_dkim_domain }} の1つのみのため、
+# selector を固定値で宣言すれば足りる (複数ドメインを扱う場合は selector_map の追加が必要)。
+enabled = true;
+
+sign_authenticated = true;
+sign_local = false;
+
+use_domain = "header";
+use_redis = false;
+use_esld = true;
+allow_username_mismatch = true;
+
+check_pubkey = true;
+
+selector = "{{ mailserver_dkim_selector }}";
+# $domain / $selector は rspamd がメッセージごとに解決するプレースホルダ (Jinja 変数では
+# ない)。鍵の配置先は tasks/main.yml の "Deploy the DKIM private key for rspamd" を参照。
+path = "/tmp/docker-mailserver/rspamd/dkim/$domain-$selector.private";

@@ -30,15 +30,53 @@
 - name: Ensure mailserver config directories exist
   become: true
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ item.path }}"
     state: directory
     owner: root
     group: root
-    mode: "0750"
+    mode: "{{ item.mode }}"
   loop:
-    - "{{ mailserver_base_dir }}"
-    - "{{ mailserver_dms_config_dir }}"
-    - "{{ mailserver_ldap_config_dir }}"
+    - path: "{{ mailserver_base_dir }}"
+      mode: "0750"
+    # 0751 (other に traverse のみ許可、listやreadは許可しない)。
+    # /tmp/docker-mailserver/ としてディレクトリ全体がコンテナへ bind mount され、
+    # 中の rspamd/dkim/*.private をコンテナ内の非root ユーザ (_rspamd) が起動のたびに
+    # 直接 stat/open しに来る (要件11.2)。0750 のままだと _rspamd がこの経路を
+    # traverse できず "Permission denied" で DKIM 署名が失敗する (実機で確認済み: dovecot.cf
+    # 等の直下ファイルは DMS 自身が root で読んでから然るべき場所へコピーするため 0750 でも
+    # 問題にならないが、rspamd/dkim/ 配下だけはコピーされず bind mount 先を非root プロセスが
+    # 直接読むため traverse 権限が要る)。子ディレクトリ (rspamd/, rspamd/dkim/) 自体は
+    # 0755 で作成しているため、ここで other の x のみ足せば listability を追加で
+    # 与えずに traverse だけを許可できる。
+    - path: "{{ mailserver_dms_config_dir }}"
+      mode: "0751"
+    - path: "{{ mailserver_ldap_config_dir }}"
+      mode: "0750"
+
+# rspamd の DKIM 秘密鍵ディレクトリ (要件11.2)。docker-mailserver は起動のたびにこの
+# ディレクトリと鍵を _rspamd:_rspamd へ chown する (実機で確認済み。"setup config dkim" CLI
+# を経由しなくても、ENABLE_RSPAMD=1 の通常起動処理が行う)。他の上書き設定と違い
+# /tmp/docker-mailserver/rspamd/ 配下はコピーされず bind mount 先を rspamd が直接参照し
+# 続けるため、コンテナが付け替えた所有権を毎回 root:root へ戻すと "Ensure mailserver data
+# directories exist" と同種の idempotency drift (2回目の適用でも changed になる) を起こす。
+# そのため owner/group/mode を指定せず、初回作成のみ (以降は所有権を変更しない) にする。
+- name: Ensure rspamd DKIM directories exist
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ mailserver_dms_config_dir }}/rspamd"
+    - "{{ mailserver_dms_config_dir }}/rspamd/dkim"
+    - "{{ mailserver_dms_config_dir }}/rspamd/override.d"
+
+- name: Deploy the rspamd DKIM private key (contains the DKIM signing key)
+  become: true
+  ansible.builtin.copy:
+    content: "{{ mailserver_dkim_private_key }}"
+    dest: "{{ mailserver_dms_config_dir }}/rspamd/dkim/{{ mailserver_dkim_domain }}-{{ mailserver_dkim_selector }}.private"
+  register: mailserver_dkim_key_file
+  no_log: true
 
 # owner/group/mode を指定しない。docker-mailserver のエントリポイントはコンテナ起動の
 # たびにこれらのディレクトリ配下 (postfix/dovecot/amavis 等、各サービス固有の非rootな
@@ -129,6 +167,11 @@
     - src: postfix-master.cf.j2
       dest: "{{ mailserver_dms_config_dir }}/postfix-master.cf"
       mode: "0640"
+    # 起動時に /etc/rspamd/override.d へコピーされる (要件11.2)。0644 なのは他の上書き
+    # 設定と違い秘密情報を含まないため。
+    - src: rspamd-dkim-signing.conf.j2
+      dest: "{{ mailserver_dms_config_dir }}/rspamd/override.d/dkim_signing.conf"
+      mode: "0644"
   register: mailserver_config_files
 
 # docker compose up -d 自身は compose.yaml (image/ports/env/volume 定義) の変更を検知して
@@ -140,7 +183,7 @@
   ansible.builtin.command:
     cmd: >-
       docker compose up -d
-      {{ '--force-recreate' if mailserver_config_files.changed else '' }}
+      {{ '--force-recreate' if (mailserver_config_files.changed or mailserver_dkim_key_file.changed) else '' }}
     chdir: "{{ mailserver_base_dir }}"
   register: mailserver_compose_up
   changed_when: >-

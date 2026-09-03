@@ -5,6 +5,13 @@ services:
     container_name: {{ mailserver_container_name }}
     hostname: {{ mailserver_hostname }}
     restart: unless-stopped
+{% if mailserver_enable_fail2ban %}
+    # ENABLE_FAIL2BAN が要求するカーネル権限 (要件11.4)。fail2ban はコンテナ自身の
+    # ネットワーク名前空間内で nftables を操作して遮断する。既定の権限では有効化しても
+    # 遮断が機能しない (上流ドキュメント: config/security/fail2ban)。
+    cap_add:
+      - NET_ADMIN
+{% endif %}
     # 取得 (IMAPS/993) はここに公開しない。vps_proxy の nginx stream (host_vars/vps)
     # が格納側 (k3s) の NodePort へ経路透過で中継し、この待受は使わない。143/4190 は
     # 用いないため待受も中継も持たない。
@@ -50,6 +57,19 @@ services:
       # (defaults/main.yml のコメント参照)。常に0件を返す構文的に有効なフィルタを与える。
       LDAP_QUERY_FILTER_ALIAS: "{{ mailserver_ldap_query_filter_alias }}"
       LDAP_QUERY_FILTER_GROUP: "{{ mailserver_ldap_query_filter_group }}"
+      # 衛星サービス (要件11.1/11.2/11.3/11.5、task 6.5)。有効化する3変数と無効化する4変数を
+      # defaults/main.yml の宣言 (単一の情報源) からそのまま反映する。ENABLE_RSPAMD を有効化
+      # しつつこの4つ (いずれも既定で有効) を無効化しないと、DKIM 署名が二重になる等
+      # 旧来の機構と衝突する (research.md セクション7)。
+      ENABLE_RSPAMD: "{{ 1 if mailserver_enable_rspamd else 0 }}"
+      ENABLE_CLAMAV: "{{ 1 if mailserver_enable_clamav else 0 }}"
+      ENABLE_FAIL2BAN: "{{ 1 if mailserver_enable_fail2ban else 0 }}"
+      ENABLE_OPENDKIM: "{{ 1 if mailserver_enable_opendkim else 0 }}"
+      ENABLE_OPENDMARC: "{{ 1 if mailserver_enable_opendmarc else 0 }}"
+      ENABLE_POLICYD_SPF: "{{ 1 if mailserver_enable_policyd_spf else 0 }}"
+      ENABLE_AMAVIS: "{{ 1 if mailserver_enable_amavis else 0 }}"
+      # 認証済みの送信への検査適用可否の明示的な宣言 (要件11.7)。
+      RSPAMD_CHECK_AUTHENTICATED: "{{ 1 if mailserver_rspamd_check_authenticated else 0 }}"
     volumes:
       - {{ mailserver_data_dir }}/mail-data:/var/mail/
       - {{ mailserver_data_dir }}/mail-state:/var/mail-state/

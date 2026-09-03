@@ -86,3 +86,29 @@ mailserver_mailbox_lmtp_port: 30024
 mailserver_container_dns_servers:
   - 1.1.1.1
   - 1.0.0.1
+
+# 衛星サービス (要件11、task 6.5)。研究 (research.md セクション7) により、rspamd (迷惑メール
+# 判定) を有効化する場合は上流が opendkim/opendmarc/policyd-spf/amavis (いずれも既定で有効)
+# を無効化することを要求すると確認済み。有効化する3変数と無効化する4変数を1つの決定として
+# 適用し、片方だけの適用を許さない (defaults の宣言を有効化状態の単一の情報源とする)。
+mailserver_enable_rspamd: true
+mailserver_enable_clamav: true
+mailserver_enable_fail2ban: true
+mailserver_enable_opendkim: false
+mailserver_enable_opendmarc: false
+mailserver_enable_policyd_spf: false
+mailserver_enable_amavis: false
+
+# 認証済みの送信 (自ドメインの submission 経由) に対しても迷惑メール/ウイルス検査を適用する
+# か否かの明示的な宣言 (要件11.7)。既定 (0) に委ねない。侵害されたアプリケーションパスワード
+# による送信を自身の検査で検知できるようにするため、認証済みでも検査を適用する。
+mailserver_rspamd_check_authenticated: true
+
+# DKIM (要件11.2)。署名の担当を rspamd に一本化する (旧来の OpenDKIM は
+# mailserver_enable_opendkim: false により無効化)。秘密鍵 (mailserver_dkim_private_key、
+# Infisical MAIL_DKIM_PRIVATE_KEY) は rspamd の既定パス規約
+# (/tmp/docker-mailserver/rspamd/dkim/<domain>-<selector>.private) に配置する。selector_map は
+# 使わず、送信ドメインが単一のため selector を固定値で宣言する
+# (ansible/roles/mailserver/tasks/main.yml, templates/rspamd-dkim-signing.conf.j2)。
+mailserver_dkim_domain: "{{ vps_proxy_domain_main }}"
+mailserver_dkim_selector: mail

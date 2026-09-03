@@ -1572,3 +1572,102 @@ bind DNテンプレート (`passdb ldap.bind_userdn = spn=%{user},app=mail,...`)
 **後始末**: 検証後、`mail_users`グループから `mboxfixverify` を除外 (`DELETE .../_attr/member`、指定値のみの削除で他メンバーに影響しない方式。除外後 `GET`が空を返すことを確認)、`DELETE /v1/person/mboxfixverify` で削除 (削除後の`GET`が`null`を返すことを確認)。`terraform-kanidm` (`infisical run --env=prod -- terraform plan -detailed-exitcode`、ワークスペース`kanidm-identity`) は是正前後どちらも **"No changes."** (exit code 0) であり、`mail_users`のメンバーシップ変更がTerraformの管理対象外であることと整合する結果を確認した。
 
 **mailbox Applicationの最終状態**: `sync.status=Synced`, `health.status=Healthy`, `sync.revision=8bf32ee...`。Pod `dovecot-5b6d8b6bf8-zlmjl` の再起動回数は0。
+
+## タスク6.5実装記録 (2026-09-03)
+
+### 有効化・無効化した変数
+
+`ansible/roles/mailserver/defaults/main.yml` に環境変数の宣言を追加し、当該定義を有効化状態の単一の情報源とした (要件11.5)。有効化する3変数と無効化する4変数は「1つの変更」として同一の適用に含めた。
+
+| 変数 (defaults) | コンテナ環境変数 | 値 | 用途 |
+|---|---|---|---|
+| `mailserver_enable_rspamd` | `ENABLE_RSPAMD` | true→1 | 迷惑メール判定 (要件11.1) |
+| `mailserver_enable_clamav` | `ENABLE_CLAMAV` | true→1 | ウイルス検査 (要件11.1、段階0の実測によりゲート通過済み) |
+| `mailserver_enable_fail2ban` | `ENABLE_FAIL2BAN` | true→1 | 認証の反復失敗に対する遮断 (要件11.1) |
+| `mailserver_enable_opendkim` | `ENABLE_OPENDKIM` | false→0 | 旧来のDKIM署名を無効化 (要件11.2) |
+| `mailserver_enable_opendmarc` | `ENABLE_OPENDMARC` | false→0 | 旧来の認証結果の記録を無効化 (要件11.3) |
+| `mailserver_enable_policyd_spf` | `ENABLE_POLICYD_SPF` | false→0 | 旧来の送信者方針の検査を無効化 (要件11.3) |
+| `mailserver_enable_amavis` | `ENABLE_AMAVIS` | false→0 | 旧来のメッセージ検査の中継を無効化 (要件11.3) |
+| `mailserver_rspamd_check_authenticated` | `RSPAMD_CHECK_AUTHENTICATED` | true→1 | 認証済みの送信への検査適用を明示宣言 (要件11.7) |
+
+DKIM署名の担当をrspamdへ一本化 (要件11.2)。秘密鍵 (`mailserver_dkim_private_key`、Infisical `MAIL_DKIM_PRIVATE_KEY`、タスク2.1/2.2でrspamd向けに生成済みのRSA PKCS#1 PEM) をrspamdの既定パス規約 (`/tmp/docker-mailserver/rspamd/dkim/<domain>-<selector>.private`、selector固定値 `mail`) に配置し、`templates/rspamd-dkim-signing.conf.j2` で `dkim_signing.conf` を上書きした (`tasks/main.yml`)。selector_mapは使わず、送信ドメインが `fickledev.com` の1つのみのためselectorを固定値で宣言した。
+
+認証の反復失敗に対する遮断機構が要求するカーネル権限 (要件11.4) は `compose.yaml.j2` に `cap_add: [NET_ADMIN]` を `mailserver_enable_fail2ban` が真の場合のみ宣言した。上流ドキュメント (docker-mailserver `config/security/fail2ban`) の公式例と一致する (NET_RAWは不要)。
+
+### 送信メールの署名が1個であることの確認
+
+自己発行したアプリケーションパスワードを用いて submission (587, STARTTLS) で自分自身 (`mail-6-5-verify@fickledev.com`、本タスク専用の使い捨てテスト人物、後述) 宛にメールを送信し、LMTP配送後にIMAPS (993、VPS経由でk3s Dovecotへ中継) でログインしてメッセージ本文を取得、`DKIM-Signature:` ヘッダの出現数を数えた。
+
+- 初回確認 (rspamd有効化・旧機構無効化の直後、fail2ban/ClamAV未有効化の段階): **1個** (`v=1; a=rsa-sha256; c=relaxed/relaxed; d=fickledev.com`)。合格。
+- ClamAV有効化後の再確認で**一時的に0個**になる不具合が発生し (下記「想定外の事象」参照)、修正後の再送信で**1個**に復帰したことを確認した。
+
+### 迷惑メール判定の発火確認
+
+既知の検体 GTUBE (`XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X`) を本文に含む未認証のメールを、VPS自身のホストから `127.0.0.1:25` へ (自分のインターネット経路の外向き25番はOP25B相当で到達不能なため、ansible経由でVPS上にPythonスクリプトを配置し実行) `mail-6-5-verify@fickledev.com` 宛に送信した。
+
+`554 5.7.1 Gtube pattern` でDATA段階にて拒否され、迷惑メール判定が正しく発火することを確認した (**合格**)。送信者ドメインに `example.com` (RFC 7505のnull MX) を使った初回試行は、GTUBE判定に到達する前にnullMX判定で550拒否されたため、`gmail.com` に変更して再試行した。
+
+### ウイルス検知の発火確認
+
+既知の検体 EICAR (`X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*`) を添付したメールを、同じくVPS自身のホストから `127.0.0.1:25` へ送信した。
+
+1回目の試行 (添付ファイル名の拡張子が `.com`、`Date`/`Message-ID`ヘッダを省略) は `MIME_BAD_EXTENSION` + `MISSING_MID` + `MISSING_DATE` の合算スコアで拒否され、ClamAVのシンボル (`CLAM_VIRUS`) は発火していなかった。ヘッダを整え添付ファイル名を `.txt` に変更して再試行した結果、`554 5.7.1 ClamAV FOUND VIRUS "Eicar-Test-Signature"` で拒否され、rspamdのログに `CLAM_VIRUS(0.00){Eicar-Test-Signature;}`、`forced: reject "ClamAV FOUND VIRUS ..."; score=nan (set by ClamAV)` が記録されていることを確認した (**合格**)。
+
+### 認証の反復失敗に対する遮断の発火確認と解除手段
+
+**発火前の準備**: fail2banのみを有効化した段階で、既に稼働していたGTUBEテスト等 (VPSホストの `127.0.0.1` 経由でのアクセスがdocker DNAT/hairpin NATによりコンテナのブリッジgw `172.18.0.1` として観測される) が偶発的に `postfix`/`dovecot` 両jailで遮断される事象が発生していた。これを `docker exec mailserver fail2ban-client set <jail> unbanip 172.18.0.1` で実際に解除できることを、意図的な発火の前に確認した (要件が求める「発火前に解除手段を確認する」の実地確認を兼ねる)。
+
+**意図的な発火**: 自分のサンドボックス環境の実インターネット経路 (公開IP `124.155.16.232`。ansible/sshが使うtailnetアドレス `100.127.244.115` とは別インターフェース) から `mail.fickledev.com:587` へ、既存の使い捨てテスト人物 `mail-6-5-verify` のユーザー名 + 意図的に誤ったパスワードでSMTP AUTHを8回試行した。
+
+結果、`postfix`/`dovecot` 両jailで `Total failed: 6` (設定値 `maxretry=6` と一致)、`Currently banned: 1`、`Banned IP list: 124.155.16.232` を確認した (**合格**)。
+
+**遮断の範囲**: 遮断中、同一IPから docker-mailserverコンテナが直接終端するポート (587/465/25) は接続不能 (タイムアウト) だった一方、VPSホストのhaproxy (443) およびnginx streamでk3s Dovecotへ中継されるIMAPS (993) は接続可能なままだった。同時にansible (`-m ping`、tailnet経由) も問題なく疎通した。この結果から、遮断はdocker-mailserverコンテナ自身が終端するメール用ポートに限定されており、送信元IPに対する包括的なホストワイドDROPではないと判断する。design.md/requirements.mdが記す「ホストのパケットフィルタを操作する」という表現は、`cap_add: NET_ADMIN` が必要という点では正しいが、実際の遮断効果はコンテナ自身のネットワーク名前空間 (bridgeネットワーク、`network_mode: host`ではない) に閉じており、ホストの他サービスやSSH管理経路には及ばないことを実機で確認した。
+
+**解除手段**: `docker exec mailserver fail2ban-client set <jail> unbanip <IP>` (ansible経由で実行)。`postfix`・`dovecot` 双方のjailに個別に発行する必要がある (戻り値1が成功、0が対象なし)。解除後、対象ポートへの接続が即座に復旧することを確認した。
+
+**ホスト側fail2banとの非競合確認**: ホストのfail2ban (apt パッケージ、`fail2ban-client status` をコンテナ外で直接実行して確認) は `sshd` jailの1つのみを持ち、コンテナ内fail2ban (`custom`/`dovecot`/`postfix` の3jail) とは別プロセス・別ログソース (`_SYSTEMD_UNIT=sshd.service` 対 `/var/log/mail.log`) である。ホストの `iptables -L -n` にコンテナのfail2banが使う `nftables-allports` 由来のchainは存在せず (コンテナは独自のネットワーク名前空間内でnftablesを操作するため、ホストのiptables-legacyとは完全に別系統)、両者は独立して動作していることを確認した。
+
+### ウイルス検査有効化後の常駐メモリとswap実測
+
+対象: VPS (`free -m`, `swapon --show`, `docker exec mailserver ps aux`)。
+
+| 時点 | total | used | available | swap used |
+|---|---|---|---|---|
+| タスク1.1 (衛星サービス未適用) | 1966 MB | - | 1404〜1438 MB | 25 MB |
+| 第4段直前 (rspamd+fail2ban稼働、ClamAV未起動) | 1966 MB | 673 MB | 1292 MB | 129 MB |
+| ClamAV有効化・安定後 | 1966 MB | 1690 MB | **275 MB** | 139 MB |
+| 修正適用・最終安定状態 | 1966 MB | 1607 MB | 358 MB | 137 MB |
+
+`clamd` プロセスの常駐メモリ (RSS) は約965 MB (987848 KB) で、上流FAQが示す「約850MB、増加傾向」の目安を実際に上回っていた。利用可能メモリ単体は275〜358 MBまで低下し、タスク1.1で見積もった「利用可能メモリ+swap空き (約3400〜3500MB)」の予算内には収まっているものの、余裕は乏しい。swap使用量自体は137〜139MBで大きくは増えておらず、現時点でメール配送やIMAP取得が不能になるような重度のswap踏みつけは観測されなかったが、将来の定義データベース肥大化やメール処理の同時実行数増加によってこの前提が崩れうる残存リスクとして記録する。
+
+### 認証済みの送信に対する検査の適用可否
+
+`RSPAMD_CHECK_AUTHENTICATED=1` として明示的に宣言した (`mailserver_rspamd_check_authenticated: true`)。既定値 (0) に委ねず、認証済みの送信 (submission経由の自ドメイン利用者) に対しても迷惑メール・ウイルス検査を適用する方針とした。侵害されたアプリケーションパスワードによる送信を自身の検査で検知できるようにするための判断である。
+
+### 想定外の事象: DKIM署名機能の一時的な喪失と修正
+
+第4段 (ClamAV有効化) 後の再検証で、送信した2通目のテストメールのDKIM-Signatureが0個であることが判明した。調査の結果、rspamd.logに `dkim_module_load_key_format: cannot load dkim key ...: cannot stat key file: ... Permission denied` を発見した。
+
+根本原因は次のとおり。冪等性の修正 (後述) で `rspamd/dkim/` ディレクトリと鍵ファイルへのowner/mode強制を外した際、親ディレクトリ `mailserver_dms_config_dir` (`/opt/mailserver/config`) 自体は既存タスクにより常に `0750 root:root` に固定されたままだった。`0750` は other (コンテナ内の非rootユーザ `_rspamd`, uid=112/gid=114) にディレクトリのtraverse権限 (実行ビット) を一切与えないため、子ディレクトリ (`rspamd/`, `rspamd/dkim/` 自体は `0755` で作成済み) より下へ一切降りられず、鍵ファイルの読み取りが `Permission denied` になっていた。`dovecot.cf` 等の直下ファイルはDMS自身がroot権限で読んでから所定の場所へコピーするため `0750` でも問題にならないが、`rspamd/dkim/` 配下だけはコピーされずbind mount先を非rootプロセスが直接読み続けるため、traverse権限が必須という非対称性が原因だった。なぜ最初のDKIM署名確認 (第1段) の時点でこの問題が顕在化していなかったかは特定できていない (裏が取れなかった点、後述)。
+
+修正: `mailserver_dms_config_dir` のみ `mode` を `0750` から `0751` に変更した (`ansible/roles/mailserver/tasks/main.yml` の「Ensure mailserver config directories exist」をpath/mode の辞書リストへ変更)。`0751` はotherにtraverseのみを許可し、ディレクトリの一覧 (list) や直下ファイルの内容読み取りは許可しないため、`dovecot.cf`・`postfix-main.cf` 等の機密性はファイル自体の `0640` 権限により維持される。適用後、`su _rspamd -c "head ..."` が成功することと、実際に送信したメールのDKIM-Signatureが1個に復帰したことを確認した。
+
+### 想定外の事象: `-e` extra-varsのブール型誤り
+
+fail2ban/ClamAVを段階的に有効化する目的で `ansible-playbook -e mailserver_enable_fail2ban=false -e mailserver_enable_clamav=false` (key=value形式) を実行したところ、Ansibleがこれを文字列 `"false"` として渡し、Jinjaの `{% if %}` は非空文字列を真と評価するため、意図に反して両方とも有効化された状態で適用されてしまった。JSON形式 (`-e '{"mailserver_enable_fail2ban": false}'`) に修正して正しく段階的な適用をやり直した。
+
+### 冪等性の副次的な修正
+
+上記の権限修正と合わせて、DKIM鍵ディレクトリ・鍵ファイルへのowner/group/mode強制を撤去した (コンテナの実行時所有権と衝突し、2回目以降の適用でも `changed` を報告し続けていたため)。この修正と権限ビットの修正 (`0751`) を適用した後、`ansible-playbook` を連続2回実行し、2回目が `changed=0` であることを確認した。
+
+### テストアカウントの後始末
+
+本タスク専用の使い捨て人物 `mail-6-5-verify` (Kanidm) を用いた。作成はメール属性の付与のみ (受信者存在確認用) から開始し、迷惑メール判定・ウイルス検査の確認ではこの属性のみを使用した (アプリケーションパスワードは不要)。DKIM署名確認とfail2ban発火確認のためにアプリケーションパスワードが必要になった時点で、`mail_users`グループへ追加し、資格情報更新セッションAPIでパスワード+TOTP (SHA1へのダウングレードを受諾) を設定してコミットし、本人自身のセッション (`POST /v1/auth` によるログイン → `POST /v1/reauth` による特権昇格 → `POST /scim/v1/Person/mail-6-5-verify/Application/_create_password`) でアプリケーションパスワードを自己発行した (管理者による代理発行ではない)。
+
+検証後、`mail_users`グループから除外し (`PUT .../_attr/member` に `[]`)、`DELETE /v1/person/mail-6-5-verify` で削除した (削除後の`GET`が `null` (4バイトのJSON) を返すことを確認)。`terraform-kanidm` で `infisical run --env=prod -- terraform plan -detailed-exitcode` を実行し、**"No changes."** (exit code 0) であることを確認した。
+
+### 裏が取れなかった点
+
+- なぜ第1段の時点でのDKIM鍵読み取り確認 (`su _rspamd -c "head ..."`) が成功していたのか特定できていない。当時も `mailserver_dms_config_dir` は `0750 root:root` だったはずであり、理論上は同じ理由でtraverseできないはずだが、実測では読めていた。コンテナ再作成の直後というタイミング、または調査時に見落とした一時的な状態変化が影響した可能性があるが、再現・特定はしていない。
+- ClamAVの定義データベースが将来さらに肥大化した場合の常駐メモリの伸び幅は測定していない (今回の実測はある1時点のスナップショット)。
+- rspamd/ClamAVの遅延起動時間 (コンテナ再作成からclamdの常駐メモリ確保が安定するまで、実測で概ね1〜2分) がリソース逼迫時にどこまで伸びるかは未検証。
