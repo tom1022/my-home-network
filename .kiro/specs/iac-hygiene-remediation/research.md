@@ -8071,3 +8071,74 @@ Gitea データベース側にあるため、この再生成タスクは何度�
 **完了可否**: 完了。タスク 23.1 の 10 項目のうち、前回セッションで VPS 依存により保留だった残件(`vps_proxy` の実機冪等性、haproxy/iptables の実機確認、993/4190 を含む外部到達可能ポート集合の確定判定)をいずれも確定させた。要件 12.6(ansible-lint 成功)は `mailserver` の 1 件を除き達成し、非ブロッキング運用としていた 25 件の指摘は 24 件解消した。新規発見だった `refresh_known_hosts.yml` の非冪等性と `proxmox_unattended_upgrades` の失敗もいずれも根本原因を特定し是正・再検証済み。
 
 **裏が取れなかった点**: `ldaps.kanidm.fickledev.com` への実 LDAPS bind 疎通、Proxmox スナップショットからの実復元等、本タスクの 10 項目に含まれない周辺確認は引き続き対象外。`mailserver` role の `risky-file-permissions` 指摘は編集権限外のため是正していない(mail-platform 側での対応が必要)。
+
+## 追補: タスク 28.8 名前空間と永続ボリュームの双方が失われた孤児ディレクトリの解放 (2026-09-03)
+
+- **Context**: 要件 18.4。タスク 6.1 (段階 0.5) で固定した孤児ディレクトリ一覧 6 件（本ファイル 428〜439 行目）を解放する。運用者が解放を明示的に指示した。
+
+### 除去直前の再確認: 一覧 6 件は既に不在
+
+タスク 6.1 の一覧 6 件について、各パスを対象ノード上で個別に `stat` した。
+
+| # | ノード | フルパス | 結果 |
+|---|---|---|---|
+| 1 | k3s-server | `pvc-9b8a7211-9837-4c2c-a64a-30328f3952e5_appflowy_redis-pvc/` | 存在しない (`No such file or directory`) |
+| 2 | k3s-agent-z440 | `pvc-1a84c4e3-7b63-497d-9a2e-14d58499bfb1_budibase_database-storage-budibase-couchdb-0/` | 存在しない |
+| 3 | k3s-agent-z440 | `pvc-36cf4f2d-987d-42b4-a038-a79a46afb516_budibase_database-storage-budibase-couchdb-0/` | 存在しない |
+| 4 | k3s-agent-z440 | `pvc-b615149f-1fb0-4e28-8698-b9a0466b5c3f_appflowy_postgres-pvc/` | 存在しない |
+| 5 | k3s-agent-z440 | `pvc-b86125d2-a88d-4c30-b3ed-36a1650a88da_budibase_database-storage-budibase-couchdb-0/` | 存在しない |
+| 6 | k3s-agent-z440 | `pvc-fa5d37ec-190c-4894-870a-5a007d2cd898_appflowy_redis-pvc/` | 存在しない |
+
+`k3s-server` の `/var/lib/rancher/k3s/storage/` 直下は空、`k3s-agent-z440` の同ディレクトリ直下には `garage` / `postgres-cluster-1` / `minecraft-bedrock-data` / `home-assistant` の 4 件（いずれも稼働中 PVC に対応、後述）のみが残っており、`appflowy` / `budibase` 系の 5 件は存在しなかった。タスク 6.1 の採取 (2026-09-02 10:23 JST) から本タスク実施 (2026-09-03) までの間に、何らかの経緯で既に削除されていたと考えられる（本タスクの範囲外のため、削除者・削除経緯の特定は行っていない）。**この 6 件は退避・削除いずれの操作対象にもならなかった（対象が既に存在しないため）。**
+
+### 新規確認: `/var/lib/minio`（タスク指示により追加調査）
+
+`setup_agent_storage.yml` の反復により作成された `/var/lib/minio` を 3 ノードで確認した。
+
+| ノード | 状態 |
+|---|---|
+| k3s-server | ディレクトリ自体が存在しない |
+| k3s-agent-minipc | 存在するが空 (`.` `..` のみ) |
+| k3s-agent-z440 | 存在し、`.minio.sys/` と `appflowy/`（`collabs` / `database-blobs` / `published-collab`）を含む。`du -sb` = 497609 bytes (約486KiB) |
+
+`k3s-agent-z440` の `/var/lib/minio` について、孤児判定の根拠を確認した。
+
+- **稼働中の MinIO プロセス・サービスが存在しない**: `ps aux | grep minio`、`systemctl list-units --all | grep minio`、`mount | grep minio`、`/etc/fstab` のいずれも該当なし。Docker/containerd (`crictl`) 上にも MinIO コンテナは存在しない。
+- **対応する名前空間が存在しない**: `kubectl get ns appflowy` は `NotFound`（削除直前に再確認）。
+- **対応する PV/hostPath が存在しない**: `kubectl get pv` の `spec.local.path` / `spec.hostPath.path` の全件を確認したが `/var/lib/minio` を参照するものは無い。
+
+この `/var/lib/minio/appflowy` はディレクトリ名に PVC の UID を含まない（`local-path` provisioner 管理下ではなく `setup_agent_storage.yml` の反復で作成された生ディレクトリ）ため、タスク 6.1 が定義した「PV の UID + 名前空間」の厳密な突き合わせ手順はそのままは適用できないが、対応する MinIO サービス・名前空間・PV・PVC のいずれも存在しないことを確認しており、実質的に同一の判定基準（起動元が消えている）で孤児と判断した。**別物として扱い、6 件の一覧とは分けて記録する。**
+
+### 退避と復元確認
+
+- タスク 6.1 の一覧 6 件は既に不在のため退避不要（対象なし）。
+- `/var/lib/minio`（k3s-agent-z440）: `tar czf` でアーカイブ化 (`sha256:ffc424bf7d5787c2632347331ef6298f746a36eaad01b73a231e08f2e2d78a62`, 117132 bytes) し、`ansible fetch` でワークステーションへ取得。取得後の SHA256 がノード上の値と一致することを確認した。取得したアーカイブをワークステーション上で `tar xzf` により実際に展開し、`.minio.sys/format.json` が有効な JSON として読めること、`appflowy/collabs/` 以下のバケットオブジェクト（`encoded_collab.v1.zstd` 等）がディレクトリ構造ごと復元できることを確認した。
+
+### 稼働中 PVC 8 件との突き合わせ
+
+削除直前に `kubectl get pv` / `kubectl get pvc -A` を再取得し、稼働中 PVC 8 件（`garage-data-pvc`, `garage-metadata-pvc`, `garage-pvc`[UID `1ec27804`], `home-assistant-home-assistant-0`[UID `dadefa29`], `kanidm-data`[UID `d1cb1368`], `mailbox-data`[UID `54c8818c`], `minecraft-bedrock-data`[UID `99f34163`], `postgres-cluster-1`[UID `7319a5c9`]、いずれも `Bound`）の UID と、削除対象 6 UID (`9b8a7211` / `1a84c4e3` / `36cf4f2d` / `b615149f` / `b86125d2` / `fa5d37ec`) との重複が無いことを確認した。また `/var/lib/minio` を参照する PV/hostPath も無いことを確認済み（前述）。重複・誤削除のリスクは無い。
+
+**タスク 6.1 の一覧との差分の注記**: 現在の稼働中 PVC 集合（`garage` / `home-assistant` / `kanidm` / `mailbox` / `minecraft-bedrock` / `postgres`）は、タスク 6.1 採取時点 (2026-09-02) の一覧（`garage` / `authentik-fickledev-cluster-1` / `postgres-cluster-1` / `mailu` / `minecraft-bedrock-data` / `home-assistant`）と一部異なる（`authentik-fickledev-cluster-1` → `kanidm-data`、`mailu` → `mailbox-data` 等）。本タスクの対象である削除対象 6 UID とはいずれも重複しないため解放作業への影響は無いが、クラスタの構成が継続的に変化していることの記録として付記する。
+
+### 削除実行
+
+- `/var/lib/minio`（k3s-agent-z440）を `rm -rf` で削除し、削除後 `ls /var/lib/minio` が `No such file or directory` を返すことを確認した。
+- タスク 6.1 の一覧 6 件は削除操作の対象外（既に不在）。
+
+### 解放された容量
+
+`k3s-agent-z440` の `/`（`/var/lib/minio` が乗る唯一のファイルシステム）で `df -B1 --output=avail,used` を削除前後に取得した。
+
+| | Avail (bytes) | Used (bytes) |
+|---|---|---|
+| 削除前 | 107280773120 | 22240747520 |
+| 削除後 | 107280875520 | 22240645120 |
+| 差分 | +102400 (+100KiB) | -102400 (-100KiB) |
+
+`du -sb` の実測値 497609 bytes (約486KiB) に対し `df` 上の増分は 100KiB にとどまった。`k3s-agent-z440` は `postgres-cluster-1` / `mailbox-data` / `home-assistant` 等の Pod が稼働する共有ファイルシステムであり、退避〜削除の作業時間中に他ワークロードの書き込みで一部相殺されたと考えられる。ディレクトリの消失自体は `ls` による直接確認で独立に裏付けられており、削除操作は成功している。
+
+### 完了可否
+
+**完了。** タスク 6.1 の一覧 6 件（合計約 42.3MB）は解放の実施前に既に存在しないことを確認しており、これらについては解放作業そのものが不要だった。追加調査で見つかった `/var/lib/minio`（k3s-agent-z440、約486KiB）については退避・復元確認・孤児再判定・稼働中 PVC との突き合わせ・削除・容量確認の全手順を実施し完了した。
+
+**裏が取れなかった点**: タスク 6.1 の一覧 6 件が削除された経緯・実行者・削除時刻は特定していない（本タスクのスコープ外）。`df` 上の増分が `du -sb` 実測値より小さい件は、稼働中ノードでの計測ノイズと推定しているが、他プロセスの書き込み内容そのものは特定していない。
