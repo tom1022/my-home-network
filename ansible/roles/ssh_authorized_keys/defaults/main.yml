@@ -1,0 +1,6 @@
+---
+# Same value Terraform seeds into new guests at creation time
+# (terraform/variables.tf ssh_public_key), supplied via Infisical. Reusing
+# it here keeps "the managed connecting key" a single source of truth
+# instead of a second definition that can drift from the first.
+ssh_authorized_keys_public_key: "{{ lookup('env', 'TF_VAR_ssh_public_key') }}"

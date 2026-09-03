@@ -1,0 +1,9 @@
+---
+- name: Refresh SSH known_hosts entries
+  import_playbook: refresh_known_hosts.yml
+
+- name: Ensure the managed connecting key is authorized on every host
+  hosts: target_hosts
+  gather_facts: false
+  roles:
+    - ssh_authorized_keys

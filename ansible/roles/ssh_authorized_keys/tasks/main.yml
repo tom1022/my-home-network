@@ -1,0 +1,19 @@
+---
+- name: Fail fast if the managed public key is not supplied
+  ansible.builtin.assert:
+    that:
+      - ssh_authorized_keys_public_key | trim | length > 0
+    fail_msg: >-
+      ssh_authorized_keys_public_key is empty. Supply it via Infisical
+      (TF_VAR_ssh_public_key) and run this playbook through `infisical run`.
+
+- name: Authorize the managed connecting key
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user }}"
+    key: "{{ ssh_authorized_keys_public_key }}"
+    state: present
+    # Proxmox auto-distributes its own cluster-management key into gitea/pbs
+    # inside a "# --- BEGIN/END PVE ---" block. exclusive=true would strip
+    # that block on every run and fight Proxmox's own reconciliation, so this
+    # definition only ever adds its own key and leaves other entries alone.
+    exclusive: false
