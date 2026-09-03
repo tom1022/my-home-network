@@ -97,10 +97,11 @@ variable "ci_user" {
 }
 
 variable "zfs_pools" {
-  description = "Additional ZFS-pool-backed disks keyed by a stable name. Each entry pins its own scsi interface index so removing an entry never renumbers the others."
+  description = "Additional ZFS-pool-backed disks keyed by a stable name. Each entry pins its own scsi interface index so removing an entry never renumbers the others. backup omitted leaves the provider default (included in vzdump)."
   type = map(object({
-    size = number
-    scsi = number
+    size   = number
+    scsi   = number
+    backup = optional(bool)
   }))
   default = {}
 }

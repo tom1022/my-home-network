@@ -33,7 +33,11 @@ locals {
       # ソート順で前に来るキーを追加すると、既存ディスクの interface/size が意図せず入れ替わる。
       # 新規キーは既存キーよりアルファベット順で後ろに来る名前にすること。
       zfs_pools = {
-        nextcloud = { size = 1000, scsi = 2 }
+        # 実体を持たない移行用の予約領域。vzdump に含めると保存先を 1000G 分浪費するだけで
+        # 復元に要るものを何も保護しない。ansible の proxmox_backup が
+        # host_vars/pbs の backup_excluded_disks で同じ除外を実機へ反映するため、
+        # ここで false を宣言しないと Terraform と Ansible が毎回打ち消し合う。
+        nextcloud = { size = 1000, scsi = 2, backup = false }
         # Garage の data_dir (実体)。逐次書き込みが主のため容量の大きい HDD 側 (zfs-pool) に置く。
         object_storage = { size = 200, scsi = 3 }
       }

@@ -61,6 +61,7 @@ resource "proxmox_virtual_environment_vm" "this" {
       datastore_id = var.zfs_pool_datastore
       interface    = format("scsi%d", disk.value.scsi)
       discard      = "on"
+      backup       = disk.value.backup
     }
   }
 
