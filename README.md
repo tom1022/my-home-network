@@ -44,6 +44,10 @@ Proxmox 上での VM/LXC 作成は Terraform、各ホストの設定は Ansible 
 
 - **Network Design**
 	- Public/Edge/DMZ/LAN/Console の層構造で運用境界を明確化
+	- メール送受信基盤は k3s 上の mailu を撤去済みで、現状は未構築。VPS 上への再構築を計画中
+
+- **Cluster Management**
+	- k3s クラスタの管理操作（デプロイ状態の確認、手動介入）は kubeconfig と端末クライアント（`kubectl` 等）に一本化
 
 ```mermaid
 ---
@@ -95,15 +99,12 @@ flowchart TB
  subgraph K3S_FLOATING["k3s Workloads (Argo CD 管理)"]
         POD_INGRESS["Ingress Controller<br>Traefik"]
         POD_ARGO["Argo CD (GitOps)"]
-        POD_AUTHENTIK["Pod: Authentik<br>(fickledev SSO/IdP)"]
         POD_CLOUDFLARED["Pod: cloudflared<br>(fickledev Tunnel)"]
         POD_XRAYVPN["Pod: xrayvpn<br>(VPN Proxy)"]
-        POD_MAILU["Pod: Mailu<br>(Mail Server)"]
         POD_HOMEASSISTANT["Pod: Home Assistant"]
         POD_MINECRAFT["Pod: Minecraft Bedrock"]
         POD_GARAGE["Pod: Garage<br>(S3 Object Storage)"]
         POD_POSTGRES["Pod: PostgreSQL<br>(CloudNativePG)"]
-        POD_K8SDASH["Pod: Kubernetes Dashboard"]
         POD_PLATFORM["Platform Controllers<br>cert-manager / cluster-issuer /<br>cnpg-operator / infisical-operator /<br>reflector / reloader"]
   end
  subgraph HW_VCLUSTER["Proxmox Cluster"]
@@ -128,7 +129,6 @@ flowchart TB
   end
     NET_INTERNET --- NET_CFCDN & NET_CFZT & HW_ROUTER_ONU
     NET_CFCDN -- Web(443) --> VPS_NGINX
-    NET_INTERNET -- Mail(25/587/993) --> VPS_HAPROXY
     VPS_NGINX --> VPS_TAILSCALE
     VPS_HAPROXY --> VPS_TAILSCALE
     VPS_TAILSCALE -- Tunnel --> HW_ROUTER_OPNSENSE
@@ -138,13 +138,11 @@ flowchart TB
     HW_SWITCH_TPLink -- "LAN-VLAN" --> HW_SWITCH_TPLINK_LAN
     HW_SWITCH_TPLink -- "CONSOLE-VLAN" --> HW_ADMIN_PC
     HW_ROUTER_OPNSENSE -- Port Fwd/Routing --> POD_INGRESS
-    POD_INGRESS --> POD_ARGO & POD_GARAGE & POD_HOMEASSISTANT & POD_K8SDASH & POD_MAILU
-    POD_INGRESS -- TCP --> POD_MAILU
+    POD_INGRESS --> POD_ARGO & POD_GARAGE & POD_HOMEASSISTANT
     HW_ROUTER_OPNSENSE -- "Port Fwd (NodePort)" --> POD_XRAYVPN
     HW_ROUTER_OPNSENSE -- "Port Fwd (UDP 19132)" --> POD_MINECRAFT
-    NET_CFZT -- "Tunnel (idp/crafty)" --> POD_CLOUDFLARED
-    POD_CLOUDFLARED --> POD_AUTHENTIK & POD_MINECRAFT
-    POD_AUTHENTIK --> POD_POSTGRES
+    NET_CFZT -- "Tunnel (crafty)" --> POD_CLOUDFLARED
+    POD_CLOUDFLARED --> POD_MINECRAFT
     STORAGE_HDD == ZFS === VM_NAS
     STORAGE_HDD === LXC_PBS
     VM_NAS -- NFS --> LXC_GITEA & VM_REC & K3S_FLOATING
@@ -179,7 +177,7 @@ flowchart TB
 - `ansible/roles/`: 各コンポーネントの構成管理
 - `ansible/inventory/`: ホスト定義・変数（シークレット値は Infisical から環境変数経由で注入）
 - `scripts/dump_cloudflare_config.sh`: 既存 Cloudflare 構成のダンプ（Terraform 化の下調べ用）
-- `scripts/migrate-vault-to-infisical.py`: Ansible Vault から Infisical へのシークレット移送
+- `scripts/check_host_address_drift.py`: `terraform/locals.tf` と Ansible inventory（`inventory.yml` / `host_vars/pbs` / `host_vars/vps` / `group_vars/all` / `group_vars/k3s`）間のホストアドレス重複定義の不整合を検知する読み取り専用スクリプト
 
 ## 再現性の確認（参考）
 
@@ -204,6 +202,12 @@ ansible-lint playbooks/site.yml
 # 実機に触れない構文/差分確認も Infisical 経由で行う（vault パスワードの入力は発生しない）
 infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- \
   ansible-playbook playbooks/site.yml --syntax-check
+
+# 実機へ接続する実行は、接続鍵を ssh-agent へロードしてから行う。鍵は Infisical のキー
+# ANSIBLE_SSH_PRIVATE_KEY から供給し、インベントリのパス指定（ansible_ssh_private_key_file）は
+# 使わない。ssh-add は infisical run の子プロセス内で実行し、環境変数 ANSIBLE_SSH_PRIVATE_KEY を渡す。
+infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- \
+  bash -c 'ssh-add - <<< "$ANSIBLE_SSH_PRIVATE_KEY" && ansible-playbook playbooks/ping.yml'
 ```
 
 ## 補足
@@ -216,25 +220,7 @@ infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- \
 
 ## 手動作業として残っている項目
 
-自動化の対象外、または本リファクタでは要否判断のみ行い実施を運用者に委ねた作業です。
+自動化の対象外、または要否判断のみ行い実施を運用者に委ねた作業です。
 
-- **k3s node token のローテーション**: 移行前に平文でコミットされていた期間が git 履歴に残るため、
-  値そのもののローテーションが必要です（履歴の書き換えは対象外）。
-
-以下は 2026-08-31 時点で解消済みです（参考のため経緯を残します）:
-
-- ~~削除対象アプリの残存データ~~: 確認時点で `outline` / `planka` データベースと Garage バケット
-  `outline` は既に存在しないことを確認しました（記録時点以降に Garage・`postgres-cluster` 双方が
-  再構築されたため）。`minio-pv`（PersistentVolume）は不要と判断済みのため削除しました。
-- ~~`postgres-credentials`・`garage-backup-secrets` への値投入~~: `postgres-credentials` は
-  openssl で生成したダミー値を投入（参照元がなく実害なし）。`garage-backup-secrets` は
-  `GARAGE_BACKUP_ENCRYPTION_PASSWORD`（openssl 生成）と `GARAGE_BACKUP_RCLONE_CONFIG`（Google Drive
-  OAuth token）を投入し、rclone による定期バックアップの動作を確認済みです。
-- ~~`garage` / `home-assistant` の Ingress TLS 誤名参照~~: `secretName` を実在の `tls-fickledev-com`
-  へ修正しました。
-- ~~CNPG バックアップの不備~~: Garage に `cnpg-backups` バケットとアクセスキーを作成し、
-  `s3Credentials.region`（Garage の `s3_region = "garage"`）を Cluster 定義に追加、Infisical へ
-  `CNPG_GARAGE_BACKUP_ACCESS_KEY_ID` / `_ACCESS_SECRET_KEY` / `_REGION` を投入しました。
-  region 未指定のままだと Garage 側が `Authorization header malformed, unexpected scope` で
-  拒否するため、Pod 再起動を伴う反映が必要でした（`postgres-cluster` / `authentik-fickledev-cluster`
-  とも `ContinuousArchiving=True` に到達済み）。
+- **k3s node token のローテーション**: 平文でコミットされていた期間が git 履歴に残るため、
+  値そのもののローテーションが必要です（履歴の書き換えは別途対応）。

@@ -17,14 +17,20 @@
 ### Ansible Roles
 **Location**: `ansible/roles/<role_name>/`
 **Purpose**: コンポーネント単位の構成管理。`tasks/main.yml` をエントリポイントとし、大きい役割は
-`tasks/` 配下をサブファイル分割（例: `nas/tasks/{prerequisites,storage,gitea_share}.yml`）する。
+`tasks/` 配下をサブファイル分割（例: `nas/tasks/{main,gitea_share}.yml`）する。ディスク
+プロビジョニングは role 横断で `storage_disk` role に集約されている。
 `defaults/`, `handlers/`, `templates/`, `meta/`, `vars/` は必要な role のみ持つ。
 **Example**: `ansible/roles/vps_proxy/` は `templates/` に Nginx/HAProxy 設定テンプレートを持つ。
 
 ### Ansible Playbooks
 **Location**: `ansible/playbooks/`
-**Purpose**: コンポーネント単位のエントリポイント（`<role>.yml`）と、それらをまとめる
-`site.yml`。新規コンポーネント追加時は `site.yml` に `import_playbook` を追記する。
+**Purpose**: コンポーネント単位のエントリポイント（`<role>.yml`）。`site.yml` はホスト構成の日常適用を
+まとめるエントリポイントで、`ping`, `ssh_authorized_keys`, `nas`, `gitea`, `pbs`, `vps`,
+`proxmox_backup`, `proxmox_unattended_upgrades` を import する。`k3s.yml`, `argocd.yml`,
+`refresh_known_hosts.yml`, `setup_agent_storage.yml`, `fetch-kubeconfig.yml` は意図的に `site.yml` に
+含めない独立したエントリポイント（クラスタ構築・診断・一度限りの操作など、日常適用のライフサイクルとは
+異なるタイミングで実行するもの）。新規コンポーネントを日常適用の対象に含める場合のみ `site.yml` に
+`import_playbook` を追記する。
 **Example**: `nas.yml`, `pbs.yml`, `vps.yml` はそれぞれ対応 role を実行する薄いラッパー。
 
 ### Inventory
@@ -32,8 +38,9 @@
 **Purpose**: `inventory.yml` にホスト/グループ定義、`group_vars/<group>/`・`host_vars/<host>/` に
 変数を分離。秘匿値は一般名の変数から `lookup('env', 'VAR_NAME')` で参照し、Infisical が
 `infisical run` 経由で供給する環境変数を解決先とする。同階層の `vault.yml.example` は移行前の
-変数名一覧として残置しているのみで、供給経路としては使わない。作業ツリーに残る暗号化済み
-`vault.yml` が全 play を停止させている点は `tech.md` の Secrets 節を参照。
+変数名一覧として残置しているのみで、供給経路としては使わない（ファイル自体のヘッダーコメントは
+Ansible Vault への複製・暗号化手順を示しており、実態と食い違っている。運用者判断が必要な残課題）。
+作業ツリーに暗号化済み `vault.yml` は存在しない。
 **Example**: `group_vars/all/main.yml` の `proxmox_api_token_secret: "{{ lookup('env', 'PROXMOX_API_TOKEN_SECRET') }}"`。
 
 ### GitOps Bootstrap
@@ -57,7 +64,8 @@
 
 - Terraform: リソース定義はモジュール化し、環境固有値は `locals.tf` / `*.tfvars` に隔離。
 - Ansible: 1 role = 1 コンポーネントの原則。role 内が肥大化したら `tasks/` をサブファイル分割。
-- 適用順序への依存がある構成（証明書配布 → cert-manager 等）は `site.yml` の import 順で表現する。
+- 適用順序への依存がある構成（`ssh_authorized_keys` → 各コンポーネント等）は `site.yml` の
+  import 順で表現する。
 - 新しいホスト/VM を追加する場合、Terraform 側（`locals`）と Ansible 側（`inventory.yml`）の両方を
   更新する必要がある。
 
