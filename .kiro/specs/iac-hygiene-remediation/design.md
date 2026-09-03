@@ -732,6 +732,7 @@ storage_disk_items:            # list of disk_item
 **Implementation Notes**
 
 - Integration: 保護対象は永続データを持つリソースに限定する。付与先のリソースには `Prune=false` と `Delete=false` の双方を付与する。前者は Git からの削除、後者は Application 削除に対応するため、両方が必要。
+- Integration: 「永続データ」の判定はボリュームの再生成可能性で行う。`apps/kanidm/pvc.yaml` の `kanidm-data` は保護対象に含める。person とグループ所属は Git にも Terraform state にも無く (`terraform-kanidm/identities.tf` が意図的に管理対象外とする)、当該 PVC 上の DB だけが唯一の正であり、支える PV は `reclaimPolicy: Delete` で PVC の消滅と同時に実体を失うため。
 - Integration: 付与先は一律 PVC ではなく、そのボリュームが ArgoCD の追跡対象かどうか、および owner 連鎖の有無によって決まる。Helm テンプレートが PVC 自体を定義し ArgoCD が PVC を直接追跡する構成では、PVC 本体に付与して直接保護する。CNPG のように operator が PVC を動的に生成し ArgoCD の追跡対象外だが、生成された PVC の `ownerReferences` が `controller: true` で Cluster を指す構成では、Cluster CR に付与することで owner 連鎖を通じ PVC を間接的に保護する (Cluster が削除されない限り K8s の GC は owner 連鎖で PVC を巻き込まない)。
 - Integration: StatefulSet の `volumeClaimTemplates` 由来の PVC は、ArgoCD の追跡対象にならず、StatefulSet を owner とする `ownerReferences` も持たない設計である。したがって同期による prune (Git からの削除) にも、Application 削除に伴う所有者のカスケード削除にも巻き込まれない。当該 PVC に対する保護アノテーションの宣言はそもそも成立せず (ArgoCD の管理下にない)、必要でもない (削除経路自体が存在しない)。この場合、保護アノテーションは StatefulSet 本体に付与し、StatefulSet 定義自体を Git からの削除・Application 削除から守る。PVC の残存は `persistentVolumeClaimRetentionPolicy` の既定値 (`Retain`) に委ねられ、アノテーションの有無で PVC の運命は変わらない。
 - Integration: 保護アノテーションの付与 (要件 10.7 / 10.8) は段階 1 の先頭に置く。段階 1 は本 spec で最大規模の削除段階であり、防御機構をそれが守る削除より後に置く順序は成立しない。付与はマニフェストへの追記のみで挙動変更を伴わないため、段階 1 の性格に反しない。
@@ -1602,6 +1603,7 @@ VM 105 は本 spec の管理対象外にあり、`zfs-pool` にも `terraform/lo
 - エッジホストについて構成管理への取り込みまたは除去の判断対象とするのは、当該ホストの役割のために導入された定期実行に限る。OS のディストリビューションが標準パッケージとともに導入する既定のメンテナンス処理 (`/etc/cron.d/` 配下のパッケージ同梱物、`apt-daily` / `logrotate` / `fstrim` 等の systemd タイマーを含む) は対象に含めない。要件 19 が解消の対象とするのは誤設定による資源の浪費であり、ディストリビューション標準の保守処理はそれに当たらないため。
 - Proxmox の API トークンへ権限を付与する際は、要求される特権を API の実装から確定したうえで、その特権のみを持つロールを用いる。既定ロールが要求特権の上位集合である場合は、既定ロールをそのまま採用せずカスタムロールを作って絞り込む。
 - パスの細分が Proxmox 側の制約 (チェック対象パスの固定) で不可能な特権については、付与によって実際に許可される操作の範囲 (影響が及ぶ API 群) を記録する。
+- PBS 側でバックアップ資格情報に与える権限も同じ基準で決める。vzdump は退避の直後に自ノードのバックアップグループを保持世代まで prune し、PBS の prune は `Datastore.Modify|Datastore.Prune` の OR で認可する。したがって `/datastore/<datastore>` に対して退避 (`Datastore.Backup`) と世代整理 (`Datastore.Prune`) だけを持つ `DatastorePowerUser` を与え、他所有者データの読み出し (`Datastore.Read`) やデータストア定義の変更 (`Datastore.Modify` / `Datastore.Allocate`) を含む `DatastoreAdmin` は採らない。ACL は (パス, 認証 ID, ロール) の三つ組で保持されるため、上位ロールを与えても下位ロールの付与は残る。宣言は付与すべきロールと、それに包含され不要となるロールの双方を持ち、`ansible/roles/pbs` がデータストアの登録と同じ経路で収束させる。
 
 **現状 (k3s 上の定期バックアップ)**
 

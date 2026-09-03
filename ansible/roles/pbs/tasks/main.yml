@@ -126,3 +126,62 @@
   when:
     - pbs_manage_datastore
     - not (pbs_datastore_exists | default(false))
+
+- name: Ensure PBS datastore ACL list is available
+  ansible.builtin.command:
+    argv:
+      - proxmox-backup-manager
+      - acl
+      - list
+      - --output-format
+      - json
+  register: pbs_acl_list_cmd
+  changed_when: false
+  failed_when: pbs_acl_list_cmd.rc != 0
+  when: pbs_manage_datastore_acl
+
+- name: Determine which datastore ACL roles are currently granted
+  ansible.builtin.set_fact:
+    pbs_datastore_acl_current_roleids: >-
+      {{
+        ((pbs_acl_list_cmd.stdout | default('[]')) | from_json)
+        | selectattr('path', 'equalto', '/datastore/' ~ pbs_datastore_id)
+        | selectattr('ugid', 'equalto', pbs_datastore_acl_userid)
+        | map(attribute='roleid')
+        | list
+      }}
+  when: pbs_manage_datastore_acl
+
+- name: Ensure the backup credential may prune its own datastore groups
+  ansible.builtin.command:
+    argv:
+      - proxmox-backup-manager
+      - acl
+      - update
+      - "/datastore/{{ pbs_datastore_id }}"
+      - "{{ pbs_datastore_acl_roleid }}"
+      - --auth-id
+      - "{{ pbs_datastore_acl_userid }}"
+  register: pbs_acl_update_cmd
+  changed_when: pbs_acl_update_cmd.rc == 0
+  when:
+    - pbs_manage_datastore_acl
+    - pbs_datastore_acl_roleid not in (pbs_datastore_acl_current_roleids | default([]))
+
+- name: Ensure narrower datastore ACL roles superseded by the granted role are revoked
+  ansible.builtin.command:
+    argv:
+      - proxmox-backup-manager
+      - acl
+      - update
+      - "/datastore/{{ pbs_datastore_id }}"
+      - "{{ item }}"
+      - --auth-id
+      - "{{ pbs_datastore_acl_userid }}"
+      - --delete
+  register: pbs_acl_revoke_cmd
+  changed_when: pbs_acl_revoke_cmd.rc == 0
+  loop: "{{ pbs_datastore_acl_obsolete_roleids }}"
+  when:
+    - pbs_manage_datastore_acl
+    - item in (pbs_datastore_acl_current_roleids | default([]))

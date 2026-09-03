@@ -28,3 +28,14 @@ pbs_manage_datastore: true
 pbs_datastore_id: "{{ pbs_backup_target_datastore_id | default('') }}"
 pbs_datastore_path: "{{ pbs_backup_target_dataset_path | default('') }}"
 pbs_require_datastore_mountpoint: true
+
+pbs_manage_datastore_acl: true
+# vzdump は退避後に自ノードのバックアップグループを prune する。prune の権限判定は
+# Datastore.Modify|Datastore.Prune の OR なので、退避 (Backup) + 世代整理 (Prune) だけを
+# 持つ DatastorePowerUser で足り、他所有者のデータ読み出し (Datastore.Read) や
+# データストア定義の変更 (Datastore.Modify/Allocate) は与えない。
+pbs_datastore_acl_userid: backup@pbs
+pbs_datastore_acl_roleid: DatastorePowerUser
+# 同一 (path, ugid, role) の三つ組で保持されるため、上位ロール付与だけでは下位の付与が残る。
+pbs_datastore_acl_obsolete_roleids:
+  - DatastoreBackup
