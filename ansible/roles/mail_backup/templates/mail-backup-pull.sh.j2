@@ -1,0 +1,56 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Pulls one mailbox archive generation from the mail_backup source host and
+# retains {{ mail_backup_retain_generations }} generations. Runs as the
+# mail-backup-pull systemd service (see mail-backup-pull.service.j2).
+set -euo pipefail
+
+dest_dir="{{ mail_backup_dest_dir }}"
+key="{{ mail_backup_ssh_key_path }}"
+known_hosts="{{ mail_backup_known_hosts_path }}"
+src_host="{{ mail_backup_source_host }}"
+src_user="{{ mail_backup_ssh_login_user }}"
+retain="{{ mail_backup_retain_generations }}"
+{% raw %}
+ts="$(date -u +%Y%m%dT%H%M%SZ)"
+tmp="${dest_dir}/.mailbox-${ts}.tar.gz.partial"
+final="${dest_dir}/mailbox-${ts}.tar.gz"
+
+cleanup() {
+  rm -f "${tmp}"
+}
+trap cleanup EXIT
+
+# StrictHostKeyChecking=accept-new: trust-on-first-use against a dedicated
+# known_hosts file scoped to this one key/purpose, not the operator's own.
+# A LAN address that starts answering with a different host key after first
+# contact still hard-fails the pull (accept-new only accepts keys for hosts
+# not yet in the file).
+ssh -i "${key}" \
+    -o UserKnownHostsFile="${known_hosts}" \
+    -o StrictHostKeyChecking=accept-new \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "${src_user}@${src_host}" \
+    > "${tmp}"
+
+# ssh can exit 0 on a connection that produced a truncated stream (e.g. the
+# remote tar died mid-write but the session still closed cleanly); gzip -t
+# catches that so a partial archive is never promoted to a generation.
+gzip -t "${tmp}"
+
+mv "${tmp}" "${final}"
+trap - EXIT
+
+# Retention: keep the newest N generations. Only reached after the new
+# generation above is safely in place, so a failed run (any command above
+# returning non-zero, given set -e) never prunes anything.
+mapfile -t old < <(find "${dest_dir}" -maxdepth 1 -name 'mailbox-*.tar.gz' -printf '%T@ %p\n' \
+  | sort -rn | tail -n "+$((retain + 1))" | cut -d' ' -f2-)
+if [ "${#old[@]}" -gt 0 ]; then
+  rm -f "${old[@]}"
+fi
+
+echo "mail-backup-pull: archived ${final}"
+{% endraw %}

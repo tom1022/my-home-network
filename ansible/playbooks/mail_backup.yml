@@ -1,0 +1,17 @@
+---
+- name: Refresh SSH known_hosts entries
+  import_playbook: refresh_known_hosts.yml
+
+- name: Configure mailbox archive source (k3s-agent-minipc)
+  hosts: k3s-agent-minipc
+  become: true
+  roles:
+    - role: mail_backup
+      mail_backup_side: source
+
+- name: Configure mailbox archive destination (pbs)
+  hosts: pbs
+  become: true
+  roles:
+    - role: mail_backup
+      mail_backup_side: destination

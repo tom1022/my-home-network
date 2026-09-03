@@ -1,0 +1,120 @@
+---
+- name: Ensure mail_backup_side is a known value
+  ansible.builtin.assert:
+    that:
+      - mail_backup_side in ['source', 'destination']
+    fail_msg: "mail_backup_side must be 'source' or 'destination', got: {{ mail_backup_side }}"
+
+# --- source side: k3s-agent-minipc ---------------------------------------
+
+- name: Source side | Ensure the restricted pull key is provided
+  ansible.builtin.assert:
+    that:
+      - mail_backup_ssh_public_key | trim | length > 0
+    fail_msg: >-
+      mail_backup_ssh_public_key is empty. Supply it via Infisical
+      (MAIL_BACKUP_SSH_PUBLIC_KEY) and run this playbook through
+      `infisical run`.
+  when: mail_backup_side == 'source'
+
+- name: Source side | Install the maildir extraction script
+  ansible.builtin.template:
+    src: mail-backup-extract.sh.j2
+    dest: "{{ mail_backup_extract_script_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+  when: mail_backup_side == 'source'
+
+- name: Source side | Authorize the pull key, restricted to the extraction script only
+  ansible.posix.authorized_key:
+    user: "{{ mail_backup_ssh_login_user }}"
+    key: "{{ mail_backup_ssh_public_key }}"
+    key_options: >-
+      command="{{ mail_backup_extract_script_path }}",no-agent-forwarding,no-port-forwarding,no-pty,no-X11-forwarding,no-user-rc
+    state: present
+    # Same rationale as ssh_authorized_keys: this must not strip the
+    # fleet's own managed connecting key entry (or Proxmox's block, on
+    # hosts that have one), so only ever add/update this one key.
+    exclusive: false
+  when: mail_backup_side == 'source'
+
+# --- destination side: pbs -------------------------------------------------
+
+- name: Destination side | Ensure required settings are provided
+  ansible.builtin.assert:
+    that:
+      - mail_backup_ssh_private_key | trim | length > 0
+      - mail_backup_source_host | length > 0
+      - mail_backup_dest_dir | length > 0
+    fail_msg: >-
+      mail_backup_ssh_private_key (from Infisical MAIL_BACKUP_SSH_PRIVATE_KEY),
+      mail_backup_source_host and mail_backup_dest_dir are all required.
+  when: mail_backup_side == 'destination'
+
+- name: Destination side | Ensure /root/.ssh exists
+  ansible.builtin.file:
+    path: "{{ mail_backup_ssh_key_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when: mail_backup_side == 'destination'
+
+- name: Destination side | Install the pull private key
+  ansible.builtin.copy:
+    content: "{{ mail_backup_ssh_private_key }}"
+    dest: "{{ mail_backup_ssh_key_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  when: mail_backup_side == 'destination'
+
+- name: Destination side | Ensure the archive destination directory exists
+  ansible.builtin.file:
+    path: "{{ mail_backup_dest_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when: mail_backup_side == 'destination'
+
+- name: Destination side | Ensure the pull script is installed
+  ansible.builtin.template:
+    src: mail-backup-pull.sh.j2
+    dest: "{{ mail_backup_script_path }}"
+    owner: root
+    group: root
+    mode: '0700'
+  when: mail_backup_side == 'destination'
+
+- name: Destination side | Ensure the systemd service unit is installed
+  ansible.builtin.template:
+    src: mail-backup-pull.service.j2
+    dest: "/etc/systemd/system/{{ mail_backup_service_name }}.service"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd daemon
+  when: mail_backup_side == 'destination'
+
+- name: Destination side | Ensure the systemd timer unit is installed
+  ansible.builtin.template:
+    src: mail-backup-pull.timer.j2
+    dest: "/etc/systemd/system/{{ mail_backup_service_name }}.timer"
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart mail-backup-pull timer
+  when: mail_backup_side == 'destination'
+
+- name: Destination side | Ensure the timer is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ mail_backup_service_name }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: mail_backup_side == 'destination'

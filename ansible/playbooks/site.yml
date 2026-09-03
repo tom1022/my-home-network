@@ -15,6 +15,9 @@
 - name: Configure PBS host
   import_playbook: pbs.yml
 
+- name: Configure mailbox archive backup (source + destination)
+  import_playbook: mail_backup.yml
+
 # VPS reverse proxy
 - name: Configure VPS reverse proxy
   import_playbook: vps.yml

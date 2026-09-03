@@ -1,0 +1,9 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart mail-backup-pull timer
+  ansible.builtin.systemd:
+    name: "{{ mail_backup_service_name }}.timer"
+    state: restarted

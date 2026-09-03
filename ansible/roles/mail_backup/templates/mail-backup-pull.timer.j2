@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic mailbox archive pull for the mail-platform mailbox
+
+[Timer]
+OnCalendar={{ mail_backup_timer_calendar }}
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

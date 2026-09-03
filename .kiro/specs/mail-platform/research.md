@@ -1671,3 +1671,72 @@ fail2ban/ClamAVを段階的に有効化する目的で `ansible-playbook -e mail
 - なぜ第1段の時点でのDKIM鍵読み取り確認 (`su _rspamd -c "head ..."`) が成功していたのか特定できていない。当時も `mailserver_dms_config_dir` は `0750 root:root` だったはずであり、理論上は同じ理由でtraverseできないはずだが、実測では読めていた。コンテナ再作成の直後というタイミング、または調査時に見落とした一時的な状態変化が影響した可能性があるが、再現・特定はしていない。
 - ClamAVの定義データベースが将来さらに肥大化した場合の常駐メモリの伸び幅は測定していない (今回の実測はある1時点のスナップショット)。
 - rspamd/ClamAVの遅延起動時間 (コンテナ再作成からclamdの常駐メモリ確保が安定するまで、実測で概ね1〜2分) がリソース逼迫時にどこまで伸びるかは未検証。
+
+## タスク8.1: 書庫の取り出しと保存先 (2026-09-04)
+
+### 採った構成
+
+新規Ansibleロール `ansible/roles/mail_backup` (プレイブック `ansible/playbooks/mail_backup.yml`、`site.yml` から import) を作成した。`mail_backup_side` で source/destination の2役を1ロールに収め、以下のpull型構成をとる。
+
+- **destination (pbs, LXC 202)**: systemd timer (`OnCalendar=*-*-* 04:10:00`、`RandomizedDelaySec=10m`) が `mail-backup-pull.sh` をoneshotで起動し、専用のed25519鍵 (`/root/.ssh/mail_backup_ed25519`、Infisical `MAIL_BACKUP_SSH_PRIVATE_KEY`) でsource側へSSH接続し、tarストリームを一時ファイル (`.mailbox-<UTC timestamp>.tar.gz.partial`) へ受信、`gzip -t` で整合性を確認してから最終名へ`mv`する。保存先は `/mnt/zfs-pool-0/mail-backup`。世代数上限 (既定14) を超えた古い生成物を、新しい生成物の確定後にのみ削除する。
+- **source (k3s-agent-minipc)**: 対応する公開鍵 (`MAIL_BACKUP_SSH_PUBLIC_KEY`) を、既存の接続用ユーザー (`tochi`) の `authorized_keys` に forced command (`command="/usr/local/sbin/mail-backup-extract.sh",no-agent-forwarding,no-port-forwarding,no-pty,no-X11-forwarding,no-user-rc`) 付きで追加する。この鍵はSSHクライアントが要求した内容に関わらず常にこのスクリプトしか実行できない。スクリプトは `sudo bash -c '...'` の内側でPVディレクトリのglob展開とtar実行の両方を行う (中間ディレクトリ `/var/lib/rancher/k3s` が非rootから辿れないため、glob展開自体をsudoの外に置くと0件になる不具合を実機で踏み、修正した)。
+
+世代数上限、保存先ディレクトリ、リトライ間隔はいずれもロールの変数として定義として保持する (`ansible/roles/mail_backup/defaults/main.yml`)。
+
+### `mariadb_dump` ロールの構成を踏襲したか
+
+**部分的に踏襲し、保存先とインフラ経路は独自に決めた。**
+
+踏襲した点: pbsが「取りに行く」pull型、systemd oneshot + timer、世代数上限を変数として持つ、というアーキテクチャ全体の骨格は`mariadb_dump`と同一にした。pbsを中央のバックアップ集約点として扱う既存の設計方針 (PBSのゲスト単位スナップショットも、mariadb_dumpの論理バックアップも、いずれもpbsが能動的に取得元へ接続する) との一貫性を優先した。
+
+踏襲しなかった点:
+1. **保存先ディレクトリ**: `mariadb_dump` は `pbs` のrootfs (`local-lvm`、hp-z440の `sda` = SSD) 上の `/var/backups/mariadb-gitea` に保存する。しかしメール書庫は `.kiro/steering/tech.md` の「添付・画像・バックアップ・メールボックスの実体はHDD」という役割別方針の対象そのものであり、SSDに書き続ける構成は方針違反になる。pbsに既存の `/mnt/zfs-pool-0` マウント (hp-z440の `sdc` = HDD、zfs-pool) があったため、そちらを保存先に選んだ。
+2. **転送手段**: `mariadb_dump` はDB専用プロトコル (`mysqldump` over TCP、`mariadb_dump_user`/`mariadb_dump_password` という業務アカウント) で認証する。メールボックスの実体はファイルシステム上のmaildirであり、対応するネットワークプロトコルが存在しないため、SSH + `tar` のstream転送を採用した。これに伴い、`mariadb_dump` には無い新規の認証情報 (SSH鍵ペア) が必要になった。汎用の「fleet全体の接続鍵」(`TF_VAR_ssh_public_key`) を転用せず、この用途専用のed25519鍵を新規に生成しforced commandで制限した。理由: fleet全体の接続鍵をpbsに複製すると、pbsが侵害された場合の被害範囲が「mail-backup-extract.shの実行のみ」から「fleet中の全ホストへのroot相当SSH」に拡大するため。
+
+### 物理ディスクの特定結果
+
+実機調査 (`lsblk`, `qm config`, `pct config`, `cat /proc/mounts`, `kubectl describe pv`) により確認した。
+
+- **メールボックスの実体**: Dovecot Pod (`dovecot-5b6d8b6bf8-zlmjl`) は `k3s-agent-minipc` に固定。PV (`local-path`) の実体は同ノード上の `/var/lib/rancher/k3s/storage/pvc-54c8818c-d1cb-4a4a-a52b-a61ca97a38b8_mailbox_mailbox-data`。`k3s-agent-minipc` (vmid 151) は Proxmoxノード **n100** 上のVMで、そのディスク (`vm-151-disk-0`) は `local-lvm` シンプール上にあり、`n100` の物理ディスクは **`/dev/sda` (SSD、ShiJi 512GB) の1台のみ** (`sdb`/`sdc` は存在しない、ZFSも保持しない)。
+- **保全先**: `pbs` (LXC 202) は Proxmoxノード **hp-z440** 上のコンテナ。マウントポイント `/mnt/zfs-pool-0` (今回の保存先 `mail-backup` サブディレクトリの親) は `zfs-pool:subvol-202-disk-0` で、`cat /proc/mounts` で `zfs-pool /zfs-pool zfs ...` と確認でき、`zfs-pool` は hp-z440の **`/dev/sdc` (HDD、ST4000VN006、3.6T)** 上の単一vdevである。
+
+タスク本文が前提とする「メールボックスは(hp-z440の) `sda` 上に、保全先は `sdc` 上に」という記述は**このホストには当てはまらない**。メールボックスを保持するのはn100であり、hp-z440には存在しない。実態は「メールボックスの実体は **n100の `sda`**、保全先は **hp-z440の `sdc`**」であり、ホストをまたいで別々の物理マシン上の別々の物理ディスクに分かれている。
+
+### 分離によって残る障害の範囲 (タスク本文の記述との食い違いを含む)
+
+設計 (design.md) およびタスク本文は「物理ディスク単体の故障では実体と成果物のいずれかが残るが、両者を収容するホストの全損では同時に失われる」という、**同一ホスト上の異なる物理ディスクへの分離**を前提とした残存リスクを記録するよう求めている。しかし実際に採った構成では、実体 (n100) と保全先 (hp-z440) は最初から別ホストであるため、この「ホスト全損で両方失う」という記述は成立しない。
+
+実態に即した残存障害範囲は以下のとおり:
+
+- n100単体の障害 (ディスク故障、電源故障、ホスト全損等) では、メールボックスの実体を喪失するが、直近の書庫がhp-z440側に残るため復旧可能。
+- hp-z440単体の障害では、書庫を喪失するが、メールボックスの実体はn100側に残るため保全は継続できる (次回実行までの窓は開くが、実体そのものは失われない)。
+- 両ホストが同時に失われる事象 (自宅内の共通障害: 停電、火災、盗難、自宅ネットワーク全体の物理破損等、n100とhp-z440が同一の物理的所在地にあることに由来する事象) でのみ、実体と書庫の両方を同時に喪失する。これは「ホストをまたぐ複製」を要件化しても解消しない、**設置場所の分離**を要する範囲であり、design.mdが書く「ホストをまたぐ複製を要する」という解消条件は今回の構成では既に満たされているが、より広い「サイト全体の分離」までは意図的に扱っていない。
+
+### 世代数上限と失敗記録の確認結果
+
+- **書庫の生成**: `systemctl start mail-backup-pull.service` を手動起動し、`/mnt/zfs-pool-0/mail-backup/mailbox-<timestamp>.tar.gz` が生成されることを確認した。`tar tzf` で実データ (`verify-sender@fickledev.com/mail/...` 等の実在maildir) を含むことも確認した。手動起動後も `systemctl list-timers` で次回スケジュール (`OnCalendar` 由来) が変化していないことを確認し、手動起動が定期実行の状態に影響しないことを確かめた。
+- **世代数上限**: `-e mail_backup_retain_generations=2` で一時的に上限を2へ下げて適用し、pull を複数回手動起動して3世代以上を生成させた結果、最新2世代のみが残り古い世代が削除されることを確認した。確認後、`-e` を外して再適用し上限を既定値14へ戻した (スクリプトへ埋め込まれた `retain="14"` を再確認)。
+- **失敗記録**: source側の抽出スクリプト (`/usr/local/sbin/mail-backup-extract.sh`) を一時的にリネームし、SSH forced commandが `No such file or directory` (exit 127) で失敗する状態を意図的に作った。この状態でpullを起動した結果、`systemctl is-failed mail-backup-pull.service` が `failed` を報告し、journalに `Failed with result 'exit-code'` が記録され、`.partial` ファイルは残らず、既存の世代 (2件) も一切変化しなかったことを確認した (取得失敗が「成功として扱われない」ことの実地確認)。確認後、抽出スクリプトを元の名前へ戻し、再度手動起動して復旧を確認した。
+
+### PBSの対象一覧
+
+`ansible/inventory/host_vars/pbs/main.yml` の `pbs_backup_targets` には、`k3s-agent-minipc` (vmid 151, `include: true`) が既存の定義として既に含まれており (`git diff` で本タスク中の変更なし)、他のk3sノードと同様に仮想化基盤の保護機構 (PBSゲストスナップショット) の対象であることを確認した。新規追加は不要と判断した。
+
+### 冪等性の確認
+
+`ansible-playbook playbooks/mail_backup.yml` (`infisical run --env=prod --` 経由) を2回連続で適用し、2回目が両ホストとも `changed=0` であることを確認した (途中で世代数上限の一時変更や抽出スクリプトの一時退避を行った後も、最終状態への再適用および連続2回適用でこの結果を再確認している)。
+
+### Infisicalへの新規登録
+
+`MAIL_BACKUP_SSH_PRIVATE_KEY` / `MAIL_BACKUP_SSH_PUBLIC_KEY` (prod環境) を本タスクで新規生成・登録した。ローカルに一時生成した鍵ファイルはInfisicalへの登録後にshredで削除済みで、リポジトリには含まれない。
+
+### 想定外の事象
+
+- テンプレート内の `${#matches[@]}` / `${#old[@]}` (bash配列長構文) がJinja2の `{# ... #}` コメント開始と誤認識され、`ansible.builtin.template` が `Missing end of comment tag` で失敗した。該当箇所を `{% raw %}...{% endraw %}` で囲み、変数展開が必要な箇所のみ `{% endraw %}{{ var }}{% raw %}` で挟む形に修正した。
+- 抽出スクリプトのグロブ展開を素朴に「sudoなしで展開してからsudo tarへ渡す」形にした初版では、`/var/lib/rancher/k3s` が非root (`tochi`) から辿れず (`Permission denied`)、展開が常に0件になっていた。グロブ展開自体をsudoの内側 (`sudo bash -c '...'`) に移す修正で解消した。
+- pull側スクリプトのSSHログインユーザーを `{{ ansible_user }}` から導出していたところ、宛先(pbs)プレイでの `ansible_user` はpbs自身の接続ユーザー (`root`) を指しており、source側 (`tochi`) とは別人になっていた (`root@192.168.1.151: Permission denied (publickey)`)。両プレイで意味が変わる変数を使わず、`tochi` を固定値として明示する形に修正した。
+
+### 裏が取れなかった点
+
+- n100/hp-z440以外の障害モード (ネットワークスイッチ、自宅回線、UPS等の共有インフラ単体の故障がn100/hp-z440いずれか一方だけを道連れにするか、両方を同時に道連れにするか) は調査していない。上記の「残る障害の範囲」はストレージ・ホスト単位の分離のみを評価したものである。
+- 書庫からの実際の復元 (要件9.2/9.3、メールボックスの実体を書庫展開で置き換える手順とその成立確認) は本タスク (8.1) の範囲外として扱った。設計上は別タスクの担当とみて、本タスクでは「取り出しと保存」までを検証対象とした。

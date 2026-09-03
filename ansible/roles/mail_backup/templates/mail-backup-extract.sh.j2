@@ -1,0 +1,32 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Invoked only as the forced command of the mail-backup pull key's
+# authorized_keys entry (see the mail_backup role, source side) -- the SSH
+# client's own requested command is ignored by sshd whenever "command=" is
+# set, so this is the only thing that key can ever run. Streams a tar of the
+# mailbox PV directory to stdout; the caller (pbs) redirects it to a file.
+#
+# The glob itself must run as root, not just the final tar: intermediate
+# path components (e.g. /var/lib/rancher/k3s) are not traversable by the
+# unprivileged connecting user, so a glob expanded before sudo silently
+# matches nothing instead of failing loudly. Everything below runs inside
+# one sudo'd subshell for that reason.
+set -euo pipefail
+
+exec sudo /bin/bash -c '
+{% raw %}
+set -euo pipefail
+shopt -s nullglob
+matches=(
+{%- endraw -%}
+{{ mail_backup_source_pv_glob }}
+{%- raw -%}
+)
+if [ "${#matches[@]}" -ne 1 ]; then
+  echo "mail-backup-extract: expected exactly 1 match, found ${#matches[@]}" >&2
+  exit 1
+fi
+exec tar --create --gzip --file=- -C "$(dirname "${matches[0]}")" "$(basename "${matches[0]}")"
+{% endraw -%}
+'

@@ -1,0 +1,52 @@
+---
+# mail_backup role (mail-platform task 8.1 / requirement 9.1-9.10).
+#
+# Two sides of one pull-based archive job, selected per play via
+# mail_backup_side ('source' | 'destination'):
+#
+# - source (k3s-agent-minipc): the node local-path pins the mailbox PV to.
+#   Its actual physical disk is n100's single SSD (/dev/sda, local-lvm) --
+#   n100 has no ZFS/second disk, so this is NOT the hp-z440 "sda" the task
+#   text assumes. Only a restricted, forced-command SSH key is authorized
+#   here; it can run nothing but the tar extraction below.
+# - destination (pbs, LXC 202 on hp-z440): pulls the archive over the LAN,
+#   verifies it, retains N generations, and stores it under the zfs-pool
+#   mount already bind-mounted into this container at /mnt/zfs-pool-0
+#   (hp-z440's /dev/sdc) -- a different host AND a different physical disk
+#   from the source, so the separation holds regardless of which "sda"
+#   reading of the task text is used.
+mail_backup_side: destination
+
+# --- source side (k3s-agent-minipc) ---
+
+# local-path-provisioner names volume dirs "pvc-<uid>_<namespace>_<pvcname>".
+# The UID changes if the PVC is ever recreated; namespace/pvcname do not, so
+# match on the stable suffix rather than pinning today's UID.
+mail_backup_source_pv_glob: /var/lib/rancher/k3s/storage/*_mailbox_mailbox-data
+mail_backup_extract_script_path: /usr/local/sbin/mail-backup-extract.sh
+mail_backup_ssh_public_key: "{{ lookup('env', 'MAIL_BACKUP_SSH_PUBLIC_KEY') }}"
+# Account the pull connects as. Reuses the existing target_hosts connecting
+# user (tochi) rather than minting a second one; the forced command plus the
+# fleet's standard passwordless-sudo default for that user is what makes the
+# root-owned maildir readable, not a separate root login.
+#
+# Deliberately not "{{ ansible_user }}": this variable is rendered in BOTH
+# plays (source and destination), and in the destination play ansible_user
+# resolves to the play's own host (pbs -> root), not the source host's
+# connecting user. It must name the source host's account regardless of
+# which play renders it, so it is pinned to inventory's target_hosts
+# default rather than derived per-play.
+mail_backup_ssh_login_user: tochi
+
+# --- destination side (pbs) ---
+
+mail_backup_source_host: 192.168.1.151
+mail_backup_ssh_private_key: "{{ lookup('env', 'MAIL_BACKUP_SSH_PRIVATE_KEY') }}"
+mail_backup_ssh_key_path: /root/.ssh/mail_backup_ed25519
+mail_backup_known_hosts_path: /root/.ssh/mail_backup_known_hosts
+mail_backup_dest_dir: /mnt/zfs-pool-0/mail-backup
+mail_backup_script_path: /usr/local/sbin/mail-backup-pull.sh
+mail_backup_service_name: mail-backup-pull
+mail_backup_timer_calendar: "*-*-* 04:10:00"
+# Generations to retain, matching the framing mariadb_dump already uses.
+mail_backup_retain_generations: 14

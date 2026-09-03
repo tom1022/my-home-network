@@ -1,0 +1,6 @@
+[Unit]
+Description=Pull one mailbox archive generation from the mail-platform source host
+
+[Service]
+Type=oneshot
+ExecStart={{ mail_backup_script_path }}
