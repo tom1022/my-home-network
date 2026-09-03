@@ -129,6 +129,48 @@ locals {
       proxied = false
       ttl     = 3600
     }
+
+    # SPF (要件6.2)。送信元を VPS の送出アドレスのみに限定する。docker-mailserver の
+    # コンテナは IPv6 を持たない bridge ネットワーク (EnableIPv6=false) で動作しており、
+    # 外部への送出は host の IPv4 (var.vps_ipv4) へ NAT された後にしか行われないことを
+    # 実機で確認済み (コンテナ内から https://api.ipify.org へ到達した送出元が
+    # var.vps_ipv4 と一致した。AAAA レコードは mail.${var.managed_domain} の受信/取得用
+    # であり送出経路には使われない)。よって ip6 は含めない。家庭回線からの送出は存在
+    # しないため、限定の範囲に含めない (-all で他の送出元をすべて拒否する)。
+    spf_txt = {
+      name    = var.managed_domain
+      type    = "TXT"
+      content = "\"v=spf1 ip4:${var.vps_ipv4} -all\""
+      proxied = false
+      ttl     = 1
+    }
+
+    # DKIM 公開鍵 (要件6.3)。セレクタは ansible/roles/mailserver/defaults/main.yml の
+    # mailserver_dkim_selector (mail) と一致させる。値は稼働中の秘密鍵
+    # (Infisical MAIL_DKIM_PRIVATE_KEY) から `openssl rsa -pubout` で導出した公開鍵のみで
+    # あり、秘密鍵はこの記録に一切現れない。RSA 2048bit の公開鍵は 255 文字の DNS
+    # character-string 上限を超えるため、Cloudflare のダッシュボード表示と同じ形式
+    # (255byte ごとに区切った複数の quoted string) で明示的に分割する。
+    dkim_mail_txt = {
+      name    = "mail._domainkey.${var.managed_domain}"
+      type    = "TXT"
+      content = "\"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsKYnIYeKJWiiwBZvUZCd6qAbiCwUY4960hG/pEk/LUpU6O5SsmFa2h0Zza5PBozjNrlH3uTrpRjCBDhghmRvJg+g9I3rEncevaldzC1r+EqhnSkRaoVp46aiuze/+2twOd5XCZpRdg7KJvnhqLwtdrXDYHLigaBUs+6FXbXNbaF7qbfp9iZyNGaoWiqOsA1qf\" \"LA4E1hHLeiI3Gt5lmySzYlhQj4xZmlnOvpNcxoQuWEDFWscFlK3NqYgQxrK+NkRL0QLuXvEzufTkrqHWW2IqlrenfP+bhOoQBVX64fbCAgr47FoESdJb29Lyvn0LDR1q+DtljxGX+dn/YPGCVPHLwIDAQAB\""
+      proxied = false
+      ttl     = 1
+    }
+
+    # DMARC (要件6.4)。認証 (SPF/DKIM) に失敗したメールの扱いを宣言する。導入直後は
+    # SPF/DKIM とも初適用であり、アライメントの見落としで正当なメールを失う (p=quarantine
+    # /reject) リスクを避けるため p=none (監視のみ、配送には影響しない) から開始する。
+    # rua で集計レポートを postmaster (受信可能な既存メールボックス) 宛に送らせ、実際の
+    # 認証結果を観測してから引き上げる。
+    dmarc_txt = {
+      name    = "_dmarc.${var.managed_domain}"
+      type    = "TXT"
+      content = "\"v=DMARC1; p=none; rua=mailto:postmaster@${var.managed_domain}; fo=1\""
+      proxied = false
+      ttl     = 1
+    }
   }
 
   dns_records = merge(local.vps_a_records, local.vps_aaaa_records, local.cname_records, local.other_dns_records, local.kanidm_ldaps_a_records)
