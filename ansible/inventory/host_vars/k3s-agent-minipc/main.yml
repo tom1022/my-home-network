@@ -3,3 +3,14 @@
 # Use role-expected boolean
 k3s_agent: true
 # k3s_server_endpoint は group_vars/k3s/main.yml で解決します（ホストの ansible_host を参照）
+
+# Agent join credential: see playbooks/k3s.yml post_tasks. The role's
+# k3s.service.j2 has no variable hook to substitute the token it embeds
+# (hardcoded to the master's server-token hostvar), and the value that
+# hostvar resolves to depends on which hosts are included in a given run
+# (the master's own set_fact override only applies within a run that
+# includes the master), so a text-pattern strip in the unit file cannot
+# reliably tell the role's line apart from an intentionally injected one.
+# The playbook instead owns the Environment=K3S_TOKEN line for agent hosts
+# outright: it deletes whatever the role wrote and inserts exactly one line
+# with the agent-scoped token.

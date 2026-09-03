@@ -2,16 +2,15 @@
 - name: Refresh SSH known_hosts entries
   import_playbook: refresh_known_hosts.yml
 
-# Placeholder playbook for k3s. Implement role or tasks as needed.
-- name: K3s - Placeholder
+- name: K3s - Bootstrap cluster via rlex.k3s
   hosts: k3s
   become: true
-  vars: {}
   pre_tasks:
-    # rlex.k3s is an external, version-pinned role (not vendored here), so this
-    # check lives in the playbook instead of the role: non-initial-master hosts
-    # (additional masters and agents) read the master's persisted
-    # k3s_node_token from hostvars to join, rather than generating their own.
+    # rlex.k3s is vendored in-tree at roles/rlex.k3s (pinned to the upstream
+    # commit recorded in its own history), so this check lives in the
+    # playbook instead of the role: non-initial-master hosts (additional
+    # masters and agents) read the master's persisted k3s_node_token from
+    # hostvars to join, rather than generating their own.
     - name: Ensure k3s_node_token is provided for hosts joining an existing cluster
       ansible.builtin.assert:
         that:
@@ -21,8 +20,47 @@
           Run this playbook via `infisical run -- ansible-playbook ...` so K3S_NODE_TOKEN
           is present in the environment.
       when: not k3s_initial_master
-  tasks:
+    - name: Ensure K3S_AGENT_TOKEN is provided for agent hosts
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'K3S_AGENT_TOKEN') | length > 0
+        fail_msg: >-
+          K3S_AGENT_TOKEN is required so agent hosts join with an
+          agent-scoped credential instead of the server token
+          (k3s_node_token). Run this playbook via
+          `infisical run -- ansible-playbook ...`.
+      when: k3s_agent | default(false)
   roles:
     - role: rlex.k3s
-      # 設定は host_vars / group_vars で上書きしてください
-      # role variables は rlex/ansible-role-k3s の README を参照して合わせてください
+    # 設定は host_vars / group_vars で上書きしてください
+    # role variables は rlex/ansible-role-k3s の README を参照して合わせてください
+  post_tasks:
+    # rlex.k3s's k3s.service.j2 hardcodes an Environment=K3S_TOKEN line for
+    # any non-initial-master host, sourced from the master's k3s_node_token
+    # hostvar (the server token, admin-equivalent) with no variable hook to
+    # substitute a different value. A k3s_extra_env-appended second line
+    # would win at runtime (systemd: later same-named Environment=
+    # assignment overrides earlier ones), but the role's own line stays as
+    # literal admin-equivalent text in the unit file. Text-pattern removal
+    # of just that line is also unreliable: the value it renders to depends
+    # on which hosts a given invocation includes (the master's set_fact
+    # override of k3s_node_token only applies within a run that includes
+    # the master; a `--limit`-only agent run instead falls back to the
+    # static host_vars value), so the same secret can appear with or
+    # without a recognizable prefix. The playbook therefore owns this line
+    # outright for agent hosts: delete every Environment=K3S_TOKEN= line
+    # the role wrote, then insert exactly one with the agent-scoped token.
+    - name: Remove role-authored K3S_TOKEN Environment line (agent hosts)
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/system/k3s.service
+        regexp: '^Environment=K3S_TOKEN='
+        state: absent
+      when: k3s_agent | default(false)
+      notify: Restart k3s
+    - name: Insert agent-scoped K3S_TOKEN Environment line (agent hosts)
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/system/k3s.service
+        insertafter: '^\[Service\]'
+        line: "Environment=K3S_TOKEN={{ lookup('env', 'K3S_AGENT_TOKEN') }}"
+      when: k3s_agent | default(false)
+      notify: Restart k3s
