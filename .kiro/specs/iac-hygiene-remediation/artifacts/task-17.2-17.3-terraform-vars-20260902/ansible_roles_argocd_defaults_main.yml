@@ -1,0 +1,5 @@
+---
+# Defaults for argocd role
+argocd_namespace: argocd
+
+# Gitea Repository Configuration: defined in ansible/inventory/group_vars/k3s/main.yml

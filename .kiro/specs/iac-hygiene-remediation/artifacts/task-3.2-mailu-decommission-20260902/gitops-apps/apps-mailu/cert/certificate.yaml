@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mailu-certificates
+  namespace: mailu
+spec:
+  secretName: mailu-certificates
+  dnsNames:
+    - mailu.fickledev.com
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  renewBefore: 720h0m0s

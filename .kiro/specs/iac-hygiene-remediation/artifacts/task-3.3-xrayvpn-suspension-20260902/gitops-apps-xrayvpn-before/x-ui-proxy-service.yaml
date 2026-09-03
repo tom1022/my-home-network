@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: x-ui-proxy
+  namespace: xrayvpn
+spec:
+  selector:
+    app: x-ui-proxy
+  ports:
+    - name: web
+      port: 54321
+      targetPort: 54321
+  type: ClusterIP

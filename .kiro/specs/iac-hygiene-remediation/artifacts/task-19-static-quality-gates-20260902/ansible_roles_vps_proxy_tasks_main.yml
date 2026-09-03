@@ -1,0 +1,339 @@
+- name: Ensure become password is provided for privileged tasks
+  ansible.builtin.assert:
+    that:
+      - ansible_become_password | default('') | length > 0
+    fail_msg: >-
+      ansible_become_password is required to run vps_proxy (sudo on the VPS host
+      needs a password). Supply it via Infisical (VPS_BECOME_PASSWORD).
+
+- name: Ensure nginx stream config directory exists
+  ansible.builtin.file:
+    path: /etc/nginx/stream.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy nginx stream config for TCP passthrough
+  ansible.builtin.template:
+    src: nginx_stream.conf.j2
+    dest: /etc/nginx/stream.d/nginx_stream.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload nginx
+  when: vps_proxy_tcp_listeners | length > 0
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: vps_proxy role supports Debian family hosts only.
+
+- name: Ensure required VPS proxy variables are provided
+  ansible.builtin.assert:
+    that:
+      - vps_proxy_domain_main | length > 0
+      - vps_proxy_domain_www | length > 0
+      - vps_proxy_upstream_main | length > 0
+      - vps_proxy_upstream_blog | length > 0
+    fail_msg: Required domain and upstream variables for vps_proxy are missing.
+
+- name: Ensure ACME DNS-01 credentials variable is provided
+  ansible.builtin.assert:
+    that:
+      - vps_proxy_acme_cloudflare_api_token | length > 0
+    fail_msg: >-
+      vps_proxy_acme_cloudflare_api_token is required to obtain/renew the ACME
+      certificate (Infisical: CLOUDFLARE_DNS01_API_TOKEN).
+
+- name: Ensure required packages are installed
+  ansible.builtin.apt:
+    name: "{{ vps_proxy_required_packages }}"
+    state: present
+    update_cache: true
+
+# ufw is not a required package here: on this host it Breaks iptables-persistent
+# and netfilter-persistent (the packages the NAT/MASQUERADE task below
+# depends on), so installing it is an architectural choice for the single-
+# firewall-mechanism decision, not something this role should force. Until
+# that decision lands, skip the allow-rule task rather than fail when the
+# ufw binary (required even for --check's --dry-run) is absent.
+- name: Gather installed package facts to detect ufw
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Ensure required TCP ports are allowed in UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ vps_proxy_ufw_allow_tcp_ports }}"
+  when:
+    - vps_proxy_manage_ufw | bool
+    - "'ufw' in ansible_facts.packages"
+
+- name: Ensure VPS proxy directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ vps_proxy_nginx_conf_d_dir }}"
+      mode: '0755'
+
+- name: Ensure Cloudflare DNS-01 credentials file is present
+  ansible.builtin.copy:
+    content: "dns_cloudflare_api_token = {{ vps_proxy_acme_cloudflare_api_token }}\n"
+    dest: "{{ vps_proxy_acme_cloudflare_credentials_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Ensure certbot and the Cloudflare DNS plugin are installed
+  ansible.builtin.pip:
+    name:
+      - certbot
+      - certbot-dns-cloudflare
+    virtualenv: "{{ vps_proxy_certbot_venv }}"
+    virtualenv_command: python3 -m venv
+    state: present
+
+- name: Ensure certbot binary is on PATH
+  ansible.builtin.file:
+    src: "{{ vps_proxy_certbot_bin }}"
+    dest: /usr/bin/certbot
+    state: link
+    force: true
+
+- name: Check for an existing ACME certificate before the renewal decision
+  ansible.builtin.stat:
+    path: "{{ vps_proxy_acme_live_dir }}/fullchain.pem"
+  register: vps_proxy_acme_precheck_cert_stat
+
+# x509_certificate_info fails if the target file is missing, so it only runs
+# once a live certificate is confirmed to exist (first-run issuance skips
+# straight to vps_proxy_acme_renewal_required = true below).
+- name: Read ACME certificate expiry metadata
+  community.crypto.x509_certificate_info:
+    path: "{{ vps_proxy_acme_live_dir }}/fullchain.pem"
+    valid_at:
+      renewal_due: "+{{ vps_proxy_acme_renewal_threshold_days }}d"
+  register: vps_proxy_acme_cert_info
+  when: vps_proxy_acme_precheck_cert_stat.stat.exists
+  failed_when: false
+
+# valid_at.renewal_due is true when the certificate is still valid at
+# now+threshold (no renewal needed yet); replaces hand-computed epoch/day-diff
+# arithmetic over `date`/`openssl x509 -enddate` output. `or` short-circuits,
+# so vps_proxy_acme_cert_info is never dereferenced on first run (file absent).
+# An unreadable/truncated fullchain.pem makes x509_certificate_info fail, which
+# would otherwise abort the play and leave renewal permanently blocked until
+# someone intervenes by hand; treating that as "renewal required" hands the
+# situation to certbot, which can reissue over a corrupt file.
+- name: Decide whether ACME certificate issuance/renewal is required
+  ansible.builtin.set_fact:
+    vps_proxy_acme_renewal_required: >-
+      {{ (not vps_proxy_acme_precheck_cert_stat.stat.exists)
+         or (vps_proxy_acme_cert_info.failed | default(false))
+         or (not vps_proxy_acme_cert_info.valid_at.renewal_due) }}
+
+# certonly without --force-renewal is idempotent (rc 0, "not yet due for
+# renewal") even if invoked anyway, but gating on the decision above avoids a
+# pointless certbot invocation every run and makes the renewal/no-renewal
+# branch visible to Ansible (--check --diff) instead of hidden inside certbot.
+- name: Ensure ACME certificate for the edge host is obtained
+  ansible.builtin.command:
+    argv:
+      - "{{ vps_proxy_certbot_bin }}"
+      - certonly
+      - --cert-name
+      - "{{ vps_proxy_acme_cert_name }}"
+      - --dns-cloudflare
+      - --dns-cloudflare-credentials
+      - "{{ vps_proxy_acme_cloudflare_credentials_path }}"
+      - --dns-cloudflare-propagation-seconds
+      - "{{ vps_proxy_acme_propagation_seconds | string }}"
+      - -d
+      - "{{ vps_proxy_domain_main }}"
+      - -d
+      - "*.{{ vps_proxy_domain_main }}"
+      - --non-interactive
+      - --agree-tos
+      - --deploy-hook
+      - "systemctl reload {{ vps_proxy_nginx_service_name }}"
+  register: vps_proxy_acme_issue_result
+  changed_when: "'successfully received certificate' in (vps_proxy_acme_issue_result.stdout | lower)"
+  failed_when: vps_proxy_acme_issue_result.rc != 0
+  when: vps_proxy_acme_renewal_required | bool
+
+- name: Deploy certbot renew systemd service
+  ansible.builtin.template:
+    src: certbot-renew.service.j2
+    dest: /etc/systemd/system/certbot-renew.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Deploy certbot renew systemd timer
+  ansible.builtin.template:
+    src: certbot-renew.timer.j2
+    dest: /etc/systemd/system/certbot-renew.timer
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure certbot renew timer is enabled and started
+  ansible.builtin.systemd:
+    name: certbot-renew.timer
+    daemon_reload: true
+    enabled: true
+    state: started
+
+- name: Ensure Cloudflare Origin CA directory exists
+  ansible.builtin.file:
+    path: "{{ vps_proxy_origin_ca_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: vps_proxy_origin_ca_enabled | bool
+
+- name: Deploy Cloudflare Origin CA certificate
+  ansible.builtin.copy:
+    content: "{{ vps_proxy_origin_ca_certificate }}"
+    dest: "{{ vps_proxy_origin_ca_dir }}/{{ vps_proxy_domain_main }}.pem"
+    owner: root
+    group: root
+    mode: '0644'
+  when: vps_proxy_origin_ca_enabled | bool
+  notify: Restart nginx service
+
+- name: Deploy Cloudflare Origin CA private key
+  ansible.builtin.copy:
+    content: "{{ vps_proxy_origin_ca_private_key }}"
+    dest: "{{ vps_proxy_origin_ca_dir }}/{{ vps_proxy_domain_main }}.key"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  when: vps_proxy_origin_ca_enabled | bool
+  notify: Restart nginx service
+
+- name: Ensure ACME fullchain exists
+  ansible.builtin.stat:
+    path: "{{ vps_proxy_acme_live_dir }}/fullchain.pem"
+  register: vps_proxy_fullchain_stat
+
+- name: Ensure ACME private key exists
+  ansible.builtin.stat:
+    path: "{{ vps_proxy_acme_live_dir }}/privkey.pem"
+  register: vps_proxy_privkey_stat
+
+- name: Ensure required ACME certificate files are present
+  ansible.builtin.assert:
+    that:
+      - vps_proxy_fullchain_stat.stat.exists
+      - vps_proxy_privkey_stat.stat.exists
+    fail_msg: >-
+      Required certificate files are missing under {{ vps_proxy_acme_live_dir }}.
+      The ACME issuance task above should have created them.
+
+- name: Ensure nginx main config is deployed
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ vps_proxy_nginx_conf_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart nginx service
+
+- name: Ensure main web virtual host config is deployed
+  ansible.builtin.template:
+    src: fickledev.com.conf.j2
+    dest: "{{ vps_proxy_nginx_conf_d_dir }}/fickledev.com.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart nginx service
+
+- name: Ensure tochiweb virtual host config is absent
+  ansible.builtin.file:
+    path: "{{ vps_proxy_nginx_conf_d_dir }}/tochiweb.mydns.jp.conf"
+    state: absent
+  notify: Restart nginx service
+
+- name: Ensure haproxy config is deployed
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: "{{ vps_proxy_haproxy_conf_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart haproxy service
+
+- name: Ensure nginx service is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ vps_proxy_nginx_service_name }}"
+    enabled: true
+    state: started
+
+- name: Ensure haproxy service is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ vps_proxy_haproxy_service_name }}"
+    enabled: true
+    state: started
+
+- name: Ensure nginx stream module load file exists
+  ansible.builtin.copy:
+    dest: /etc/nginx/modules-enabled/50-mod-stream.conf
+    content: |
+      load_module /usr/lib/nginx/modules/ngx_stream_module.so;
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart nginx service
+
+- name: Flush handlers to apply config changes immediately
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure IPv4 packet forwarding is enabled
+  ansible.builtin.sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    state: present
+    reload: yes
+
+- name: Set external interface fact from default route
+  ansible.builtin.set_fact:
+    vps_external_interface: "{{ ansible_default_ipv4.interface }}"
+  when: ansible_default_ipv4 is defined
+
+- name: Fail when external interface could not be detected
+  ansible.builtin.assert:
+    that:
+      - vps_external_interface is defined
+    fail_msg: |
+      外向きインターフェースが自動検出できませんでした。ansible_default_ipv4 が未設定です。
+
+- name: Ensure NAT (MASQUERADE) rule exists for external interface
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  when: vps_external_interface is defined
+
+- name: Deploy iptables persistent rules file
+  ansible.builtin.template:
+    src: iptables_rules.v4.j2
+    dest: /etc/iptables/rules.v4
+    owner: root
+    group: root
+    mode: '0644'
+  when: vps_external_interface is defined
+  notify: Restart netfilter-persistent
+

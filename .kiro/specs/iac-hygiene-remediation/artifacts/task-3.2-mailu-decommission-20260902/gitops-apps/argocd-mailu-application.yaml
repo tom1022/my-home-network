@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mailu
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://mailu.github.io/helm-charts
+      chart: mailu
+      targetRevision: 2.6.3
+      helm:
+        valueFiles:
+          - $values/apps/mailu/values.yaml
+    - repoURL: http://192.168.1.200:3000/giteaadmin/gitops-apps.git
+      targetRevision: main
+      ref: values
+    - repoURL: http://192.168.1.200:3000/giteaadmin/gitops-apps.git
+      targetRevision: main
+      path: apps/mailu
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mailu
+  ignoreDifferences:
+    - group: cert-manager.io
+      kind: Certificate
+      jsonPointers:
+        - "/status"
+        - "/spec"
+        - "/metadata"
+        - "/metadata/annotations"
+        - "/metadata/labels"
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

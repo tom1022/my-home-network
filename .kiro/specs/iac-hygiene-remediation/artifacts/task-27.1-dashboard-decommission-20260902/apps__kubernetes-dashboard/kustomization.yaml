@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- upstream.yaml
+- ingress.yaml
+- admin-user.yaml
+- servers-transport.yaml
+namespace: kubernetes-dashboard
+
+# 上流(upstream.yaml)は既に livenessProbe と securityContext(readOnlyRootFilesystem/runAsUser/runAsGroup)
+# を定義済み。ここでは不足している readinessProbe と securityContext の残りのハードニング項目のみを追加する。
+patches:
+- target:
+    kind: Deployment
+    name: kubernetes-dashboard
+  patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/readinessProbe
+      value:
+        httpGet:
+          scheme: HTTPS
+          path: /
+          port: 8443
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+    - op: add
+      path: /spec/template/spec/containers/0/securityContext/runAsNonRoot
+      value: true
+    - op: add
+      path: /spec/template/spec/containers/0/securityContext/capabilities
+      value:
+        drop: ["ALL"]
+- target:
+    kind: Deployment
+    name: dashboard-metrics-scraper
+  patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/readinessProbe
+      value:
+        httpGet:
+          scheme: HTTP
+          path: /
+          port: 8000
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+    - op: add
+      path: /spec/template/spec/containers/0/securityContext/runAsNonRoot
+      value: true
+    - op: add
+      path: /spec/template/spec/containers/0/securityContext/capabilities
+      value:
+        drop: ["ALL"]

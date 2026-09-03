@@ -1,0 +1,77 @@
+home-assistant:
+  replicaCount: 1
+
+  service:
+    type: LoadBalancer
+
+  ingress:
+    enabled: true
+    hosts:
+      - host: ha.fickledev.com
+        paths:
+          - path: /
+            pathType: Prefix
+    annotations:
+      kubernetes.io/ingress.class: "traefik"
+      traefik.ingress.kubernetes.io/router.middlewares: "argocd-local-whitelist@kubernetescrd"
+    tls:
+      - hosts:
+          - ha.fickledev.com
+        secretName: tls-fickledev-com
+
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+  # volumeClaimTemplates は StatefulSet 作成後に変更できない (K8s API が拒否する)。
+  # 保護アノテーションは StatefulSet 本体の annotations に付与し、そちらを Git からの削除・
+  # Application 削除の対象として保護する。
+  statefulSetAnnotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+
+  configuration:
+    enabled: true
+    trusted_proxies:
+      - 10.0.0.0/8
+      - 10.42.0.0/16
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 127.0.0.0/8
+
+  # コンテナはイメージ内で root (uid=0/gid=0) 固定で動作するため runAsNonRoot は付与しない。
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+
+  # readOnlyRootFilesystem は付与しない: go2rtc のソケットや uv のロックファイルなど
+  # /config 以外 (/tmp) にも書き込みが確認されている。
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+  # チャートが実際に参照するキーは initContainers (extraInitContainers は typo で無効)。
+  # PVC 上の /config/custom_components/hacs が既に存在する場合はスキップする: HACS は
+  # 手動導入分がここに永続化済みであり、Pod 再作成のたびに走る init を無条件展開にすると
+  # 導入済み設定を破壊しうる。イメージは latest ではなくダイジェスト固定。
+  initContainers:
+    - name: install-hacs
+      image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          if [ -f /config/custom_components/hacs/manifest.json ]; then
+            exit 0
+          fi
+          apk add --no-cache curl unzip >/dev/null
+          mkdir -p /config/custom_components/hacs
+          curl -fsSL -o /tmp/hacs.zip https://github.com/hacs/integration/releases/download/2.0.5/hacs.zip
+          unzip -oq /tmp/hacs.zip -d /config/custom_components/hacs
+          rm -f /tmp/hacs.zip
+      volumeMounts:
+        - name: home-assistant
+          mountPath: /config
+

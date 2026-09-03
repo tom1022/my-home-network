@@ -1,0 +1,29 @@
+---
+ansible_become_password: "{{ lookup('env', 'VPS_BECOME_PASSWORD') }}"
+vps_proxy_acme_contact_email: "{{ lookup('env', 'LETSENCRYPT_CONTACT_EMAIL') | default('', true) }}"
+vps_proxy_acme_cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_DNS01_API_TOKEN') }}"
+
+vps_proxy_domain_main: fickledev.com
+vps_proxy_domain_www: www.fickledev.com
+vps_proxy_domain_mail: mail.fickledev.com
+
+vps_proxy_upstream_main: 192.168.1.103
+vps_proxy_upstream_blog: 192.168.1.101
+vps_proxy_upstream_mail: 192.168.1.102
+
+vps_proxy_tcp_upstreams:
+  - name: minecraft_bedrock_backend
+    members:
+      - host: 192.168.1.150
+        port: 19132
+      - host: 192.168.1.151
+        port: 19132
+      - host: 192.168.1.152
+        port: 19132
+
+vps_proxy_tcp_listeners:
+  - name: minecraft_bedrock_listener
+    listen_port: 19132
+    bind_address: 0.0.0.0
+    udp: true
+    upstream: minecraft_bedrock_backend

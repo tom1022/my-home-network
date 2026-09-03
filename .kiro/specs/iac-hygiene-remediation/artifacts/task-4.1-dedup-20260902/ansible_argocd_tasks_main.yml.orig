@@ -1,0 +1,77 @@
+---
+- name: Ensure required k3s variables are provided
+  ansible.builtin.assert:
+    that:
+      - k3s_control_plane is defined
+    fail_msg: "k3s_control_plane must be defined (host name of the master node)"
+
+- name: Ensure target directory for k3s manifests exists
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server/manifests
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
+
+- name: Create Argo CD namespace
+  ansible.builtin.copy:
+    content: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: {{ argocd_namespace }}
+    dest: "/var/lib/rancher/k3s/server/manifests/{{ argocd_namespace }}-namespace.yaml"
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
+
+- name: Create Argo CD Traefik IngressRoute manifest
+  ansible.builtin.template:
+    src: argocd-ingressroute.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/argocd-ingressroute.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
+
+- name: Create Argo CD HelmChart manifest
+  ansible.builtin.template:
+    src: argocd-helmchart.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/argocd-helmchart.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
+
+- name: Create Argo CD repository secret manifest
+  ansible.builtin.template:
+    src: argocd-repo.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/argocd-repo.yaml
+    mode: '0600'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
+
+- name: Create Argo CD ApplicationSet bootstrap manifest
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../gitops/apps/gitops-apps-set.yaml"
+    dest: /var/lib/rancher/k3s/server/manifests/gitops-apps-set.yaml
+    mode: '0644'
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
+
+- name: Wait for Argo CD server to be ready
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - wait
+      - --for=condition=available
+      - deployment/argocd-server
+      - -n
+      - "{{ argocd_namespace }}"
+      - --timeout=300s
+  delegate_to: "{{ k3s_control_plane }}"
+  become: true
+  # Read-only cluster query; run even under --check so the wait/timeout logic
+  # itself gets exercised during dry-run verification instead of being skipped.
+  check_mode: false
+  changed_when: false

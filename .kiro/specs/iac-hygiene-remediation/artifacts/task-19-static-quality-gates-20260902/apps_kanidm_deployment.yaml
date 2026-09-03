@@ -1,0 +1,77 @@
+# 単一レプリカ。kanidmd の状態は SQLite 1 ファイルに集約されており、複数レプリカでの
+# 同時書き込みは成立しない (design.md IdentityPlatform の Risks を参照)。
+# RollingUpdate は同一 PVC (ReadWriteOnce) への旧新 Pod 同時マウントを起こしうるため
+# Recreate を使う。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kanidm
+  namespace: kanidm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kanidm
+  template:
+    metadata:
+      labels:
+        app: kanidm
+      annotations:
+        # server.toml (ConfigMap) または TLS 証明書 (cert-manager が更新する Secret) が
+        # 変わった際に Pod を再起動する。reloader (apps/reloader) が既にクラスタに
+        # 導入済みであることを前提とする。
+        reloader.stakater.com/auto: "true"
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kanidmd
+          # イメージはダイジェスト固定 (タグ 1.11.1 と同一)。理由は
+          # .kiro/specs/iac-hygiene-remediation/research.md の該当タスク記録を参照。
+          image: docker.io/kanidm/server@sha256:7c3d7ed868e91f78c24a7fb9c548876563b375a4203021b730d58369b97ad154
+          # イメージの ENTRYPOINT は未設定で、CMD (["/sbin/kanidmd", "server"]) に
+          # バイナリパスが含まれる。args だけを上書きするとバイナリパスが失われ
+          # "executable file not found" になるため command で明示する。
+          command:
+            - /sbin/kanidmd
+          args:
+            - server
+          env:
+            - name: KANIDM_CONFIG
+              value: /etc/kanidm/server.toml
+          ports:
+            - name: https
+              containerPort: 8443
+            - name: ldaps
+              containerPort: 3636
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /etc/kanidm
+              readOnly: true
+            - name: tls
+              mountPath: /etc/kanidm/tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kanidm-data
+        - name: config
+          configMap:
+            name: kanidm-config
+        - name: tls
+          secret:
+            secretName: kanidm-tls
+        - name: tmp
+          emptyDir: {}

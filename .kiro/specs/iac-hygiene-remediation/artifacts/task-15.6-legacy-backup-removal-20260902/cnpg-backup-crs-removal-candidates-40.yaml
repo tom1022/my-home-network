@@ -1,0 +1,1676 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T06:59:59Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830070000
+  namespace: postgres
+  resourceVersion: "65410401"
+  uid: e6c90ad2-cd7d-4d2a-a00e-39b4bda1d5dc
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162710
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T09:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830090000
+  namespace: postgres
+  resourceVersion: "65407849"
+  uid: 72f8604f-8c00-4623-83db-a551820803fe
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162130
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T11:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830110000
+  namespace: postgres
+  resourceVersion: "65409974"
+  uid: 6505ccd3-31d6-4731-b807-c76ed2d69269
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162642
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T11:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830111200
+  namespace: postgres
+  resourceVersion: "65410380"
+  uid: 029649c5-cded-43fa-924f-dca9ddc4f5b6
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162712
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T17:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830170000
+  namespace: postgres
+  resourceVersion: "65409994"
+  uid: fe029367-646c-4f5c-9277-492653178fcd
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162642
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T17:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830171200
+  namespace: postgres
+  resourceVersion: "65407096"
+  uid: 56cfc02a-9ec1-4d48-8b04-95d4fb494acf
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831161600
+  commandError: 'with stderr: , with stdout: '
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: "cmd: [/controller/manager backup postgres-cluster-backup-20260830171200]\nerror:
+    unable to upgrade connection: container not found (\"postgres\")\nstdErr: "
+  instanceID:
+    ContainerID: containerd://91cd29d0836a0f57581fe8f8f665fe01b5af767fa311204756c3be449e538a9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T20:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830200000
+  namespace: postgres
+  resourceVersion: "65409962"
+  uid: 0b0f53af-a46a-4365-b227-0f057c61a5c7
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162642
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T20:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830201200
+  namespace: postgres
+  resourceVersion: "65410391"
+  uid: 204f7622-af00-415c-834a-7aa9e7a3bbcf
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162710
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T22:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830220000
+  namespace: postgres
+  resourceVersion: "65407868"
+  uid: 7731bfba-466f-40b2-ab3b-29c955cc56fb
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162132
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T22:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830221200
+  namespace: postgres
+  resourceVersion: "65407795"
+  uid: b09ca8d8-1b7d-49f7-9f40-70799bf36afe
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162130
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T00:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831001200
+  namespace: postgres
+  resourceVersion: "65410013"
+  uid: f70df0a2-8019-412d-9bbf-a175fe616232
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162642
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T01:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831010000
+  namespace: postgres
+  resourceVersion: "65410140"
+  uid: 364cb1f9-4e3a-44cc-86cc-7b3635414f97
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162643
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T01:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831011200
+  namespace: postgres
+  resourceVersion: "65407893"
+  uid: 4e766918-043b-4465-a107-8961011d55e5
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162136
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T02:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831021200
+  namespace: postgres
+  resourceVersion: "65410371"
+  uid: 75fb4fa5-33a8-42bb-8726-01e096f80887
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162707
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T03:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831031200
+  namespace: postgres
+  resourceVersion: "65410162"
+  uid: 56f59876-4332-4231-8af6-cc80b08b5664
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162648
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T05:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831051200
+  namespace: postgres
+  resourceVersion: "65407925"
+  uid: ee41dade-b75d-4d7f-ac71-c3615eab9d04
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162133
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T08:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831080000
+  namespace: postgres
+  resourceVersion: "65410354"
+  uid: 42348d26-6089-41c2-8713-e8bc075e91ff
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162702
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T08:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831081200
+  namespace: postgres
+  resourceVersion: "65407941"
+  uid: d705710c-24cd-4345-b813-5bde9632a42a
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162138
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T10:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831101200
+  namespace: postgres
+  resourceVersion: "65407874"
+  uid: 07034493-e88b-4c01-85f5-529a5b0906df
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162133
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T11:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831111200
+  namespace: postgres
+  resourceVersion: "65407960"
+  uid: 3005a546-b0c3-4121-916c-fee700e1ef9d
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162137
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T14:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831140000
+  namespace: postgres
+  resourceVersion: "65410229"
+  uid: 7dfb4927-ad49-4c2c-bc12-73df4602a3b1
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupName: backup-20260831162649
+  destinationPath: s3://cnpg-backups/main/
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  error: exit status 4
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: failed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T14:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830141200
+  namespace: postgres
+  resourceVersion: "65410333"
+  uid: 80fd3f5f-b58a-4675-a47f-3a417ba17d66
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162709
+  backupName: backup-20260831162707
+  beginLSN: 2/D000028
+  beginWal: 00000001000000020000000D
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 2/1F000050
+  endWal: 00000001000000020000001F
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:27:09Z"
+  stoppedAt: "2026-08-31T16:27:22Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T11:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831110000
+  namespace: postgres
+  resourceVersion: "65407836"
+  uid: 56f8793e-a74d-4dab-8eb0-8ada3928716c
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162137
+  backupName: backup-20260831162136
+  beginLSN: 1/A4000028
+  beginWal: 0000000100000001000000A4
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/B1000050
+  endWal: 0000000100000001000000B1
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:21:37Z"
+  stoppedAt: "2026-08-31T16:21:47Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T15:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830150000
+  namespace: postgres
+  resourceVersion: "65410266"
+  uid: 472bfd13-86c4-4614-bfa2-c5ac8a92aa5f
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162701
+  backupName: backup-20260831162700
+  beginLSN: 1/FC000028
+  beginWal: 0000000100000001000000FC
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 2/13000050
+  endWal: "000000010000000200000013"
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:27:01Z"
+  stoppedAt: "2026-08-31T16:27:17Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T16:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830161200
+  namespace: postgres
+  resourceVersion: "65407838"
+  uid: a6787299-a41d-4169-9205-957fd7c017ef
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162132
+  backupName: backup-20260831162131
+  beginLSN: 1/9B000028
+  beginWal: 00000001000000010000009B
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/B3000050
+  endWal: 0000000100000001000000B3
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:21:32Z"
+  stoppedAt: "2026-08-31T16:21:48Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T10:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831100000
+  namespace: postgres
+  resourceVersion: "65407829"
+  uid: 4faf89bc-d95b-437a-8880-0db9d310a9a2
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162132
+  backupName: backup-20260831162131
+  beginLSN: 1/9B000028
+  beginWal: 00000001000000010000009B
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/B3000050
+  endWal: 0000000100000001000000B3
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:21:32Z"
+  stoppedAt: "2026-08-31T16:21:48Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T08:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830081200
+  namespace: postgres
+  resourceVersion: "65407967"
+  uid: d4e73b25-b454-454a-ba62-ed6c65449447
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162140
+  backupName: backup-20260831162139
+  beginLSN: 1/A9000028
+  beginWal: 0000000100000001000000A9
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/C2000050
+  endWal: 0000000100000001000000C2
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:21:40Z"
+  stoppedAt: "2026-08-31T16:21:54Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T13:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830130000
+  namespace: postgres
+  resourceVersion: "65407878"
+  uid: 461d035f-099b-47b1-b577-795bb3d255ec
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162140
+  backupName: backup-20260831162140
+  beginLSN: 1/AA000028
+  beginWal: 0000000100000001000000AA
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/B7000050
+  endWal: 0000000100000001000000B7
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:21:40Z"
+  stoppedAt: "2026-08-31T16:21:50Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T13:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831130000
+  namespace: postgres
+  resourceVersion: "65409985"
+  uid: 0e13d861-ff9b-41f4-a5e8-df710322c59d
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162644
+  backupName: backup-20260831162643
+  beginLSN: 1/E4000028
+  beginWal: "0000000100000001000000E4"
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/F2000120
+  endWal: 0000000100000001000000F2
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:26:44Z"
+  stoppedAt: "2026-08-31T16:26:55Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T23:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830230000
+  namespace: postgres
+  resourceVersion: "65410196"
+  uid: 977eec0a-cf2f-4efe-b6ef-0a7f1cf7dc91
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162654
+  backupName: backup-20260831162653
+  beginLSN: 1/F2000028
+  beginWal: 0000000100000001000000F2
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 2/9000050
+  endWal: "000000010000000200000009"
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:26:54Z"
+  stoppedAt: "2026-08-31T16:27:09Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-30T18:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260830181200
+  namespace: postgres
+  resourceVersion: "65407946"
+  uid: ad59d4cf-2897-4067-bd5a-d9f2995ee46b
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162136
+  backupName: backup-20260831162135
+  beginLSN: 1/A2000028
+  beginWal: 0000000100000001000000A2
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/BF000050
+  endWal: 0000000100000001000000BF
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:21:36Z"
+  stoppedAt: "2026-08-31T16:21:53Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T03:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831030000
+  namespace: postgres
+  resourceVersion: "65410109"
+  uid: 687e6990-2d4b-438e-b6de-e1f5bf47c9c2
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162648
+  backupName: backup-20260831162647
+  beginLSN: 1/E9000028
+  beginWal: "0000000100000001000000E9"
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/FE000050
+  endWal: 0000000100000001000000FE
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:26:48Z"
+  stoppedAt: "2026-08-31T16:27:02Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T09:11:59Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831091200
+  namespace: postgres
+  resourceVersion: "65407805"
+  uid: bbb6fc0c-4671-4e50-a519-73fe6b783409
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162129
+  backupName: backup-20260831162129
+  beginLSN: 1/95000028
+  beginWal: "000000010000000100000095"
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/AE000050
+  endWal: 0000000100000001000000AE
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:21:29Z"
+  stoppedAt: "2026-08-31T16:21:46Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T06:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831060000
+  namespace: postgres
+  resourceVersion: "65410241"
+  uid: 5d163637-296b-4ddb-a5b1-02ede8c8f7f2
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162656
+  backupName: backup-20260831162655
+  beginLSN: 1/F4000028
+  beginWal: 0000000100000001000000F4
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 2/10000120
+  endWal: "000000010000000200000010"
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:26:56Z"
+  stoppedAt: "2026-08-31T16:27:10Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T15:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831151200
+  namespace: postgres
+  resourceVersion: "65410291"
+  uid: f8692591-7abf-4f8d-b04a-c07337add61e
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162700
+  backupName: backup-20260831162658
+  beginLSN: 1/FA000028
+  beginWal: 0000000100000001000000FA
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 2/17000050
+  endWal: "000000010000000200000017"
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:27:00Z"
+  stoppedAt: "2026-08-31T16:27:18Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T16:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831161200
+  namespace: postgres
+  resourceVersion: "65410330"
+  uid: 1a117b2a-4b5f-4e47-af32-fe48de2a2422
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162705
+  backupName: backup-20260831162705
+  beginLSN: 2/5000028
+  beginWal: "000000010000000200000005"
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 2/1E000050
+  endWal: 00000001000000020000001E
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:27:05Z"
+  stoppedAt: "2026-08-31T16:27:21Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T12:00:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831120000
+  namespace: postgres
+  resourceVersion: "65409975"
+  uid: 3a9cbffe-f315-40c4-8b0e-f7980880e77c
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162641
+  backupName: backup-20260831162641
+  beginLSN: 1/DC000028
+  beginWal: 0000000100000001000000DC
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/F0000120
+  endWal: 0000000100000001000000F0
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:26:41Z"
+  stoppedAt: "2026-08-31T16:26:53Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T12:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831121200
+  namespace: postgres
+  resourceVersion: "65409933"
+  uid: c9007c19-b370-456e-871f-c872a24b4732
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162641
+  backupName: backup-20260831162641
+  beginLSN: 1/DD0001A8
+  beginWal: 0000000100000001000000DD
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 1/EA000120
+  endWal: 0000000100000001000000EA
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:26:42Z"
+  stoppedAt: "2026-08-31T16:26:50Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T13:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831131200
+  namespace: postgres
+  resourceVersion: "65410212"
+  uid: e0b6462f-1481-4905-91e4-31acddf8745b
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162647
+  backupName: backup-20260831162646
+  beginLSN: 1/E7000028
+  beginWal: "0000000100000001000000E7"
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 2/C000050
+  endWal: 00000001000000020000000C
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:26:47Z"
+  stoppedAt: "2026-08-31T16:27:10Z"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  creationTimestamp: "2026-08-31T14:12:00Z"
+  generation: 1
+  labels:
+    cnpg.io/cluster: postgres-cluster
+    cnpg.io/immediateBackup: "false"
+    cnpg.io/scheduled-backup: postgres-cluster-backup
+  name: postgres-cluster-backup-20260831141200
+  namespace: postgres
+  resourceVersion: "65410126"
+  uid: 95e9b15d-7a71-4cea-8680-ab952fc6dd2d
+spec:
+  cluster:
+    name: postgres-cluster
+  method: barmanObjectStore
+status:
+  backupId: 20260831T162652
+  backupName: backup-20260831162651
+  beginLSN: 1/F0000028
+  beginWal: 0000000100000001000000F0
+  destinationPath: s3://cnpg-backups/main/
+  endLSN: 2/1000120
+  endWal: "000000010000000200000001"
+  endpointURL: http://garage.garage.svc.cluster.local:3900
+  instanceID:
+    ContainerID: containerd://a53b98cc6ad2d5a305f5850a4f93180607bfbad5865a75681392964a2d333d9b
+    podName: postgres-cluster-1
+  method: barmanObjectStore
+  phase: completed
+  s3Credentials:
+    accessKeyId:
+      key: ACCESS_KEY_ID
+      name: cnpg-garage-backup
+    region:
+      key: REGION
+      name: cnpg-garage-backup
+    secretAccessKey:
+      key: ACCESS_SECRET_KEY
+      name: cnpg-garage-backup
+  serverName: postgres-cluster
+  startedAt: "2026-08-31T16:26:52Z"
+  stoppedAt: "2026-08-31T16:27:04Z"
+---

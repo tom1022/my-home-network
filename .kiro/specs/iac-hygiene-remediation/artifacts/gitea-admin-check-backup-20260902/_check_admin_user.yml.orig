@@ -1,0 +1,43 @@
+---
+# Included with gitea_admin_check_stage=before|after to avoid duplicating the
+# list+detect logic. before/after each need a distinct fact name because the
+# create task in between depends on the "before" result.
+- name: Get Gitea admin user list for check stage {{ gitea_admin_check_stage }}
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - "{{ gitea_run_user }}"
+      - --
+      - "{{ gitea_binary_path }}"
+      - admin
+      - user
+      - list
+      - --config
+      - "{{ gitea_app_ini_path }}"
+  environment:
+    GITEA_WORK_DIR: "{{ gitea_work_dir }}"
+  register: gitea_admin_list_result
+  # Read-only; must run even under --check, otherwise Ansible's check-mode stub
+  # returns rc=0 with empty stdout and existence detection always evaluates to
+  # false, which would make the assert below fail on every --check run.
+  check_mode: false
+  changed_when: false
+  failed_when: gitea_admin_list_result.rc != 0
+
+- name: Determine whether Gitea admin user exists for check stage {{ gitea_admin_check_stage }}
+  ansible.builtin.set_fact:
+    # NOTE: this must be a single backslash. Neither this folded YAML scalar nor
+    # Jinja's string-literal parser collapse backslash escapes, so '\\b' would
+    # reach re.search() as the 3 literal characters \, \, b (matching a literal
+    # backslash around the username) instead of the \b word-boundary assertion,
+    # making this always evaluate to false regardless of actual admin state.
+    "gitea_admin_user_exists_{{ gitea_admin_check_stage }}": >-
+      {{
+        (
+          (gitea_admin_list_result.stdout_lines | default([]))
+          | select('search', '\b' ~ (gitea_admin_username | regex_escape()) ~ '\b')
+          | list
+          | length
+        ) > 0
+      }}

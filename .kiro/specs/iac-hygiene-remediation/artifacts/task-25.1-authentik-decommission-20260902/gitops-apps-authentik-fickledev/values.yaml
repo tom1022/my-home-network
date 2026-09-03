@@ -1,0 +1,8 @@
+replicaCount: 1
+namespace: authentik-fickledev
+image:
+  repository: ghcr.io/goauthentik/server
+  tag: latest
+service:
+  port: 80
+secretName: authentik-secrets

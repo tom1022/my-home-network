@@ -1,0 +1,69 @@
+global
+    daemon
+    ssl-default-bind-ciphersuites TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256
+    ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384
+    ssl-default-bind-options no-sslv3 no-tls-tickets no-tlsv10 no-tlsv11
+
+defaults
+    log global
+    mode tcp
+    timeout client 1h
+    timeout server 1h
+    timeout connect 10s
+    retries 3
+
+# TLS SNI frontend for xray VPN passthrough and default web passthrough
+frontend ft_tls
+    bind *:443
+    mode tcp
+    # allow HAProxy to inspect the TLS ClientHello for SNI
+    tcp-request inspect-delay 5s
+    tcp-request content accept if { req.ssl_hello_type 1 }
+    {% if vps_proxy_xray_sni is defined and vps_proxy_xray_sni | length > 0 %}
+    {% for sni in vps_proxy_xray_sni %}
+    use_backend bk_xray if { req.ssl_sni -i {{ sni }} }
+    {% endfor %}
+    {% endif %}
+    default_backend bk_web
+
+{% set _default_listen = {'smtp':25, 'submission':587, 'smtps':465, 'imap':143, 'imaps':993, 'sieve':4190} %}
+{% set _listen_map = vps_proxy_mail_listen_ports | default(_default_listen) %}
+{% set _proxy_opt = ' send-proxy-v2' if (vps_proxy_send_proxy | default(false)) else '' %}
+
+{% if vps_proxy_k3s_nodeports is defined and vps_proxy_k3s_nodeports | length > 0 %}
+{% for svc, nodeport in vps_proxy_k3s_nodeports.items() %}
+frontend ft_{{ svc }}
+    bind *:{{ _listen_map[svc] | default(nodeport) }}
+    mode tcp
+    default_backend bk_k3s_{{ svc }}
+{% endfor %}
+
+{% for svc, nodeport in vps_proxy_k3s_nodeports.items() %}
+backend bk_k3s_{{ svc }}
+    mode tcp
+    balance roundrobin
+{% if groups['k3s'] is defined and groups['k3s'] | length > 0 %}
+{% for h in groups['k3s'] %}
+{% set _ip = hostvars[h].ansible_host | default(hostvars[h].inventory_hostname) %}
+    server {{ svc }}_{{ loop.index }} {{ _ip }}:{{ nodeport }} check inter 10s{{ _proxy_opt }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+# XRay backend (TCP passthrough to k3s nodes)
+backend bk_xray
+    mode tcp
+    balance leastconn
+{% if groups['k3s'] is defined and groups['k3s'] | length > 0 %}
+{% for h in groups['k3s'] %}
+{% set _ip = hostvars[h].ansible_host | default(hostvars[h].inventory_hostname) %}
+    server xray_{{ loop.index }} {{ _ip }}:{{ vps_proxy_backend_port | default(32080) }} check inter 10s
+{% endfor %}
+{% endif %}
+
+# Default web passthrough backend -> local nginx on loopback
+backend bk_web
+    mode tcp
+    balance roundrobin
+    server web_local 127.0.0.1:8443 check inter 10s

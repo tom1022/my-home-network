@@ -1,0 +1,22 @@
+# NodePort: https は cloudflared (kubernetes-tunnel, terraform 管理) が ClusterIP 経由で
+# 使う。ldaps の NodePort (30636 固定) は LAN 上の他ホストからの bind 検証、および
+# 後続の tailnet 到達性対応 (k3s ノードが tailnet に参加した場合に同じ NodePort を
+# そのまま使う想定) のために露出する。読み取り専用インタフェースであり、POSIX 統合には
+# 用いない (要件 26.37)。
+apiVersion: v1
+kind: Service
+metadata:
+  name: kanidm
+  namespace: kanidm
+spec:
+  type: NodePort
+  selector:
+    app: kanidm
+  ports:
+    - name: https
+      port: 8443
+      targetPort: 8443
+    - name: ldaps
+      port: 3636
+      targetPort: 3636
+      nodePort: 30636

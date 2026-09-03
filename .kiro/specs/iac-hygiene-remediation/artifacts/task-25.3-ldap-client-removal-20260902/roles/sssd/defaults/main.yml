@@ -1,0 +1,20 @@
+---
+sssd_packages:
+  - sssd
+  - sssd-ldap
+  - libnss-sss
+  - libpam-sss
+  - ca-certificates
+
+sssd_service_name: sssd
+sssd_domain: internal.fickledev.com
+sssd_base_dn: dc=internal,dc=fickledev,dc=com
+sssd_ldap_uri: ldaps://auth.fickledev.com:636
+sssd_bind_dn: cn=sssd-service,ou=users,dc=internal,dc=fickledev,dc=com
+sssd_bind_password: ""
+sssd_ldap_tls_cacert: /etc/ssl/certs/ca-certificates.crt
+
+sssd_user_search_base: ou=users,dc=internal,dc=fickledev,dc=com
+sssd_group_search_base: ou=groups,dc=internal,dc=fickledev,dc=com
+sssd_min_id: 2000
+sssd_max_id: 2999

@@ -1,0 +1,70 @@
+domain: fickledev.com
+hostnames:
+  - mailu.fickledev.com
+
+timezone: Asia/Tokyo
+
+# k3s default pod subnet; keep this aligned with your cluster to avoid auth/network issues.
+subnet: 10.42.0.0/16
+
+# Bootstrap account. If password is empty, Mailu generates one and stores it in a Kubernetes Secret.
+initialAccount:
+  enabled: true
+  mode: ifmissing
+  username: admin
+  domain: fickledev.com
+  password: ""
+
+# Keep web UI reachable via existing Traefik ingress.
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  tls: false
+  # Create a self-signed TLS secret for Mailu if no external cert manager/secret
+  # is provided. This populates the `mailu-certificates` secret that Mailu expects
+  # to mount into the front pods.
+  selfSigned: true
+
+# Expose mail protocols via hostPort on cluster nodes so an upstream VPS HAProxy
+# can forward SMTP/Submission/IMAPS directly to node IPs. This preserves client
+# source IP and works well when using an external reverse proxy on a VPS.
+front:
+  hostPort:
+    enabled: true
+  # Run the front as a DaemonSet so every node binds mail ports (25/465/587/993).
+  kind: DaemonSet
+  # Disable chart-managed external LoadBalancer; upstream HAProxy will handle
+  # public connectivity and balancing.
+  externalService:
+    enabled: false
+  ports:
+    smtp: true
+    smtps: true
+    submission: true
+    imaps: true
+    pop3s: false
+    manageSieve: true
+
+# Shared persistence for initial setup.
+persistence:
+  size: 20Gi
+  storageClass: standard
+
+# 撤去対象 (要件 5) だが、削除は運用者承認を経て実施する (タスク 3.2)。承認前に
+# redis データボリュームの削除保護そのものを外さない。
+# volumeClaimTemplates は StatefulSet 作成後に変更できない (K8s API が拒否する) ため、
+# 保護アノテーションは StatefulSet 本体 (master.annotations) に付与する。
+redis:
+  master:
+    annotations:
+      argocd.argoproj.io/sync-options: Prune=false,Delete=false
+
+# Optional components can be enabled later if needed.
+clamav:
+  enabled: false
+
+tika:
+  enabled: false
+
+oletools:
+  enabled: false

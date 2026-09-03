@@ -1,0 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  annotations:
+    objectset.rio.cattle.io/applied: H4sIAAAAAAAA/6RTTYsbMQz9K4uOZTIf2Y8khj2EtrDQ0pYt7WXZg2IrE29mbGNrpoQw/71oMoHQrz3UN0t+T+/J0hEw2O8Uk/UOFGCsfYj+Jbe+6Ctswg4ryGBvnQEF6xAaq5Gtd1+JIYOWGA0ygjoCOud5zCW5+s0LaU7EebQ+18jckLBaIYLsr3n/w1Gc1f0eFOyv00Wmr7KrD9aZ+7Ux3r1K4bAlUFBb9iHNMIQ0S6Po12EpoBbsvtvQLB0SUwtDBg1uqPmnuR2mHSiYX98u5rc3i2q1XeBqaRZa32xouyyrOS2rRUmEd7i6q4T0d5lwCp5FyJdoI09TIC3Va3IUkX1MoJ6OApWosZE0+2jpFA7IokUYizcwPGcQKfhvjx9BwY45qKKoVvO8ulvmVT4vS3VdlmVRWyZE01pXXEjKpYYQ9HYalIf363cwCCtTGxpkEg2X8zAZOx6vREm+wUQSuhqGSy+GEls3js0ZdDb+J2QGiWJPcfKQVFHIJ0VHTCk3tMWu4Tz1WmrIIJNmUDAlBO67qEetU3+mKify/+4QY6yJH3/tUwbp4PQX31h9GHelY98ikxmFxM4RKI4dib1m+0DYnO4T8HOY1uoJ3kZCpk/nNt3LK3ge5PwMAAD//7PStzzLAwAA
+    objectset.rio.cattle.io/id: ""
+    objectset.rio.cattle.io/owner-gvk: k3s.cattle.io/v1, Kind=Addon
+    objectset.rio.cattle.io/owner-name: gitops-apps-set
+    objectset.rio.cattle.io/owner-namespace: kube-system
+  creationTimestamp: "2026-08-30T03:15:24Z"
+  generation: 1
+  labels:
+    objectset.rio.cattle.io/hash: 2357254719f7a98d7cc4bef8012e8170eea6a961
+  name: gitops-apps
+  namespace: argocd
+  resourceVersion: "65250899"
+  uid: 3ef040ef-5868-4712-89a8-33ad3df53784
+spec:
+  generators:
+  - git:
+      directories:
+      - path: apps/*
+      repoURL: http://192.168.1.200:3000/giteaadmin/gitops-apps.git
+      revision: HEAD
+  template:
+    metadata:
+      name: '{{ path.basename }}'
+    spec:
+      destination:
+        namespace: '{{ path.basename }}'
+        server: https://kubernetes.default.svc
+      project: default
+      source:
+        path: '{{ path }}'
+        repoURL: http://192.168.1.200:3000/giteaadmin/gitops-apps.git
+        targetRevision: HEAD
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true
+status:
+  conditions:
+  - lastTransitionTime: "2026-08-31T08:27:45Z"
+    message: 'error while wrapping using MutateFn: Object argocd/argocd is already
+      owned by another ApplicationSet controller apps'
+    reason: UpdateApplicationError
+    status: "True"
+    type: ErrorOccurred
+  - lastTransitionTime: "2026-08-31T08:27:45Z"
+    message: Successfully generated parameters for all Applications
+    reason: ParametersGenerated
+    status: "True"
+    type: ParametersGenerated
+  - lastTransitionTime: "2026-08-31T08:27:45Z"
+    message: 'error while wrapping using MutateFn: Object argocd/argocd is already
+      owned by another ApplicationSet controller apps'
+    reason: UpdateApplicationError
+    status: "False"
+    type: ResourcesUpToDate

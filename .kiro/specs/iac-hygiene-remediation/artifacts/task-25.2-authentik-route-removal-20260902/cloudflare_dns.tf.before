@@ -1,0 +1,108 @@
+# DNS records for the fickledev.com zone.
+#
+# Excluded on purpose: _acme-challenge.* TXT records. cert-manager creates
+# and deletes these dynamically for DNS-01 validation; a Terraform-managed
+# copy would fight that automation on every renewal.
+#
+# Proxied hostnames all resolve to the VPS public IP; the reverse-proxy
+# upstream selection happens on the VPS itself (ansible/roles/vps_proxy),
+# not in DNS. Comments below reference the corresponding
+# ansible/inventory/host_vars/vps/main.yml variables where a mapping exists.
+# (Not stored as the Cloudflare record's own `comment` field: none of these
+# records carry one live, and setting one would be a real config change.)
+
+locals {
+  vps_ipv4 = "163.44.119.79"
+  vps_ipv6 = "2400:8500:2002:3320:163:44:119:79"
+
+  # Hostnames that share the VPS's public A/AAAA pair; only `proxied` and
+  # AAAA presence vary per host. Map key doubles as the dns_records key
+  # prefix below (root_a, root_aaaa, ...) so resource addresses are unchanged.
+  vps_hosts = {
+    # vps_proxy_domain_main; nginx routes / to vps_proxy_upstream_main, /blog to vps_proxy_upstream_blog
+    root = { name = "fickledev.com", proxied = true, aaaa = true }
+    # vps_proxy_domain_www; primary vhost, see ansible/roles/vps_proxy/templates/fickledev.com.conf.j2
+    www = { name = "www.fickledev.com", proxied = true, aaaa = true }
+    # vps_proxy_domain_mail; not HTTP, haproxy TCP-passes through to vps_proxy_upstream_mail
+    mail = { name = "mail.fickledev.com", proxied = false, aaaa = true }
+    # No corresponding vps_proxy_* upstream found in ansible/inventory/host_vars/vps/main.yml at code time.
+    mc = { name = "mc.fickledev.com", proxied = false, aaaa = true }
+    # Matched by SNI in vps_proxy_xray_sni; haproxy TCP-passes through to the xray VPN backend on the k3s nodes.
+    appflowy = { name = "appflowy.fickledev.com", proxied = false, aaaa = false }
+  }
+
+  vps_a_records = {
+    for key, host in local.vps_hosts : "${key}_a" => {
+      name    = host.name
+      type    = "A"
+      content = local.vps_ipv4
+      proxied = host.proxied
+      ttl     = 1
+    }
+  }
+
+  vps_aaaa_records = {
+    for key, host in local.vps_hosts : "${key}_aaaa" => {
+      name    = host.name
+      type    = "AAAA"
+      content = local.vps_ipv6
+      proxied = host.proxied
+      ttl     = 1
+    } if host.aaaa
+  }
+
+  cloudflare_tunnel_ids = {
+    guacamole  = cloudflare_zero_trust_tunnel_cloudflared.guacamole.id
+    kubernetes = cloudflare_zero_trust_tunnel_cloudflared.kubernetes.id
+  }
+
+  # CNAMEs routed through Cloudflare Zero Trust tunnels; crafty and idp
+  # share the same kubernetes-tunnel target and differ only by hostname.
+  tunnel_cnames = {
+    console = { name = "console.fickledev.com", tunnel = "guacamole" }
+    crafty  = { name = "crafty.fickledev.com", tunnel = "kubernetes" }
+    idp     = { name = "idp.fickledev.com", tunnel = "kubernetes" }
+  }
+
+  cname_records = {
+    for key, cname in local.tunnel_cnames : "${key}_cname" => {
+      name    = cname.name
+      type    = "CNAME"
+      content = "${local.cloudflare_tunnel_ids[cname.tunnel]}.cfargotunnel.com"
+      proxied = true
+      ttl     = 1
+    }
+  }
+
+  other_dns_records = {
+    mx_mail = {
+      name     = "fickledev.com"
+      type     = "MX"
+      content  = "mail.fickledev.com"
+      priority = 9
+      proxied  = false
+      ttl      = 1
+    }
+    site_verification_txt = {
+      name    = "fickledev.com"
+      type    = "TXT"
+      content = "\"google-site-verification=oZTTqPYWuIahE4Bm9sdfVhESt1KBCM-QiWhBkq_vzD0\""
+      proxied = false
+      ttl     = 3600
+    }
+  }
+
+  dns_records = merge(local.vps_a_records, local.vps_aaaa_records, local.cname_records, local.other_dns_records)
+}
+
+resource "cloudflare_dns_record" "this" {
+  for_each = local.dns_records
+
+  zone_id  = var.cloudflare_zone_id
+  name     = each.value.name
+  type     = each.value.type
+  content  = each.value.content
+  ttl      = each.value.ttl
+  proxied  = each.value.proxied
+  priority = lookup(each.value, "priority", null)
+}

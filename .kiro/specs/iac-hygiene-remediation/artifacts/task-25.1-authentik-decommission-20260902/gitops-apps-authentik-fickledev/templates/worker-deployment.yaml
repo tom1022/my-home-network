@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authentik-worker
+  labels:
+    app: authentik-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: authentik-worker
+  template:
+    metadata:
+      labels:
+        app: authentik-worker
+      annotations:
+        authentik.goauthentik.io/config-checksum: {{ include (print $.Template.BasePath "/configmap-default.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          args: ["worker"]
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: AUTHENTIK_LOG_LEVEL
+              value: "info"
+            - name: AUTHENTIK_ALLOWED_HOSTS
+              value: "*"
+            - name: AUTHENTIK_POSTGRESQL__PORT
+              value: "5432"
+            - name: AUTHENTIK_POSTGRESQL__HOST
+              value: "postgres-cluster-rw.postgres.svc.cluster.local"
+            - name: AUTHENTIK_POSTGRESQL__USER
+              value: "authentik"
+            - name: AUTHENTIK_POSTGRESQL__NAME
+              value: "authentik_fickledev"
+            - name: AUTHENTIK_POSTGRESQL__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: DATABASE_PASSWORD
+            - name: AUTHENTIK_REDIS__HOST
+              value: "authentik-redis"
+            - name: AUTHENTIK_REDIS__PORT
+              value: "6379"
+            - name: AUTHENTIK_REDIS__DB
+              value: "0"
+            - name: AUTHENTIK_REDIS__PASSWORD
+              value: ""
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secretName }}

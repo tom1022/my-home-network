@@ -1,0 +1,92 @@
+---
+# Defaults for vps_proxy role: configure TCP passthrough upstreams/listeners
+
+## TCP upstreams for passthrough services
+## - This role supports multiple TCP upstreams; the following entry
+##   is the xray VPN backend (port 32080 on all k3s nodes).
+## - Upstream name explicitly contains `xray_vpn` to avoid ambiguity
+vps_proxy_tcp_upstreams:
+  - name: xray_vpn_backend
+    # Populate `members` with backend hosts (list of dicts with `host` and `port`).
+    # Example:
+    #   members:
+    #     - host: 172.16.0.10
+    #       port: 32080
+    members: []
+
+vps_proxy_tcp_listeners: []
+
+# Default backend port for generated upstreams (xray VPN uses 32080)
+vps_proxy_backend_port: 32080
+
+# SNI names that should be routed to xray VPN backend (exact match, case-insensitive)
+vps_proxy_xray_sni:
+  - appflowy.fickledev.com
+
+vps_proxy_required_packages:
+  # Use nginx package that includes the `stream` module (Debian/Ubuntu: nginx-full)
+  - nginx-full
+  - haproxy
+
+vps_proxy_manage_ufw: true
+vps_proxy_ufw_allow_tcp_ports:
+  - 25
+  - 80
+  - 143
+  - 443
+  - 465
+  - 587
+  - 993
+  - 4190
+
+vps_proxy_domain_main: ""
+vps_proxy_domain_www: ""
+vps_proxy_domain_mail: ""
+
+vps_proxy_upstream_main: ""
+vps_proxy_upstream_blog: ""
+vps_proxy_upstream_mail: ""
+
+vps_proxy_nginx_service_name: nginx
+vps_proxy_haproxy_service_name: haproxy
+
+vps_proxy_nginx_conf_path: /etc/nginx/nginx.conf
+vps_proxy_nginx_conf_d_dir: /etc/nginx/conf.d
+
+vps_proxy_haproxy_conf_path: /etc/haproxy/haproxy.cfg
+
+# --- Certificate supply (EdgeCertificateSupply) ---
+#
+# ACME DNS-01 (Let's Encrypt via the Cloudflare DNS challenge), issued and
+# renewed on this host. DNS-01 does not depend on HTTP reachability, so the
+# same lineage is usable regardless of whether Cloudflare proxies the
+# hostname. One wildcard lineage covers every edge-terminated hostname under
+# the zone that Origin CA does not cover (the `*.{{ vps_proxy_domain_main }}`
+# catch-all vhost, and any future non-proxied subdomain).
+vps_proxy_acme_cert_name: "{{ vps_proxy_domain_main }}"
+vps_proxy_acme_live_dir: "/etc/letsencrypt/live/{{ vps_proxy_acme_cert_name }}"
+vps_proxy_acme_cloudflare_credentials_path: /etc/letsencrypt/cloudflare.ini
+vps_proxy_acme_propagation_seconds: 30
+# Renewal decision threshold (community.crypto.x509_certificate_info valid_at):
+# certonly is only invoked once the live certificate would already be expired
+# this many days from now. Matches certbot's own default renewal window.
+vps_proxy_acme_renewal_threshold_days: 30
+# Left blank on purpose: this host already has a registered ACME account, and
+# certbot reuses the sole existing account without requiring a fresh email.
+vps_proxy_acme_contact_email: ""
+vps_proxy_acme_cloudflare_api_token: ""
+vps_proxy_certbot_venv: /opt/certbot
+vps_proxy_certbot_bin: "{{ vps_proxy_certbot_venv }}/bin/certbot"
+vps_proxy_acme_renew_timer_calendar: daily
+
+# Cloudflare Origin CA — trusted only by Cloudflare's own proxy, so it is
+# assigned solely to hostnames Cloudflare proxies (fickledev.com /
+# www.fickledev.com). Disabled by default: issuing it requires the
+# `SSL and Certificates: Edit` permission on the Cloudflare API token, which
+# this environment's terraform-managed token does not currently hold (see
+# research.md). Deploys only when a certificate/key pair is supplied, so the
+# mechanism is ready without forcing that dependency today.
+vps_proxy_origin_ca_enabled: false
+vps_proxy_origin_ca_dir: /etc/ssl/cloudflare-origin-ca
+vps_proxy_origin_ca_certificate: ""
+vps_proxy_origin_ca_private_key: ""

@@ -1,0 +1,191 @@
+---
+- name: Ensure Gitea dependency packages are installed
+  ansible.builtin.apt:
+    name: "{{ gitea_dependency_packages }}"
+    state: present
+    update_cache: "{{ gitea_update_apt_cache }}"
+
+- name: Ensure Gitea group exists
+  ansible.builtin.group:
+    name: "{{ gitea_run_group }}"
+    state: present
+
+- name: Ensure Gitea user exists
+  ansible.builtin.user:
+    name: "{{ gitea_run_user }}"
+    group: "{{ gitea_run_group }}"
+    shell: /bin/bash
+    create_home: true
+    system: true
+    state: present
+
+- name: Ensure Gitea binary is installed
+  ansible.builtin.get_url:
+    url: "{{ gitea_binary_url }}"
+    dest: "{{ gitea_binary_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+    checksum: "{{ gitea_binary_checksum if gitea_binary_checksum | length > 0 else omit }}"
+  notify: Restart Gitea
+
+- name: Ensure Gitea custom directory exists
+  ansible.builtin.file:
+    path: "{{ gitea_custom_conf_dir }}"
+    state: directory
+    owner: root
+    group: "{{ gitea_run_group }}"
+    mode: '0750'
+
+- name: Ensure Gitea work directory exists and is writable
+  ansible.builtin.file:
+    path: "{{ gitea_work_dir }}"
+    state: directory
+    mode: "{{ gitea_storage_mode }}"
+
+- name: Ensure Gitea log directory exists
+  ansible.builtin.file:
+    path: "{{ gitea_work_dir }}/log"
+    state: directory
+    mode: "{{ gitea_storage_mode }}"
+
+- name: Ensure Gitea app data directory exists
+  ansible.builtin.file:
+    path: "{{ gitea_app_data_path }}"
+    state: directory
+    mode: "{{ gitea_storage_mode }}"
+
+- name: Ensure Gitea package upload temp directory exists
+  ansible.builtin.file:
+    path: "{{ gitea_app_data_path }}/tmp/package-upload"
+    state: directory
+    mode: "{{ gitea_storage_mode }}"
+
+- name: Ensure Gitea data home directory exists
+  ansible.builtin.file:
+    path: "{{ gitea_app_data_path }}/home"
+    state: directory
+    mode: "{{ gitea_storage_mode }}"
+
+- name: Check for existing gitconfig lock file
+  ansible.builtin.stat:
+    path: "{{ gitea_app_data_path }}/home/.gitconfig.lock"
+  register: gitea_gitconfig_lock_stat
+
+- name: Remove gitconfig lock file if stale
+  ansible.builtin.file:
+    path: "{{ gitea_app_data_path }}/home/.gitconfig.lock"
+    state: absent
+  vars:
+    # git holds this lock only for the instant it takes to write+rename the
+    # config file. Deleting it unconditionally could pull it out from under a
+    # write in progress; anything still present after 5 minutes is from a
+    # crashed process instead, and is safe to remove.
+    gitea_gitconfig_lock_stale_seconds: 300
+  when:
+    - gitea_gitconfig_lock_stat.stat.exists
+    - (ansible_date_time.epoch | int) - (gitea_gitconfig_lock_stat.stat.mtime | int) > gitea_gitconfig_lock_stale_seconds
+
+- name: Ensure Gitea service unit is installed
+  ansible.builtin.template:
+    src: gitea.service.j2
+    dest: /etc/systemd/system/gitea.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart Gitea
+
+- name: Ensure MySQL settings are provided
+  ansible.builtin.assert:
+    that:
+      - gitea_db_host | length > 0
+      - gitea_db_name | length > 0
+      - gitea_db_user | length > 0
+      - gitea_db_password | length > 0
+    fail_msg: >-
+      Gitea requires MySQL settings gitea_db_host, gitea_db_name,
+      gitea_db_user and gitea_db_password.
+      Supply them via Infisical (GITEA_DB_HOST, GITEA_DB_NAME, GITEA_DB_USER, GITEA_DB_PASSWORD).
+
+- name: Ensure Gitea app.ini is configured
+  ansible.builtin.template:
+    src: app.ini.j2
+    dest: "{{ gitea_app_ini_path }}"
+    owner: root
+    group: "{{ gitea_run_group }}"
+    mode: '0660'
+  notify: Restart Gitea
+
+- name: Ensure Gitea service is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ gitea_service_name }}"
+    enabled: "{{ gitea_service_enabled }}"
+    state: "{{ gitea_service_state }}"
+    daemon_reload: true
+
+- name: Ensure Gitea admin password is provided when admin creation is enabled
+  ansible.builtin.assert:
+    that:
+      - gitea_admin_password | length > 0
+    fail_msg: >-
+      gitea_admin_password is required when gitea_admin_create=true.
+      Supply it via Infisical (GITEA_ADMIN_PASSWORD).
+  when: gitea_admin_create
+
+- name: Determine whether Gitea admin user already exists
+  ansible.builtin.include_tasks: _check_admin_user.yml
+  vars:
+    gitea_admin_check_stage: before
+  when: gitea_admin_create
+
+- name: Ensure Gitea admin user exists
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - "{{ gitea_run_user }}"
+      - --
+      - "{{ gitea_binary_path }}"
+      - admin
+      - user
+      - create
+      - --config
+      - "{{ gitea_app_ini_path }}"
+      - --username
+      - "{{ gitea_admin_username }}"
+      - --password
+      - "{{ gitea_admin_password }}"
+      - --email
+      - "{{ gitea_admin_email }}"
+      - --admin
+  environment:
+    GITEA_WORK_DIR: "{{ gitea_work_dir }}"
+  register: gitea_admin_create_result
+  changed_when: gitea_admin_create_result.rc == 0
+  # The create command exits non-zero if the user already exists, which can happen
+  # in a race with an out-of-band creation. failed_when is intentionally not tied to
+  # rc here: the "after" existence check below is the actual success criterion, and
+  # it fails the play when the admin user is genuinely still missing.
+  failed_when: false
+  no_log: "{{ gitea_admin_create_no_log }}"
+  when:
+    - gitea_admin_create
+    - not (gitea_admin_user_exists_before | default(false))
+
+- name: Determine whether Gitea admin user exists after create attempt
+  ansible.builtin.include_tasks: _check_admin_user.yml
+  vars:
+    gitea_admin_check_stage: after
+  when: gitea_admin_create
+
+- name: Ensure Gitea admin user is present
+  ansible.builtin.assert:
+    that:
+      - gitea_admin_user_exists_after | default(false)
+    fail_msg: >-
+      Failed to ensure Gitea admin user '{{ gitea_admin_username }}'.
+      Create command exit code: {{ gitea_admin_create_result.rc | default('not run (user already existed before)') }}.
+      Set gitea_admin_create_no_log=false temporarily to inspect create command output (secrets will be logged).
+  when: gitea_admin_create

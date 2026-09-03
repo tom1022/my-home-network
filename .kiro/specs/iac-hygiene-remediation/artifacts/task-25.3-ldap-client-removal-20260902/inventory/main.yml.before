@@ -1,0 +1,23 @@
+---
+sssd_bind_password: "{{ lookup('env', 'SSSD_BIND_PASSWORD') }}"
+
+# Default k3s inventory group names (ensure roles referencing these work when
+# running against other target groups)
+k3s_master_group: k3s_master
+k3s_agent_group: k3s_agent
+k3s_master_port: 6443
+
+proxmox_api_host: "{{ lookup('env', 'PROXMOX_API_HOST') }}"
+proxmox_api_user: "{{ lookup('env', 'PROXMOX_API_USER') }}"
+proxmox_api_token_id: "{{ lookup('env', 'PROXMOX_API_TOKEN_ID') }}"
+proxmox_api_token_secret: "{{ lookup('env', 'PROXMOX_API_TOKEN_SECRET') }}"
+
+proxmox_pbs_username: "{{ lookup('env', 'PROXMOX_PBS_USERNAME') }}"
+proxmox_pbs_password: "{{ lookup('env', 'PROXMOX_PBS_PASSWORD') }}"
+proxmox_pbs_fingerprint: "{{ lookup('env', 'PROXMOX_PBS_FINGERPRINT') }}"
+
+# k3s node internal IPs (172.16.0.0/16) - used by various roles including vps_proxy
+k3s_internal_ips:
+  k3s-server: "172.16.0.150"
+  k3s-agent-minipc: "172.16.0.151"
+  k3s-agent-z440: "172.16.0.152"

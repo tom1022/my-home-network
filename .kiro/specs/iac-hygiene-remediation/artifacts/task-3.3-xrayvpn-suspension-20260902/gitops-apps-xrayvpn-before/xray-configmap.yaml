@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xray-config
+  namespace: xrayvpn
+data:
+  config.json: |
+    {
+      "log": {
+        "access": "/var/log/xray/access.log",
+        "error": "/var/log/xray/error.log",
+        "loglevel": "warning"
+      },
+      "inbounds": [
+        {
+          "port": 443,
+          "protocol": "vless",
+          "settings": {
+            "clients": [
+              {
+                "id": "0bbb206f-8880-4d16-896d-66b7a8d80ea4",
+                "flow": "",
+                "level": 0
+              }
+            ],
+            "decryption": "none"
+          },
+          "streamSettings": {
+            "network": "tcp",
+            "security": "tls",
+            "tlsSettings": {
+              "certificates": [
+                {
+                  "certificateFile": "/etc/xray/tls/fullchain.pem",
+                  "keyFile": "/etc/xray/tls/privkey.pem"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "outbounds": [
+        {
+          "protocol": "freedom",
+          "settings": {}
+        }
+      ]
+    }

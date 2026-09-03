@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailu-front
+  namespace: mailu
+  labels:
+    app.kubernetes.io/component: front
+    app.kubernetes.io/instance: mailu
+    app.kubernetes.io/name: mailu
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: mailu-2.6.3
+spec:
+  selector:
+    app.kubernetes.io/component: front
+    app.kubernetes.io/instance: mailu
+    app.kubernetes.io/name: mailu
+  ports:
+    - name: pop3
+      port: 110
+      protocol: TCP
+      targetPort: 110
+    - name: pop3s
+      port: 995
+      protocol: TCP
+      targetPort: 995
+    - name: imap
+      port: 143
+      protocol: TCP
+      targetPort: 143
+    - name: imaps
+      port: 993
+      protocol: TCP
+      targetPort: 993
+    - name: smtp
+      port: 25
+      protocol: TCP
+      targetPort: 25
+    - name: smtps
+      port: 465
+      protocol: TCP
+      targetPort: 465
+    - name: smtpd
+      port: 587
+      protocol: TCP
+      targetPort: 587
+    - name: lmtp
+      port: 2525
+      protocol: TCP
+      targetPort: 2525
+    - name: smtp-auth
+      port: 10025
+      protocol: TCP
+      targetPort: 10025
+    - name: imap-auth
+      port: 10143
+      protocol: TCP
+      targetPort: 10143
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 80
+    - name: sieve
+      port: 14190
+      protocol: TCP
+      targetPort: 14190

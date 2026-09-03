@@ -1,0 +1,66 @@
+replicaCount: 1
+image:
+  repository: dxflrs/garage
+  tag: "v2.2.0"
+  pullPolicy: IfNotPresent
+secretName: garage-secrets
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  readOnlyRootFilesystem: true
+pvc:
+  enabled: true
+  name: garage-pvc
+  storageClass: local-path
+  size: 10Gi
+service:
+  type: ClusterIP
+  s3Port: 3900
+  rpcPort: 3901
+  adminPort: 3903
+dashboard:
+  enabled: true
+  image:
+    repository: khairul169/garage-webui
+    tag: "latest"
+  port: 8080
+  # garage-webui (FROM scratch, USER 指定なし) は root で動くため runAsNonRoot は付与しない。
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+nodeSelector: {}
+
+buckets:
+  - name: default-bucket
+
+backup:
+  enabled: true
+  schedule: "0 */4 * * *"
+  image:
+    repository: rclone/rclone
+    tag: "1.66"
+  secretName: garage-backup-secrets
+  encryptionPasswordSecretKey: "encryption-password"
+  rcloneConfigSecretKey: "rclone.conf"
+  remotePath: "gdrive:backup/garage"
+  retentionDays: "2d"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  ttlSecondsAfterFinished: 86400
+ingress:
+  enabled: true
+  host: garage.fickledev.com
+  className: traefik
+  entryPoints:
+    - web
+    - websecure
+  tls:
+    enabled: true
+    secretName: tls-fickledev-com
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: garage-garage-headers@kubernetescrd

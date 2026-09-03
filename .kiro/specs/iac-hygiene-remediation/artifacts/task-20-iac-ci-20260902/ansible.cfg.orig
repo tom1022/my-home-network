@@ -1,0 +1,8 @@
+[defaults]
+host_key_checking = True
+inventory = ./inventory/inventory.yml
+roles_path = ./roles
+
+[ssh_connection]
+pipelining = True
+control_path = %(directory)s/%%h-%%r

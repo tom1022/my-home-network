@@ -1,0 +1,20 @@
+- name: Reload nginx
+  ansible.builtin.service:
+    name: "{{ vps_proxy_nginx_service_name }}"
+    state: reloaded
+    enabled: true
+
+- name: Restart nginx service
+  ansible.builtin.systemd:
+    name: "{{ vps_proxy_nginx_service_name }}"
+    state: restarted
+
+- name: Restart haproxy service
+  ansible.builtin.systemd:
+    name: "{{ vps_proxy_haproxy_service_name }}"
+    state: restarted
+
+- name: Restart netfilter-persistent
+  ansible.builtin.systemd:
+    name: netfilter-persistent
+    state: restarted

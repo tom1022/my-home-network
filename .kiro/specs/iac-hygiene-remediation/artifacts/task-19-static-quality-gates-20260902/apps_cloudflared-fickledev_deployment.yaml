@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-fickledev
+  namespace: cloudflared-fickledev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared-fickledev
+  template:
+    metadata:
+      labels:
+        app: cloudflared-fickledev
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.3.0
+          args:
+            - --no-autoupdate
+            - tunnel
+            - run
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-creds-fickledev
+                  key: token

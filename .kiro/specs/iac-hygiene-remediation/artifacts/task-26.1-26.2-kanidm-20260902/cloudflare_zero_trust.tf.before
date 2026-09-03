@@ -1,0 +1,78 @@
+# Zero Trust tunnels and Access application/policy.
+
+resource "cloudflare_zero_trust_tunnel_cloudflared" "kubernetes" {
+  account_id = var.cloudflare_account_id
+  name       = "kubernetes-tunnel"
+  config_src = "local"
+}
+
+# Public hostname routes for the kubernetes-tunnel. Kubernetes-side cloudflared
+# runs with a token only (task 7.5); this is the sole place ingress is defined.
+resource "cloudflare_zero_trust_tunnel_cloudflared_config" "kubernetes" {
+  account_id = var.cloudflare_account_id
+  tunnel_id  = cloudflare_zero_trust_tunnel_cloudflared.kubernetes.id
+
+  config = {
+    ingress = [
+      {
+        hostname = "crafty.fickledev.com"
+        service  = "https://minecraft-bedrock.minecraft-bedrock.svc.cluster.local:8443"
+        origin_request = {
+          no_tls_verify = true
+        }
+      },
+      {
+        service = "http_status:404"
+      },
+    ]
+  }
+}
+
+resource "cloudflare_zero_trust_tunnel_cloudflared" "guacamole" {
+  account_id = var.cloudflare_account_id
+  name       = "Guacamole"
+  config_src = "cloudflare"
+  # status: down at code time (task 7.1 dump). Not the app targeted for
+  # removal in this refactor, so it is coded and imported as-is rather
+  # than deleted.
+}
+
+# Standalone reusable Access policy (v5 provider models per-app policies as
+# references to reusable, account-level policy objects; the discovery dump's
+# `"reusable": true` on this policy confirms it is one of these, not an
+# inline-only per-app definition).
+resource "cloudflare_zero_trust_access_policy" "guacamole_github" {
+  account_id       = var.cloudflare_account_id
+  name             = "GitHub tom1022"
+  decision         = "allow"
+  session_duration = "24h"
+
+  include = [
+    {
+      email = {
+        email = "tom1022.v2@gmail.com"
+      }
+    }
+  ]
+}
+
+resource "cloudflare_zero_trust_access_application" "guacamole" {
+  account_id                 = var.cloudflare_account_id
+  name                       = "Guacamole"
+  domain                     = "console.fickledev.com"
+  type                       = "self_hosted"
+  session_duration           = "24h"
+  app_launcher_visible       = true
+  auto_redirect_to_identity  = true
+  allowed_idps               = ["14c8dc77-ae4a-4eec-a2cf-74088dc47967"]
+  enable_binding_cookie      = false
+  http_only_cookie_attribute = false
+  options_preflight_bypass   = false
+
+  policies = [
+    {
+      id         = cloudflare_zero_trust_access_policy.guacamole_github.id
+      precedence = 1
+    }
+  ]
+}

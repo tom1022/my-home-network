@@ -1,0 +1,44 @@
+image:
+  repository: arcadiatechnology/crafty-4
+  tag: 4.10.3
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer
+  webPort: 8443
+  bedrockPort: 19132
+
+persistence:
+  size: 10Gi
+  storageClass: local-path
+
+# runAsNonRoot and capabilities.drop:[ALL] are intentionally not exposed here:
+# the image's entrypoint starts as root ("sudo -u crafty ...") to chown/chmod
+# the mounted volume before dropping to uid 1000, and needs CAP_CHOWN/FOWNER/
+# SETUID/SETGID (Docker's default set) to do it. readOnlyRootFilesystem is
+# also unsupported: crafty writes logs and __pycache__ under /crafty outside
+# the PVC mount.
+securityContext:
+  pod:
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+
+# Crafty (the web control panel) is the container's main process and the
+# only thing guaranteed to be listening; it serves HTTPS on service.webPort
+# even before any Minecraft server is configured inside it, so probes target
+# that instead of the (UDP-only, not-always-running) bedrock port.
+probes:
+  path: /
+  scheme: HTTPS
+  readiness:
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  liveness:
+    initialDelaySeconds: 45
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3

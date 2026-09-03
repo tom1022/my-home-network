@@ -1,0 +1,10 @@
+apiVersion: v2
+name: reflector
+description: Reflector (mirrors Secrets/ConfigMaps across namespaces)
+type: application
+version: 0.1.0
+appVersion: "7.1.262"
+dependencies:
+  - name: reflector
+    version: 7.1.262
+    repository: https://emberstack.github.io/helm-charts

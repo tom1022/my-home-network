@@ -1,0 +1,19 @@
+# cloudflare-api-token-secret は cert-manager namespace に存在する前提。
+# Requirement 7 (Infisical Operator への集約) 完了まで、このSecret自体はAnsible/k3s
+# auto-deploy 経由で供給され続ける（このApplicationでは管理しない）。
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    email: changeme@example.com
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token-secret
+              key: api-token

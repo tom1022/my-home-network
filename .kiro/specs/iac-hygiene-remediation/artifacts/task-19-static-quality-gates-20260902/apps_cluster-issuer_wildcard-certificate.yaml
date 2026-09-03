@@ -1,0 +1,26 @@
+# namespace は ApplicationSet の規則 ({{path.basename}} = cluster-issuer) に従わせず、
+# 現行運用と同じ cert-manager 固定とする。ClusterIssuer の Secret 解決は
+# cert-manager コントローラの --cluster-resource-namespace（既定値 "cert-manager"）に
+# 依存するため、Certificate/Secret を別 namespace に置くと ClusterIssuer が壊れる。
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-fickledev-com
+  namespace: cert-manager
+spec:
+  secretName: tls-fickledev-com
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: "*.fickledev.com"
+  dnsNames:
+    - "*.fickledev.com"
+  secretTemplate:
+    annotations:
+      # 複製先は実際に証明書を TLS 終端で使う namespace のみ:
+      # argocd (IngressRoute/argocd-server-tls), garage (Ingress/garage-admin),
+      # home-assistant (Ingress/home-assistant)。
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "argocd,garage,home-assistant"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "argocd,garage,home-assistant"

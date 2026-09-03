@@ -1,0 +1,17 @@
+# Kanidm はリバースプロキシ越しでも TLS を自身で終端することを要求し、StartTLS には
+# 対応しない (要件 26.2)。ワイルドカード証明書 (cert-manager namespace, Reflector 経由)
+# を再利用せず、この namespace 専用の証明書を発行する。ClusterIssuer は namespace を
+# またいで参照できるため、Reflector の複製範囲 (argocd,garage,home-assistant) を
+# 変更する必要はない。
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kanidm-tls
+  namespace: kanidm
+spec:
+  secretName: kanidm-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - kanidm.fickledev.com

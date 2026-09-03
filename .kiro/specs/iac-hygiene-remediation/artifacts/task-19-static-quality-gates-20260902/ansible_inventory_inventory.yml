@@ -1,0 +1,68 @@
+target_hosts:
+  vars:
+    ansible_user: tochi
+    # No ansible_ssh_private_key_file: a path pins a filename, not a key, so
+    # the same path resolves to different key material per execution
+    # environment. The connecting key is supplied from Infisical
+    # (ANSIBLE_SSH_PRIVATE_KEY) into an ssh-agent before running Ansible; see
+    # ansible/roles/ssh_authorized_keys and .kiro/specs/iac-hygiene-remediation/research.md.
+  hosts:
+    n100:
+      ansible_host: 192.168.1.10
+      ansible_user: root
+    hp-z440:
+      ansible_host: 192.168.1.2
+      ansible_user: root
+    k3s-server:
+      ansible_host: 192.168.1.150
+    k3s-agent-minipc:
+      ansible_host: 192.168.1.151
+    k3s-agent-z440:
+      ansible_host: 192.168.1.152
+    nas:
+      ansible_host: 192.168.1.201
+    gitea:
+      ansible_host: 192.168.1.200
+      ansible_user: root
+    pbs:
+      ansible_host: 192.168.1.202
+      ansible_user: root
+    vps:
+      ansible_host: 100.109.6.7
+      ansible_user: trvlr
+
+proxmox_nodes:
+  hosts:
+    n100: {}
+    hp-z440: {}
+
+vms:
+  hosts:
+    k3s-server: {}
+    k3s-agent-minipc: {}
+    k3s-agent-z440: {}
+    nas: {}
+
+containers:
+  hosts:
+    gitea: {}
+    pbs: {}
+
+# ホスト名 "vps" と衝突しないよう、role 名に合わせて命名する
+vps_proxy:
+  hosts:
+    vps: {}
+
+k3s_master:
+  hosts:
+    k3s-server: {}
+
+k3s_agent:
+  hosts:
+    k3s-agent-minipc: {}
+    k3s-agent-z440: {}
+
+k3s:
+  children:
+    k3s_master: {}
+    k3s_agent: {}

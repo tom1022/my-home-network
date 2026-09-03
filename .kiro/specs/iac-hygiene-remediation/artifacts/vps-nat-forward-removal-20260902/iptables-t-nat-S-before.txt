@@ -1,0 +1,13 @@
+-P PREROUTING ACCEPT
+-P INPUT ACCEPT
+-P OUTPUT ACCEPT
+-P POSTROUTING ACCEPT
+-N DOCKER
+-N ts-postrouting
+-A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER
+-A OUTPUT ! -d 127.0.0.0/8 -m addrtype --dst-type LOCAL -j DOCKER
+-A POSTROUTING -j ts-postrouting
+-A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE
+-A POSTROUTING -o eth0 -j MASQUERADE
+-A DOCKER -i docker0 -j RETURN
+-A ts-postrouting -m mark --mark 0x40000/0xff0000 -j MASQUERADE

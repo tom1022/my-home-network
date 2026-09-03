@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authentik-default
+data:
+  # This file is intentionally empty. Config is handled by environment variables.
+  custom.yml: ""

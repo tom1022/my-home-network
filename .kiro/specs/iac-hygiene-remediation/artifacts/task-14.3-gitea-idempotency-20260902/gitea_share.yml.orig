@@ -1,0 +1,79 @@
+---
+- name: Ensure NFS server package is installed
+  ansible.builtin.apt:
+    name: nfs-kernel-server
+    state: present
+    update_cache: true
+
+- name: Ensure gitea system user exists
+  ansible.builtin.user:
+    name: "{{ nas_gitea_user }}"
+    system: true
+    create_home: false
+
+- name: Resolve Gitea share user uid on NAS
+  ansible.builtin.command:
+    argv:
+      - id
+      - -u
+      - "{{ nas_gitea_user }}"
+  check_mode: false
+  register: nas_gitea_uid_result
+  changed_when: false
+  failed_when: nas_gitea_uid_result.rc != 0
+
+- name: Resolve Gitea share user gid on NAS
+  ansible.builtin.command:
+    argv:
+      - id
+      - -g
+      - "{{ nas_gitea_user }}"
+  check_mode: false
+  register: nas_gitea_gid_result
+  changed_when: false
+  failed_when: nas_gitea_gid_result.rc != 0
+
+- name: Ensure Gitea data directory
+  ansible.builtin.file:
+    path: "{{ nas_gitea_share_path }}"
+    state: directory
+    owner: "{{ nas_gitea_user }}"
+    group: "{{ nas_gitea_user }}"
+    mode: '0750'
+
+- name: Initialize nas_gitea_clients with configured CIDRs
+  ansible.builtin.set_fact:
+    nas_gitea_clients: "{{ nas_gitea_allowed_cidrs | default([]) }}"
+
+- name: Resolve allowed host addresses and append to clients list
+  ansible.builtin.set_fact:
+    nas_gitea_clients: "{{ nas_gitea_clients + [ (hostvars[item].ansible_all_ipv4_addresses | default([]) | select('match', '^172\\.') | list | first) | default(hostvars[item].ansible_host) ] }}"
+  loop: "{{ nas_gitea_allowed_hosts | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Set NFS export options for Gitea share
+  ansible.builtin.set_fact:
+    nas_gitea_export_options: "{{ nas_gitea_export_opts_defaults }},anonuid={{ nas_gitea_uid_result.stdout }},anongid={{ nas_gitea_gid_result.stdout }}"
+
+- name: Ensure /etc/exports.d directory exists
+  ansible.builtin.file:
+    path: /etc/exports.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+- name: Render Gitea export file
+  ansible.builtin.template:
+    src: gitea.exports.j2
+    dest: /etc/exports.d/gitea.exports
+    mode: '0644'
+  notify: reload nfs exports
+
+- name: Ensure nfs-server is running and enabled
+  ansible.builtin.service:
+    name: nfs-kernel-server
+    state: started
+    enabled: true
+
+

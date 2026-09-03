@@ -1,0 +1,11 @@
+# 取得元: https://github.com/cloudnative-pg/cloudnative-pg (upstream release manifest)
+# バージョン: v1.26.1 (cnpg-operator.yaml 内 image: ghcr.io/cloudnative-pg/cloudnative-pg:1.26.1 で確認可能)
+#
+# ApplicationSet の namespace 規約 (destination namespace = ディレクトリ名) には従わない。
+# cnpg-operator.yaml は upstream の CloudNativePG operator 配布マニフェストをそのまま取り込んだもので、
+# ClusterRoleBinding や webhook 証明書がすべて namespace: cnpg-system を前提に生成されている。
+# このディレクトリ名 (cnpg-operator) に合わせて改名すると upstream マニフェストの改変が必要になる。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - cnpg-operator.yaml

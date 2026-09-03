@@ -1,0 +1,30 @@
+---
+# Top-level site playbook to run multiple component playbooks
+- name: Run connectivity checks
+  import_playbook: ping.yml
+
+- name: Ensure the managed connecting key is authorized on every host
+  import_playbook: ssh_authorized_keys.yml
+
+- name: Configure NAS host
+  import_playbook: nas.yml
+
+- import_playbook: gitea.yml
+- name: Configure PBS host
+  import_playbook: pbs.yml
+
+# VPS reverse proxy
+- name: Configure VPS reverse proxy
+  import_playbook: vps.yml
+
+- import_playbook: proxmox_backup.yml
+
+- name: Configure unattended security upgrades on Proxmox nodes
+  import_playbook: proxmox_unattended_upgrades.yml
+
+# Deliberately standalone, not imported here: k3s.yml (cluster bootstrap;
+# requires K3S_NODE_TOKEN and is not meant to run on every site.yml pass),
+# argocd.yml (post-bootstrap, one-time Argo CD install), sssd.yml (client
+# role pending removal), fetch-kubeconfig.yml (local-machine utility),
+# setup_agent_storage.yml (disk provisioning via the storage_disk role, run
+# on demand, not on every site.yml pass).

@@ -1,0 +1,18 @@
+# ApplicationSet の namespace 規約 (destination namespace = ディレクトリ名 = common) には従わない。
+# Traefik の cross-namespace middleware 参照は `<namespace>-<name>@kubernetescrd` で対象の実際の
+# namespace を指定する必要があり、home-assistant・kubernetes-dashboard の Ingress が
+# `argocd-local-whitelist@kubernetescrd` として既に参照している。namespace を変更すると
+# 参照元の Ingress アノテーションを同時に更新しない限り解決できなくなる。
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: local-whitelist
+  namespace: argocd
+spec:
+  ipWhiteList:
+    sourceRange:
+      - 192.168.0.0/16
+      - 172.16.0.0/12
+      - 10.0.0.0/8
+      - 10.42.0.0/16
+      - 127.0.0.1/32

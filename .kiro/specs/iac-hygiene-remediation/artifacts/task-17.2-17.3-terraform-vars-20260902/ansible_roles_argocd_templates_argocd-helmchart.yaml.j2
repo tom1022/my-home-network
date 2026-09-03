@@ -1,0 +1,21 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: argocd
+  namespace: kube-system
+  annotations:
+    helmcharts.cattle.io/force-upgrade: "20260830-01"
+spec:
+  chart: argo-cd
+  repo: https://argoproj.github.io/argo-helm
+  targetNamespace: argocd
+  version: 7.4.4
+  valuesContent: |
+    configs:
+      cm:
+        url: https://argocd.fickledev.com
+      params:
+        server.insecure: true
+    server:
+      ingress:
+        enabled: false

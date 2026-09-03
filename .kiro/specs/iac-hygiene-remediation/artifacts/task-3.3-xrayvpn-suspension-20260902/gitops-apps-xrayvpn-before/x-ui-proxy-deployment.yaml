@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: x-ui-proxy
+  namespace: xrayvpn
+  labels:
+    app: x-ui-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: x-ui-proxy
+  template:
+    metadata:
+      labels:
+        app: x-ui-proxy
+    spec:
+      containers:
+        - name: nginx-proxy
+          image: nginx:stable-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 54321
+              name: web
+              protocol: TCP
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: x-ui-proxy-config
+            items:
+              - key: nginx.conf
+                path: nginx.conf

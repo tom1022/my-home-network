@@ -1,0 +1,40 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-cluster
+  namespace: postgres
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  instances: 1
+  enableSuperuserAccess: true
+  
+  storage:
+    size: 20Gi
+    storageClass: local-path
+
+  # Backup configuration to Garage (S3)
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://cnpg-backups/main/
+      endpointURL: http://garage.garage.svc.cluster.local:3900
+      s3Credentials:
+        accessKeyId:
+          name: cnpg-garage-backup
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: cnpg-garage-backup
+          key: ACCESS_SECRET_KEY
+        region:
+          name: cnpg-garage-backup
+          key: REGION
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+    retentionPolicy: "3d"
+
+  bootstrap:
+    initdb:
+      database: postgres
+

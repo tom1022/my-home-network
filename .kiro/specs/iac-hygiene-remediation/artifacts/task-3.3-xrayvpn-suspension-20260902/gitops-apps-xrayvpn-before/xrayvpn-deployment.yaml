@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xrayvpn
+  namespace: xrayvpn
+  labels:
+    app: xrayvpn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xrayvpn
+  template:
+    metadata:
+      labels:
+        app: xrayvpn
+    spec:
+      initContainers:
+        - name: render-xray-config
+          image: alpine:3.20
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              apk add --no-cache gettext >/dev/null
+              envsubst < /config-template/config.json.tpl > /work/config.json
+          envFrom:
+            - secretRef:
+                name: xrayvpn-auth-secret
+          volumeMounts:
+            - name: xray-config-template
+              mountPath: /config-template
+              readOnly: true
+            - name: xray-runtime-config
+              mountPath: /work
+      containers:
+        - name: xray
+          image: teddysun/xray:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - "xray"
+            - "-c"
+            - "/etc/xray/config.json"
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+            - containerPort: 443
+              name: https
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: xray-runtime-config
+              mountPath: /etc/xray
+              readOnly: true
+      volumes:
+        - name: xray-config-template
+          configMap:
+            name: xray-config-template
+            items:
+              - key: config.json.tpl
+                path: config.json.tpl
+        - name: xray-runtime-config
+          emptyDir: {}

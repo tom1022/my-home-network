@@ -1,0 +1,30 @@
+# kanidmd の設定。認証情報を含まないため ConfigMap で保持する (TLS 鍵は Secret、
+# 管理者認証情報はコンテナ内で `kanidmd recover-account` により生成し、ここには書かない)。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kanidm-config
+  namespace: kanidm
+data:
+  server.toml: |
+    version = "2"
+
+    bindaddress = "[::]:8443"
+    ldapbindaddress = "[::]:3636"
+
+    db_path = "/data/kanidm.db"
+
+    tls_chain = "/etc/kanidm/tls/tls.crt"
+    tls_key = "/etc/kanidm/tls/tls.key"
+
+    domain = "kanidm.fickledev.com"
+    origin = "https://kanidm.fickledev.com"
+
+    [online_backup]
+    path = "/data/backups"
+    # 毎日 22:00 UTC (JST 07:00) に実行。7 世代を gzip 圧縮で保持する。
+    # 生成物の実在確認は .kiro/specs/iac-hygiene-remediation/research.md の
+    # タスク 26.2 記録を参照 (一時的に毎分実行へ変更して確認済み)。
+    schedule = "00 22 * * *"
+    versions = 7
+    compression = "gzip"

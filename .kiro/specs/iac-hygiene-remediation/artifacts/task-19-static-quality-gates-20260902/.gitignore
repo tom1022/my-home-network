@@ -1,0 +1,41 @@
+.terraform/
+
+*.tfvars
+*.tfvars.json
+# non-secret defaults, tracked intentionally; see terraform/terraform.tfvars header
+!/terraform/terraform.tfvars
+
+*.tfstate
+*.tfstate.*
+tfplan.*
+
+crash.log
+crash.*.log
+
+*.log
+
+*.pyc
+*.pyo
+__pycache__/
+
+roles/external/
+collections/
+!/ansible/collections/
+/ansible/collections/*
+!/ansible/collections/requirements.yml
+
+*.retry
+
+.env
+
+# ansible-vault encrypted secrets; supply values via Infisical instead
+ansible/inventory/**/*vault.yml
+
+.vscode/
+
+terraform/.discovery/
+
+# reference only; not consumed by any tool, see file header
+terraform/.env.example
+
+.kiro/specs/infisical-cloudflare-iac-refactor/artifacts/cert-backup/

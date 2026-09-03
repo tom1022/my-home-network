@@ -1,0 +1,9 @@
+reloader:
+  reloader:
+    readOnlyRootFileSystem: true
+    deployment:
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL

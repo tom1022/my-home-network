@@ -1,0 +1,6 @@
+---
+- src: https://github.com/rlex/ansible-role-k3s.git
+  scm: git
+  name: rlex.k3s
+  # upstream に対応するリリースタグが存在しないため、導入時に検証したコミットを固定する
+  version: 8f55b38663442eb1beae7e77910e175e2532fa2a

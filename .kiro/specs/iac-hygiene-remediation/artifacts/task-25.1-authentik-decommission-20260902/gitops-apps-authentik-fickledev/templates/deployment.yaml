@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authentik
+  labels:
+    app: authentik
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: authentik
+  template:
+    metadata:
+      labels:
+        app: authentik
+      annotations:
+        authentik.goauthentik.io/config-checksum: {{ include (print $.Template.BasePath "/configmap-default.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: authentik
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          args: ["server"]
+          ports:
+            - containerPort: 9000
+              name: http
+            - containerPort: 9443
+              name: https
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          livenessProbe:
+            httpGet:
+              path: /-/health/live/
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /-/health/ready/
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          env:
+            - name: AUTHENTIK_LOG_LEVEL
+              value: "info"
+            - name: AUTHENTIK_ALLOWED_HOSTS
+              value: "*"
+            - name: AUTHENTIK_BOOTSTRAP_PASSWORD
+              value: "CHANGE_ME_PASSWORD"
+            - name: AUTHENTIK_BOOTSTRAP_EMAIL
+              value: "admin@fickledev.com"
+            - name: AUTHENTIK_POSTGRESQL__PORT
+              value: "5432"
+            - name: AUTHENTIK_POSTGRESQL__HOST
+              value: "postgres-cluster-rw.postgres.svc.cluster.local"
+            - name: AUTHENTIK_POSTGRESQL__USER
+              value: "authentik"
+            - name: AUTHENTIK_POSTGRESQL__NAME
+              value: "authentik_fickledev"
+            - name: AUTHENTIK_POSTGRESQL__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: DATABASE_PASSWORD
+            - name: AUTHENTIK_REDIS__HOST
+              value: "authentik-redis"
+            - name: AUTHENTIK_REDIS__PORT
+              value: "6379"
+            - name: AUTHENTIK_REDIS__DB
+              value: "0"
+            - name: AUTHENTIK_REDIS__PASSWORD
+              value: ""
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secretName }}

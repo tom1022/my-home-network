@@ -1,0 +1,10 @@
+apiVersion: v2
+name: infisical-operator
+description: Infisical Secrets Operator for GitOps repository
+type: application
+version: 0.1.0
+appVersion: "v0.11.8"
+dependencies:
+  - name: secrets-operator
+    version: 0.11.8
+    repository: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/

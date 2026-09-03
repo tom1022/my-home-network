@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unbound-config
+  namespace: mailu
+data:
+  unbound.conf: |
+    server:
+      verbosity: 1
+      interface: 0.0.0.0
+      port: 5333
+      do-ip6: no
+      do-udp: yes
+      do-tcp: yes
+      # do not use syslog inside container environments
+      use-syslog: no
+      cache-min-ttl: 3600
+      cache-max-ttl: 86400
+      auto-trust-anchor-file: "/var/lib/unbound/root.key"
+    # Use root hints (no forward-zone) and validate DNSSEC
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unbound
+  namespace: mailu
+  labels:
+    app: unbound
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: unbound
+  template:
+    metadata:
+      labels:
+        app: unbound
+    spec:
+      initContainers:
+      - name: unbound-anchor
+        image: mvance/unbound:1.13.1
+        command:
+        - sh
+        - -c
+        - unbound-anchor -a /var/lib/unbound/root.key || true
+        volumeMounts:
+        - name: unbound-var
+          mountPath: /var/lib/unbound
+      containers:
+      - name: unbound
+        image: mvance/unbound:1.13.1
+        command:
+        - unbound
+        - -c
+        - /etc/unbound/unbound.conf
+        - -d
+        - -vvvv
+        ports:
+        - containerPort: 5333
+          protocol: TCP
+        volumeMounts:
+        - name: unbound-config
+          mountPath: /etc/unbound
+        - name: unbound-var
+          mountPath: /var/lib/unbound
+        - name: unbound-var
+          mountPath: /opt/unbound/etc/unbound/var/lib/unbound
+      volumes:
+      - name: unbound-config
+        configMap:
+          name: unbound-config
+      - name: unbound-var
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: unbound
+  namespace: mailu
+spec:
+  selector:
+    app: unbound
+  ports:
+  - protocol: TCP
+    port: 5333
+    targetPort: 5333

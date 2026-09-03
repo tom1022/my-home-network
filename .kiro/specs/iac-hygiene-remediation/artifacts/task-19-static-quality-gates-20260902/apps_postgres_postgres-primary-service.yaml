@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: postgres
+  labels:
+    app: cloudnative-pg
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    postgresql.cnpg.io/cluster: postgres-cluster
+    postgresql.cnpg.io/role: primary
+  type: ClusterIP
+
+# This Service attempts to target the primary Postgres instance created by CloudNativePG.
+# If your CNPG installation uses different pod labels for role/cluster, adjust the selector accordingly.

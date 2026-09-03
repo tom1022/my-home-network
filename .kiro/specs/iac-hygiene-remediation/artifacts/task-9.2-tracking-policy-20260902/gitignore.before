@@ -1,0 +1,4 @@
+.aider*
+
+# helm dependency update が取得する tgz 本体。Chart.lock は追跡し、これだけ除外する。
+apps/*/charts/

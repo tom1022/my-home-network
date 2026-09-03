@@ -1,0 +1,61 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cloudflared-fickledev
+
+components:
+- ../../components/infisical-common
+
+resources:
+- namespace.yaml
+- infisical-cloudflared-secret.yaml
+- deployment.yaml
+
+patches:
+- target:
+    kind: Deployment
+    name: cloudflared-fickledev
+  patch: |-
+    # --metrics は tunnel コマンドのオプションであり run サブコマンドの後ろに置くと
+    # "flag provided but not defined: -metrics" で起動直後に終了する (CrashLoopBackOff で実際に確認済み)。
+    # args は [--no-autoupdate, tunnel, run] なので "run" の手前 (index 2) に挿入する。
+    - op: add
+      path: /spec/template/spec/containers/0/args/2
+      value: --metrics
+    - op: add
+      path: /spec/template/spec/containers/0/args/3
+      value: 0.0.0.0:2000
+    - op: add
+      path: /spec/template/spec/securityContext
+      value:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+    - op: add
+      path: /spec/template/spec/containers/0/securityContext
+      value:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+    - op: add
+      path: /spec/template/spec/containers/0/readinessProbe
+      value:
+        httpGet:
+          path: /ready
+          port: 2000
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+    - op: add
+      path: /spec/template/spec/containers/0/livenessProbe
+      value:
+        tcpSocket:
+          port: 2000
+        initialDelaySeconds: 10
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 5
+

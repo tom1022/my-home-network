@@ -1,0 +1,6 @@
+[Unit]
+Description=Renew ACME certificates (certbot renew, all lineages)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/certbot/bin/certbot renew --non-interactive

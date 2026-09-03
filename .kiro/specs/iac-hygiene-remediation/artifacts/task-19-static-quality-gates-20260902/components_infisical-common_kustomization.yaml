@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# InfisicalStaticSecret の projectId / environmentSlug / secretPath / infisicalAuthRef は
+# 全アプリケーションで同一の値を使う。値の実体はここ 1 箇所にのみ置き、各アプリケーションの
+# InfisicalStaticSecret はこの Component を components: で取り込んで補完する。
+patches:
+  - target:
+      kind: InfisicalStaticSecret
+    patch: |-
+      - op: add
+        path: /spec/infisicalAuthRef
+        value:
+          name: infisical-machine-identity
+          namespace: infisical-operator
+      - op: add
+        path: /spec/sources
+        value:
+          - projectId: "59f7eabf-94e5-49d0-85ed-975dfdf27f11"
+            environmentSlug: prod
+            secretPath: "/"
