@@ -13,5 +13,7 @@
   hosts: pbs
   become: true
   roles:
+    # mail_backup の service ユニットが OnFailure で参照するハンドラを先に置く。
+    - role: systemd_failure_notify
     - role: mail_backup
       mail_backup_side: destination

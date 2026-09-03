@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: systemd_failure_notify
+  author: tom1022
+  description: >-
+    Template systemd unit (notify-failure@.service) that reports the failure
+    of any unit declaring OnFailure=notify-failure@%n.service to a Discord
+    webhook, so a silently stopped timer becomes visible.
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

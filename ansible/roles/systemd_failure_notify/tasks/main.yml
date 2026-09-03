@@ -1,0 +1,37 @@
+---
+- name: Ensure the notification webhook URL is provided
+  ansible.builtin.assert:
+    that:
+      - systemd_failure_notify_webhook_url | trim | length > 0
+    fail_msg: >-
+      systemd_failure_notify_webhook_url is empty. Supply it via Infisical
+      (PORTFOLIO_DISCORD_WEBHOOK_URL) and run this playbook through
+      `infisical run --env=prod -- ansible-playbook ...`.
+
+# 0600 / root:root。EnvironmentFile として systemd (PID 1、root) だけが読む。
+# webhook URL は投稿権限そのものであり、リポジトリにも journal にも残さない。
+- name: Ensure the notification webhook environment file is present
+  ansible.builtin.copy:
+    content: "NOTIFY_FAILURE_WEBHOOK_URL={{ systemd_failure_notify_webhook_url }}\n"
+    dest: "{{ systemd_failure_notify_env_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Ensure the failure notification script is installed
+  ansible.builtin.template:
+    src: notify-failure.sh.j2
+    dest: "{{ systemd_failure_notify_script_path }}"
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Ensure the failure notification template unit is installed
+  ansible.builtin.template:
+    src: notify-failure@.service.j2
+    dest: "/etc/systemd/system/{{ systemd_failure_notify_unit_name }}.service"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd daemon

@@ -1,0 +1,12 @@
+---
+# 汎用の systemd 失敗通知ハンドラ。監視対象のユニット側に
+# OnFailure=notify-failure@%n.service を宣言させ、失敗したユニット名を
+# インスタンス名として受け取る。ユニット単位の宣言を増やすだけで対象を
+# 増やせるため、対象ユニットごとの通知定義は持たない。
+#
+# 通知先はメール基盤とは独立した経路 (Discord webhook) を使う。メール基盤の
+# 障害をメールで通知すると、通知経路そのものが落ちている場合に届かない。
+systemd_failure_notify_webhook_url: "{{ lookup('env', 'PORTFOLIO_DISCORD_WEBHOOK_URL') }}"
+systemd_failure_notify_env_path: /etc/systemd/notify-failure.env
+systemd_failure_notify_script_path: /usr/local/sbin/notify-failure.sh
+systemd_failure_notify_unit_name: notify-failure@

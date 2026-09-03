@@ -177,6 +177,11 @@
     - src: rspamd-antivirus.conf.j2
       dest: "{{ mailserver_dms_config_dir }}/rspamd/override.d/antivirus.conf"
       mode: "0644"
+    # 認証済み送信の上限 (侵害されたアプリケーションパスワードによる大量送信の
+    # 被害に上限を設ける)。antivirus.conf と同じ理由で override.d を使う。
+    - src: rspamd-ratelimit.conf.j2
+      dest: "{{ mailserver_dms_config_dir }}/rspamd/override.d/ratelimit.conf"
+      mode: "0644"
   register: mailserver_config_files
 
 # docker compose up -d 自身は compose.yaml (image/ports/env/volume 定義) の変更を検知して

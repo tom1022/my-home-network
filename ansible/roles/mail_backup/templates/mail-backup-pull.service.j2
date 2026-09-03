@@ -1,5 +1,9 @@
 [Unit]
 Description=Pull one mailbox archive generation from the mail-platform source host
+# 失敗はここでしか可視化されない (このユニットは定時実行され、成功時に何も
+# 出力しない)。systemd_failure_notify ロールが同じホストに置く汎用ハンドラへ
+# 失敗したユニット名を渡し、journal の外へ通知させる。
+OnFailure=notify-failure@%n.service
 
 [Service]
 Type=oneshot

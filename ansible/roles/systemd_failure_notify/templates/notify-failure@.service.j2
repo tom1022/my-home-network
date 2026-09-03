@@ -1,0 +1,7 @@
+[Unit]
+Description=Report the failure of %i to the infrastructure notification webhook
+
+[Service]
+Type=oneshot
+EnvironmentFile={{ systemd_failure_notify_env_path }}
+ExecStart={{ systemd_failure_notify_script_path }} %i

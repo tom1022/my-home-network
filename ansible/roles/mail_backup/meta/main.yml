@@ -7,7 +7,8 @@ galaxy_info:
     (requirement 9). Split into two sides selected by mail_backup_side:
     'source' configures the k3s node holding the mailbox PV to accept a
     restricted pull, 'destination' configures PBS to pull, retain N
-    generations, and record failures.
+    generations, and report failures through the systemd_failure_notify
+    handler.
   license: MIT
   min_ansible_version: '2.9'
 

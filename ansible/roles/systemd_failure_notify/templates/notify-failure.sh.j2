@@ -1,0 +1,45 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# notify-failure@.service の ExecStart。引数は失敗したユニット名 (%i)。
+# NOTIFY_FAILURE_WEBHOOK_URL は EnvironmentFile 経由でのみ渡される。
+set -euo pipefail
+
+unit="${1:?usage: notify-failure.sh <failed-unit>}"
+: "${NOTIFY_FAILURE_WEBHOOK_URL:?NOTIFY_FAILURE_WEBHOOK_URL is not set}"
+
+result="$(systemctl show --property=Result --value -- "${unit}" 2>/dev/null || true)"
+status="$(systemctl show --property=ExecMainStatus --value -- "${unit}" 2>/dev/null || true)"
+
+# 本文に journal の抜粋を載せない。任意のユニットから使える汎用ハンドラであり、
+# 失敗したユニットの出力に何が含まれるか (資格情報・個人名) をここでは保証できない。
+# 「どのホストの・どのユニットが・いつ・どう失敗したか」までを通知し、詳細は
+# ホスト上の journal を見にいく前提にする。
+#
+# 冒頭の [INFRA] は、この webhook のもう一方の用途 (エージェントの判断待ち通知) と
+# 種別を取り違えないための識別子。
+printf -v body '[INFRA] systemd unit failed\nhost: %s\nunit: %s\ntime: %s\nresult: %s (exit status %s)\ndetails: journalctl -u %s -n 50 on that host' \
+  "$(hostname)" "${unit}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${result:-unknown}" "${status:-unknown}" "${unit}"
+
+# 埋め込む値はいずれもユニット名/ホスト名/日時/systemd の列挙値であり " や \ を
+# 含まないため、改行だけを JSON のエスケープへ置換すれば足りる。
+payload="$(printf '{"content":"%s"}' "${body//$'\n'/\\n}")"
+
+# URL は -K の設定としてstdinから渡す。引数に置くと、リクエストが飛んでいる間
+# webhook URL (投稿権限そのもの) がローカルの任意ユーザの `ps` に見える。
+code="$(printf 'url = "%s"\n' "${NOTIFY_FAILURE_WEBHOOK_URL}" \
+  | curl --silent --show-error --config - \
+      --max-time 15 \
+      --header 'Content-Type: application/json' \
+      --data-binary "${payload}" \
+      --output /dev/null \
+      --write-out '%{http_code}')"
+
+echo "notify-failure: ${unit} -> webhook HTTP ${code}"
+
+# 2xx 以外はこのハンドラ自身を failed にする。通知の不達が journal 上で
+# "successful notification" と区別できなくなるのを避けるため。
+case "${code}" in
+  2??) ;;
+  *) echo "notify-failure: webhook delivery failed" >&2; exit 1 ;;
+esac
