@@ -172,6 +172,11 @@
     - src: rspamd-dkim-signing.conf.j2
       dest: "{{ mailserver_dms_config_dir }}/rspamd/override.d/dkim_signing.conf"
       mode: "0644"
+    # ウイルス検査の接続先 (要件11)。local.d への差し込み経路は docker-mailserver に
+    # 存在しないため override.d を使う。
+    - src: rspamd-antivirus.conf.j2
+      dest: "{{ mailserver_dms_config_dir }}/rspamd/override.d/antivirus.conf"
+      mode: "0644"
   register: mailserver_config_files
 
 # docker compose up -d 自身は compose.yaml (image/ports/env/volume 定義) の変更を検知して

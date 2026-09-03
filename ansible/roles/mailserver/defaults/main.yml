@@ -74,6 +74,13 @@ mailserver_ldap_query_filter_group: "(&(mail=%s)(class=group))"
 mailserver_mailbox_lmtp_host: 192.168.1.151
 mailserver_mailbox_lmtp_port: 30024
 
+# ウイルス検査 (要件11)。k3s 側の clamd の NodePort。Service は
+# externalTrafficPolicy: Local のため、Pod を実際にホストするノード
+# (nodeSelector で固定した k3s-agent-z440、192.168.1.152) のみが応答する
+# (mailserver_mailbox_lmtp_host / mailserver_kanidm_ldaps_port と同じ理由)。
+mailserver_clamav_host: 192.168.1.152
+mailserver_clamav_port: 30310
+
 # ldaps.kanidm.fickledev.com は公開DNS上、実在する複数のプライベート(RFC1918)アドレス
 # (k3sの各ノード) を指す (terraform/cloudflare_dns.tf の kanidm_ldaps_a_records)。ホストの
 # 既定リゾルバ経路 (systemd-resolved → tailscale0のcatch-allルート) は、公開ドメインが
@@ -92,7 +99,12 @@ mailserver_container_dns_servers:
 # を無効化することを要求すると確認済み。有効化する3変数と無効化する4変数を1つの決定として
 # 適用し、片方だけの適用を許さない (defaults の宣言を有効化状態の単一の情報源とする)。
 mailserver_enable_rspamd: true
-mailserver_enable_clamav: true
+# clamd は VPS で動かさない。ClamAV は upstream が最低 3 GiB / 推奨 4 GiB のメモリを
+# 要求するのに対し VPS の物理メモリは 1.92 GiB で、clamd の常駐セットの最高到達点
+# (VmHWM 1.58 GiB) が物理メモリを上回り、Committed_AS が上限の 97% に達していた。
+# ウイルス検査そのものは維持し、k3s 側の Pod (gitops-apps/apps/mailbox/clamav.yaml) の
+# clamd へ rspamd から TCP で接続する (templates/rspamd-antivirus.conf.j2)。
+mailserver_enable_clamav: false
 mailserver_enable_fail2ban: true
 mailserver_enable_opendkim: false
 mailserver_enable_opendmarc: false

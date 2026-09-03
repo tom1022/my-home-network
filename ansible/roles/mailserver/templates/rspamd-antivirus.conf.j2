@@ -1,0 +1,29 @@
+{{ ansible_managed | comment }}
+# documentation: https://rspamd.com/doc/modules/antivirus.html
+#
+# clamd は VPS ではなく k3s 側の Pod で動く (gitops-apps/apps/mailbox/clamav.yaml)。
+# ClamAV は upstream が最低 3 GiB のメモリを要求し、VPS の物理メモリ 1.92 GiB では
+# clamd の常駐セットの最高到達点が物理メモリを超えていた。
+#
+# ENABLE_CLAMAV=0 では docker-mailserver は local.d/antivirus.conf の enabled 行を
+# 書き換えない (setup.d/security/rspamd.sh の __rspamd__setup_clamav() は 1 のときだけ
+# sedfile で true にする) ため、ここで enabled を宣言する。override.d は該当セクションを
+# 置き換える意味を持つので、servers だけの部分指定にはせず ClamAV ブロックを丸ごと書く。
+#
+# CLAM_VIRUS_FAIL に重みを宣言しない。clamd へ到達できないメールは重み 0 のまま通す
+# (fail-open)。rspamd の拒否は閾値 11.00 の恒久エラー (5xx) であり、スキャナの一時的な
+# 不在で正当なメールを恒久拒否することになるため。
+enabled = true;
+
+ClamAV {
+    type = "clamav";
+    servers = "{{ mailserver_clamav_host }}:{{ mailserver_clamav_port }}";
+    action = "reject";
+    message = '${SCANNER} FOUND VIRUS "${VIRUS}"';
+    scan_mime_parts = false;
+    symbol = "CLAM_VIRUS";
+    log_clean = true;
+    max_size = 25000000;
+    timeout = 10;
+    retransmits = 2;
+}

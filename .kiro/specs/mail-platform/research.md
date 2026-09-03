@@ -2154,3 +2154,123 @@ fail-open が実際に効くのは「k3s は生きているが clamd Pod だけ�
   TCP 化する場合は帯域の実測が別途必要である。
 - ConoHa のプラン変更に伴う実際の停止時間は、サポート文書の記述 (15 分程度) に依拠している。
   実施していないため実測値ではない。
+
+### 実施した構成
+
+**k3s 側。** `gitops-apps/apps/mailbox/clamav.yaml` に PVC / Deployment / Service / NetworkPolicy を
+1 ファイルで宣言し、`apps/mailbox/kustomization.yaml` の `resources` に含める
+(`apps` ApplicationSet が `apps/mailbox` を 1 Application として拾う既存の構成に乗る)。
+
+| 資源 | 要点 |
+| --- | --- |
+| PVC `clamav-db` | `local-path`, RWO, 1Gi。`/var/lib/clamav` にマウント。`Prune=false,Delete=false` は付けない |
+| Deployment `clamav` | 単一レプリカ、`strategy: Recreate`、`nodeSelector: kubernetes.io/hostname=k3s-agent-z440` |
+| Service `clamav` | `NodePort 30310`, `externalTrafficPolicy: Local`, port 3310 |
+| NetworkPolicy `clamav-tailnet-only` | `podSelector: app=clamav`、Ingress を `100.64.0.0/10` の clamd ポートのみに限定 |
+
+イメージは `docker.io/clamav/clamav@sha256:c6fc61da368cee0df3d78a79855fee4e76db7988d9dbbc434f5e1d1d24867b8a`
+(タグ `1.5.4_base` のマニフェストリスト)。`_base` はシグネチャ DB を同梱しない版で、同梱版の DB は
+`/var/lib/clamav` にあり PVC のマウントで隠れるため同梱しても初回取得は避けられない。
+
+環境変数は与えない。イメージ既定で `clamd` は `TCPSocket 3310` を待ち受け、`/init` が `main.cvd`
+不在時に `freshclam` を前景で 1 回 (`TestDatabases no`) 走らせてから、freshclam デーモン
+(`FRESHCLAM_CHECKS` 既定 1 = 1 日 1 回、`NotifyClamd` 経由で `clamd` にリロードを通知) と
+`clamd` を起動する。別 CronJob は立てない。`ConcurrentDatabaseReload` は既定 (`yes`) のまま。
+
+`securityContext` は `allowPrivilegeEscalation: false`、`seccompProfile: RuntimeDefault`、
+capabilities を `ALL` drop の上で `CHOWN` / `DAC_OVERRIDE` / `FOWNER` / `SETGID` / `SETUID` のみ付与。
+`/init` はマウントされた DB ボリュームの `chown -R clamav` と `/run/clamav` の作成のために root で
+動く必要があり、`clamd` 自身は `clamd.conf` の `User clamav` で降格する。
+
+`resources` は `requests.memory 1536Mi` / `requests.cpu 100m` / `limits.memory 3Gi`。
+probe は `readinessProbe` の `tcpSocket: 3310` のみ (`initialDelaySeconds 30`, `periodSeconds 15`)。
+`livenessProbe` は持たない (DB リロード中の一時的な無応答で再起動させると DB の取得をやり直す)。
+
+**VPS 側。** `mailserver_enable_clamav: false` により `ENABLE_CLAMAV=0` が渡り、コンテナ内に
+`clamd` / `freshclam` のプロセスは存在しない。接続先は
+`mailserver_clamav_host: 192.168.1.152` / `mailserver_clamav_port: 30310`。
+`ansible/roles/mailserver/templates/rspamd-antivirus.conf.j2` を既存のテンプレート配布ループで
+`{{ mailserver_dms_config_dir }}/rspamd/override.d/antivirus.conf` (mode 0644) として配る。
+テンプレートは `enabled = true;` と `ClamAV { }` を丸ごと宣言し、`servers` だけを
+`{{ mailserver_clamav_host }}:{{ mailserver_clamav_port }}` に、`action` (reject) /
+`message` / `scan_mime_parts` (false) / `symbol` (CLAM_VIRUS) / `log_clean` /
+`max_size` (25000000) / `timeout` (10) / `retransmits` (2) はそのまま持つ。
+`CLAM_VIRUS_FAIL` の重みは宣言しない (fail-open)。
+
+`ENABLE_CLAMAV=0` では docker-mailserver が `local.d/antivirus.conf` の `enabled` を書き換えないため、
+稼働中のコンテナでは `local.d` 側が `enabled = false;`、`override.d` 側が `enabled = true;` となり、
+rspamd は起動時に `added antivirus engine ClamAV -> CLAM_VIRUS` を記録する。
+
+`/opt/mailserver/data/mail-state/lib-clamav` の DB は残置する (切り戻し時にそのまま使える)。
+
+### 実測 (2026-09-04)
+
+**初回のシグネチャ DB 取得。** Pod 起動 (16:44:31Z) から `freshclam` の前景実行が
+16:44:38Z に始まり 16:44:42Z に完了 (4 秒)。`clamd` の待受開始は 16:44:59Z、
+readinessProbe が通ったのは 16:45:13Z で、Pod 起動から 42 秒。
+取得後の DB は `main.cvd` 89,072,577 B (3,287,027 署名) / `daily.cvd` 23,430,113 B (355,635 署名) /
+`bytecode.cvd` 281,702 B (80 署名) の計 107.6 MiB。VPS 上の 168 MiB との差は、
+`ScriptedUpdates` による差分適用で展開される `daily.cld` ではなく圧縮された `daily.cvd` を
+そのまま持つことによる。`kubectl top pod` の Pod メモリは 1,062 Mi。
+
+**tailnet 越しの疎通と検出** (VPS から `192.168.1.152:30310` へ clamd プロトコルで直接)。
+
+| 操作 | 応答 | 所要 (接続確立を含む) |
+| --- | --- | --- |
+| `PING` | `PONG` | 54.6 ms |
+| `VERSION` | `ClamAV 1.5.4/28112/Thu Sep 3 06:22:22 2026` | — |
+| `INSTREAM` (EICAR) | `stream: Eicar-Test-Signature FOUND` | 73.4 ms |
+| `INSTREAM` (通常のテキスト) | `stream: OK` | 74.5 ms |
+
+同じ宛先へ LAN 側 (192.168.1.150) から接続すると NetworkPolicy により拒否される。
+
+**rspamd 経由の検出。** VPS の `rspamc` に EICAR を含むメッセージを流したときの結果。
+
+| 時点 | Action | Score | ClamAV 由来の記号 | rspamd の処理時間 |
+| --- | --- | --- | --- | --- |
+| VPS の UNIX ソケット | reject | 16.50 / 11.00 | `CLAM_VIRUS(0.00){Eicar-Signature}` | 586 ms |
+| k3s の TCP 30310 | reject | 16.50 / 11.00 | `CLAM_VIRUS(0.00){Eicar-Signature}` | 171 ms |
+
+いずれも `forced: reject "ClamAV FOUND VIRUS "Eicar-Signature""` を伴う。
+正常なメッセージ (SPF pass / DMARC allow のヘッダを備えた text/plain) はどちらの時点でも
+`no action` / `1.30 / 11.00` で、`CLAM_VIRUS` も `CLAM_VIRUS_FAIL` も付かない。
+
+**VPS のメモリ。**
+
+| 指標 | clamd が VPS で稼働 | clamd を k3s へ移した後 | 差 |
+| --- | --- | --- | --- |
+| `used` (MiB) | 1121 | 682 | -439 |
+| `available` (MiB) | 845 | 1284 | +439 |
+| `Swap used` (MiB) | 641 | 129 | -512 |
+| `Committed_AS` (kB) | 3,013,492 | 1,969,200 | -1,044,292 |
+| `Committed_AS` / `CommitLimit` | 97.09% | 63.44% | -33.65 pt |
+
+`CommitLimit` は 3,103,892 kB で変わらない。
+
+**k3s 側の余裕。** `k3s-agent-z440` は `free -m` の `available` 12,736 MiB、
+`kubectl top node` でメモリ 5,788 Mi (36%) / CPU 244m (3%)。
+Dovecot の Pod は `k3s-agent-minipc` で Running・RESTARTS 0。
+
+**配送経路。** Postfix の待ち行列は空。VPS から格納側 LMTP
+(`192.168.1.151:30024`、暗黙 TLS) へ `LHLO` / `MAIL FROM` / `RCPT TO` が
+`220 Dovecot ready` / `250` で応答する。存在しない宛先への SMTP は
+`550 5.1.1 ... User unknown in virtual mailbox table` を返し (LDAP 照合が成立していない場合の
+`451` ではない)、宛先照合の経路も生きている。
+
+**冪等性。** `mailserver` ロールの適用は 1 回目が `changed=3`
+(`override.d/antivirus.conf` の配布、compose.yaml の `ENABLE_CLAMAV` 変更、
+コンテナの再作成)、2 回目が `changed=0`。
+
+### 裏が取れなかった点 (移設)
+
+- 実利用者が存在せず `/srv/vmail` が空のため、実在する宛先へメールを配送して
+  格納までを通す検証は行っていない。LMTP セッションの確立と応答、および
+  存在しない宛先の恒久拒否までを確認した。
+- EICAR の拒否は `rspamc` (rspamd の同じ判定経路を用いる) による確認であり、
+  外部からの SMTP セッションの DATA 段で 5xx が返る経路そのものは
+  受け取れる宛先が無いため観測していない。
+- 25 MB 級の添付を tailnet 越しに検査した場合の所要時間は測定していない。
+  `timeout = 10` を現行のまま引き継いでいるため、大きな添付では
+  `CLAM_VIRUS_FAIL` (fail-open) に落ちる余地が残る。
+- freshclam デーモンによる 2 回目以降の DB 更新と、`NotifyClamd` 経由の
+  `clamd` のリロードは観測していない (`FRESHCLAM_CHECKS` 既定の 1 日 1 回のため)。
