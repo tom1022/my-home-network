@@ -270,9 +270,9 @@ flowchart TB
 |-------------|---------|------------|------------|-------|
 | 1.1-1.7 | 実証と撤退判断 | FeasibilityProof | 最小構成の起動定義 | 実証と撤退 |
 | 1.8 | 本番構成での再確認 | FeasibilityProof, LdapExposure, EdgeMailServer | LDAPS の接続契約 | 実証と撤退 |
-| 1.9-1.10 | 待受ポートの実測と撤退 | FeasibilityProof | ポート疎通の実測 | 実証と撤退 |
-| 1.11 | 実証に用いる版の一致 | FeasibilityProof | 最小構成の起動定義 | 実証と撤退 |
-| 1.12 | 利用可能メモリの実測 | FeasibilityProof, EdgeMailServer | 資源の実測 | 実証と撤退 |
+| 1.9-1.13 | 受信ポートの到達確認と経路の条件 | FeasibilityProof | ポート疎通の実測 | 実証と撤退 |
+| 1.14 | 実証に用いる版の一致 | FeasibilityProof | 最小構成の起動定義 | 実証と撤退 |
+| 1.15 | 利用可能メモリの実測 | FeasibilityProof, EdgeMailServer | 資源の実測 | 実証と撤退 |
 | 2.1-2.3, 2.9-2.10 | アプリケーション定義と利用者グループ | MailAuthProvisioning | 宣言的な適用手段 | — |
 | 2.4-2.5 | bind の方式の限定 | MailAuthProvisioning, EdgeMailServer, MailboxBackend | bind DN の形式 | 送信と取得の認証 |
 | 2.6-2.7 | 検索用サービスアカウント | MailAuthProvisioning, EdgeMailServer | LDAP 検索の接続 | 受信と配送 |
