@@ -1,0 +1,42 @@
+---
+# Defaults for MariaDB role. Installed alongside Gitea itself (task 28.4) so a
+# guest-level snapshot backup captures the app and its data at the same point
+# in time, instead of two guests whose backups can drift apart.
+
+mariadb_packages:
+  - mariadb-server
+  - python3-pymysql
+mariadb_update_apt_cache: true
+
+mariadb_service_name: mariadb
+mariadb_service_enabled: true
+mariadb_service_state: started
+
+mariadb_config_path: /etc/mysql/mariadb.conf.d/60-gitea.cnf
+mariadb_socket_path: /run/mysqld/mysqld.sock
+# 0.0.0.0, not 127.0.0.1: the Gitea app connects over the loopback grant below,
+# but mariadb_dump (role, on the pbs host) still needs a TCP path in over the
+# LAN NIC to pull the periodic logical backup from off-guest. Matches the
+# access-control approach the legacy host used: listen everywhere, restrict by
+# grant host pattern instead of by bind-address.
+mariadb_bind_address: "0.0.0.0"
+
+mariadb_gitea_db_name: "{{ lookup('env', 'GITEA_DB_NAME') }}"
+mariadb_gitea_db_user: "{{ lookup('env', 'GITEA_DB_USER') }}"
+mariadb_gitea_db_password: "{{ lookup('env', 'GITEA_DB_PASSWORD') }}"
+mariadb_gitea_db_charset: utf8mb4
+# Matches the collation the legacy schema actually has (utf8mb4_general_ci),
+# not the gitea role's own default (utf8mb4_bin) -- see
+# ansible/roles/gitea/defaults/main.yml. Creating the DB here with the
+# mismatched default would fight the already-loaded data's real collation.
+mariadb_gitea_db_collation: utf8mb4_general_ci
+# Gitea now runs on the same guest as its DB, so the app grant is narrowed to
+# loopback-only (the legacy host granted 'gitea'@'%').
+mariadb_gitea_db_host: 127.0.0.1
+
+# Same restricted-scope dump account used by the legacy host (task 28.3):
+# global RELOAD/PROCESS (grant-table-only, no data access) plus read-only
+# access to the Gitea schema, granted from the PBS host's single IP.
+mariadb_dump_user: "{{ lookup('env', 'MARIADB_DUMP_USER') }}"
+mariadb_dump_password: "{{ lookup('env', 'MARIADB_DUMP_PASSWORD') }}"
+mariadb_dump_host: 172.16.0.202

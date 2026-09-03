@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  role_name: mariadb_dump
+  author: tom1022
+  description: Periodic logical (mysqldump) backup of the Gitea database, pulled from the PBS host
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

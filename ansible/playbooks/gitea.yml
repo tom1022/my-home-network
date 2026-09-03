@@ -6,4 +6,5 @@
   hosts: gitea
   become: true
   roles:
+    - mariadb
     - gitea

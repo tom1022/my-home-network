@@ -1,0 +1,66 @@
+---
+- name: Ensure target host is Debian
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: mariadb_dump role supports Debian hosts only.
+
+- name: Ensure dump settings are provided
+  ansible.builtin.assert:
+    that:
+      - mariadb_dump_source_host | length > 0
+      - mariadb_dump_db_name | length > 0
+      - mariadb_dump_user | length > 0
+      - mariadb_dump_password | length > 0
+    fail_msg: >-
+      mariadb_dump_source_host (derived from GITEA_DB_HOST), mariadb_dump_db_name,
+      mariadb_dump_user and mariadb_dump_password are all required.
+
+- name: Ensure mariadb-client is installed
+  ansible.builtin.apt:
+    name: "{{ mariadb_dump_packages }}"
+    state: present
+
+- name: Ensure dump destination directory exists
+  ansible.builtin.file:
+    path: "{{ mariadb_dump_dest_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Ensure dump script is installed
+  ansible.builtin.template:
+    src: mariadb-dump-gitea.sh.j2
+    dest: "{{ mariadb_dump_script_path }}"
+    owner: root
+    group: root
+    mode: '0700'
+  no_log: true
+
+- name: Ensure dump systemd service unit is installed
+  ansible.builtin.template:
+    src: mariadb-dump-gitea.service.j2
+    dest: "/etc/systemd/system/{{ mariadb_dump_service_name }}.service"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd daemon
+
+- name: Ensure dump systemd timer unit is installed
+  ansible.builtin.template:
+    src: mariadb-dump-gitea.timer.j2
+    dest: "/etc/systemd/system/{{ mariadb_dump_service_name }}.timer"
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart mariadb-dump-gitea timer
+
+- name: Ensure dump timer is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ mariadb_dump_service_name }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,7 +1,14 @@
 ---
 # Non-secret Gitea settings for group `gitea`
-gitea_admin_username: admin
+gitea_admin_username: giteaadmin
 gitea_admin_email: admin@example.local
+
+# Public HTTPS origin (task 26.6), reached via the kubernetes cloudflared
+# tunnel (terraform/cloudflare_zero_trust.tf). DOMAIN/SSH_DOMAIN are left at
+# the role default (LAN IP) so SSH clone URLs and ArgoCD's internal repo pull
+# (plain HTTP to 192.168.1.200, group_vars/k3s/main.yml) are unaffected --
+# only ROOT_URL, which Gitea uses to build OIDC callback URLs, changes.
+gitea_root_url: "https://gitea.fickledev.com/"
 
 gitea_db_host: "{{ lookup('env', 'GITEA_DB_HOST') }}"
 gitea_db_name: "{{ lookup('env', 'GITEA_DB_NAME') }}"
@@ -11,3 +18,8 @@ gitea_db_password: "{{ lookup('env', 'GITEA_DB_PASSWORD') }}"
 gitea_admin_password: "{{ lookup('env', 'GITEA_ADMIN_PASSWORD') }}"
 gitea_security_secret_key: "{{ lookup('env', 'GITEA_SECURITY_SECRET_KEY') }}"
 gitea_security_internal_token: "{{ lookup('env', 'GITEA_SECURITY_INTERNAL_TOKEN') }}"
+
+# Kanidm OIDC client (terraform-kanidm/oauth2_clients.tf, kanidm_oauth2_basic.gitea).
+# client_id matches the resource's `name` ("gitea"); the secret is the only piece
+# that must be supplied out of band.
+gitea_oidc_client_secret: "{{ lookup('env', 'KANIDM_OIDC_GITEA_CLIENT_SECRET') }}"

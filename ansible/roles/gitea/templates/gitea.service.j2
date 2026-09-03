@@ -1,6 +1,10 @@
 [Unit]
 Description=Gitea (Git with a cup of tea)
-After=network.target
+# MariaDB now runs on this same guest (task 28.4); without this, a reboot
+# starts both units in parallel and Gitea's first few connection attempts
+# race an unstarted DB (self-heals via Restart=always, but this avoids it).
+After=network.target mariadb.service
+Wants=mariadb.service
 
 [Service]
 Type=simple

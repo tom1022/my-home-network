@@ -11,50 +11,56 @@
     system: true
     create_home: false
 
-- name: Resolve Gitea share user uid on NAS
-  ansible.builtin.command:
-    argv:
-      - id
-      - -u
-      - "{{ nas_gitea_user }}"
-  check_mode: false
-  register: nas_gitea_uid_result
-  changed_when: false
-  failed_when: nas_gitea_uid_result.rc != 0
-
-- name: Resolve Gitea share user gid on NAS
-  ansible.builtin.command:
-    argv:
-      - id
-      - -g
-      - "{{ nas_gitea_user }}"
-  check_mode: false
-  register: nas_gitea_gid_result
-  changed_when: false
-  failed_when: nas_gitea_gid_result.rc != 0
-
 - name: Ensure Gitea data directory
   ansible.builtin.file:
     path: "{{ nas_gitea_share_path }}"
     state: directory
-    owner: "{{ nas_gitea_user }}"
-    group: "{{ nas_gitea_user }}"
+    # Owned by the exported anonuid/anongid, not the NAS-local `gitea` system
+    # user: all_squash means every NFS request (including the gitea container's)
+    # is evaluated against this id regardless of what raw uid it physically has
+    # on this NAS filesystem, so the directory's real on-disk owner must match
+    # anonuid/anongid or the container loses owner/group access once mode
+    # narrows below (research.md task 21.7). ansible.builtin.file resolves a
+    # purely-numeric owner/group string as a raw uid/gid when no matching
+    # local account exists.
+    owner: "{{ nas_gitea_export_anon_uid }}"
+    group: "{{ nas_gitea_export_anon_gid }}"
     mode: '0750'
+  # Split from the rest of this file's tasks (task 21.7) so the mode narrowing
+  # can be applied strictly after the anonuid/anongid switch below and its
+  # owner-match verification -- applying both together would narrow
+  # permissions before the container can prove it resolves to the new anon
+  # id, locking Gitea out of its own data mid-run.
+  tags: [gitea_share_mode]
 
 - name: Initialize nas_gitea_clients with configured CIDRs
   ansible.builtin.set_fact:
     nas_gitea_clients: "{{ nas_gitea_allowed_cidrs | default([]) }}"
 
 - name: Resolve allowed host addresses and append to clients list
+  # This used to try to prefer each host's 172.16.0.0/16 overlay address, read
+  # from hostvars[item].ansible_all_ipv4_addresses (gathered facts). That is
+  # dead code, not a regex bug: this task runs in the nas play, which every
+  # entry point (nas.yml, site.yml) executes before the proxmox_nodes play that
+  # would gather those facts, and none of the plays that run earlier gather
+  # facts for proxmox_nodes either (ping.yml/ssh_authorized_keys.yml both set
+  # gather_facts: false) -- so hostvars[item] never has ansible_all_ipv4_addresses
+  # here, the select() always matched against an empty list, and the "| default"
+  # fallback to ansible_host always fired regardless of what the regex matched.
+  # It also would have been the wrong preference in practice: the overlay
+  # network isn't routable from this host's LAN segment, and the NFS clients
+  # actually connect from their LAN (ansible_host) address (verified via `ss`
+  # on the live NFS server) -- so exporting to the overlay address instead
+  # would have locked out the real, working clients.
   ansible.builtin.set_fact:
-    nas_gitea_clients: "{{ nas_gitea_clients + [ (hostvars[item].ansible_all_ipv4_addresses | default([]) | select('match', '^172\\.') | list | first) | default(hostvars[item].ansible_host) ] }}"
+    nas_gitea_clients: "{{ nas_gitea_clients + [hostvars[item].ansible_host] }}"
   loop: "{{ nas_gitea_allowed_hosts | default([]) }}"
   loop_control:
     label: "{{ item }}"
 
 - name: Set NFS export options for Gitea share
   ansible.builtin.set_fact:
-    nas_gitea_export_options: "{{ nas_gitea_export_opts_defaults }},anonuid={{ nas_gitea_uid_result.stdout }},anongid={{ nas_gitea_gid_result.stdout }}"
+    nas_gitea_export_options: "{{ nas_gitea_export_opts_defaults }},anonuid={{ nas_gitea_export_anon_uid }},anongid={{ nas_gitea_export_anon_gid }}"
 
 - name: Ensure /etc/exports.d directory exists
   ansible.builtin.file:
@@ -68,18 +74,10 @@
     src: gitea.exports.j2
     dest: /etc/exports.d/gitea.exports
     mode: '0644'
-  notify: reload nfs exports
-- name: Ensure /etc/exports.d directory exists
-  ansible.builtin.file:
-    path: /etc/exports.d
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
+  notify: Reload nfs exports
+
 - name: Ensure nfs-server is running and enabled
   ansible.builtin.service:
     name: nfs-kernel-server
     state: started
     enabled: true
-
-

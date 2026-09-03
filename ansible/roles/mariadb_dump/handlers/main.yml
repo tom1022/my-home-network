@@ -1,0 +1,9 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart mariadb-dump-gitea timer
+  ansible.builtin.systemd:
+    name: "{{ mariadb_dump_service_name }}.timer"
+    state: restarted

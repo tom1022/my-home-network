@@ -8,14 +8,6 @@ nas_data_partition_number: 1
 nas_data_filesystem_type: ext4
 nas_data_mount_path: /srv/nas-data
 
-# Storage prerequisite packages for Debian
-nas_storage_base_packages:
-  - parted
-nas_filesystem_package_map:
-  ext4: e2fsprogs
-  xfs: xfsprogs
-  btrfs: btrfs-progs
-
 # Gitea share defaults
 nas_gitea_share_enabled: true
 nas_gitea_share_path: "{{ nas_data_mount_path }}/shares/gitea"
@@ -25,9 +17,18 @@ nas_gitea_user: gitea
 nas_gitea_allowed_hosts:
   - "n100"
   - "hp-z440"
-  - "frontier"
 # Optional allowed CIDRs (strings). These are merged with resolved host addresses.
 nas_gitea_allowed_cidrs: []
 
 # Default export options (will be combined with anon uid/gid later)
 nas_gitea_export_opts_defaults: "rw,sync,no_subtree_check,all_squash"
+
+# anonuid/anongid target the `git` user inside the `gitea` LXC (uid=999/gid=1000,
+# pinned in roles/gitea/defaults/main.yml gitea_run_uid/gid) as seen from the
+# host after that container's default 1-range /etc/subuid|subgid shift
+# (root:100000:65536) -- not this NAS's own local `gitea` system user. The
+# container's user namespace can never represent the NAS-local user's raw host
+# id, so squashing to it left the container's writes owned by nobody:nogroup
+# (research.md task 21.7).
+nas_gitea_export_anon_uid: 100999
+nas_gitea_export_anon_gid: 101000

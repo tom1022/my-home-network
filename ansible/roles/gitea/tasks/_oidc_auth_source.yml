@@ -1,0 +1,124 @@
+---
+# Requirement 26.19: idempotency must not be delegated to Gitea itself -
+# `add-oauth` inserts a new row every time it runs, even when a source with
+# the same name already exists (verified live: running it twice produced two
+# separate IDs for the same name). This lists existing sources first and
+# branches to add-oauth (create) vs update-oauth --id (update) based on
+# whether a source named gitea_oidc_auth_source_name is already present.
+- name: Get Gitea auth source list
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - "{{ gitea_run_user }}"
+      - --
+      - "{{ gitea_binary_path }}"
+      - admin
+      - auth
+      - list
+      - --config
+      - "{{ gitea_app_ini_path }}"
+      - --vertical-bars
+  environment:
+    GITEA_WORK_DIR: "{{ gitea_work_dir }}"
+  register: gitea_auth_list_result
+  # Read-only; must run under --check too, same reasoning as
+  # _check_admin_user.yml (check-mode's command stub would otherwise return
+  # empty stdout and the branch below would always take the "create" path).
+  check_mode: false
+  changed_when: false
+
+- name: Determine existing Gitea OIDC auth source ID
+  ansible.builtin.set_fact:
+    gitea_oidc_auth_source_id: >-
+      {%- set ns = namespace(id='') -%}
+      {%- for row in gitea_auth_rows -%}
+      {%- if row[gitea_auth_name_col | int] == gitea_oidc_auth_source_name -%}
+      {%- set ns.id = row[gitea_auth_id_col | int] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.id }}
+  vars:
+    # Column position is read from the header row instead of hard-coded, same
+    # approach as _check_admin_user.yml, so a future Gitea version reordering
+    # the table doesn't silently break this.
+    gitea_auth_header: "{{ (gitea_auth_list_result.stdout_lines | default(['']))[0].split('|') | map('trim') | list }}"
+    gitea_auth_id_col: "{{ gitea_auth_header.index('ID') }}"
+    gitea_auth_name_col: "{{ gitea_auth_header.index('Name') }}"
+    gitea_auth_rows: "{{ (gitea_auth_list_result.stdout_lines | default([]))[1:] | map('split', '|') | map('map', 'trim') | map('list') | list }}"
+
+- name: Ensure Gitea OIDC auth source secret is provided
+  ansible.builtin.assert:
+    that:
+      - gitea_oidc_client_secret | length > 0
+    fail_msg: >-
+      gitea_oidc_client_secret is required.
+      Supply it via Infisical (KANIDM_OIDC_GITEA_CLIENT_SECRET).
+
+- name: Create Gitea OIDC auth source
+  ansible.builtin.command:
+    argv: "{{ gitea_oidc_argv_base + ['add-oauth'] + gitea_oidc_argv_common + gitea_oidc_scope_argv }}"
+  vars:
+    gitea_oidc_argv_base:
+      - runuser
+      - -u
+      - "{{ gitea_run_user }}"
+      - --
+      - "{{ gitea_binary_path }}"
+      - admin
+      - auth
+    gitea_oidc_argv_common:
+      - --name
+      - "{{ gitea_oidc_auth_source_name }}"
+      - --provider
+      - "{{ gitea_oidc_provider }}"
+      - --key
+      - "{{ gitea_oidc_client_id }}"
+      - --secret
+      - "{{ gitea_oidc_client_secret }}"
+      - --auto-discover-url
+      - "{{ gitea_oidc_auto_discover_url }}"
+      - --config
+      - "{{ gitea_app_ini_path }}"
+  environment:
+    GITEA_WORK_DIR: "{{ gitea_work_dir }}"
+  changed_when: true
+  no_log: true
+  when: gitea_oidc_auth_source_id | length == 0
+
+# changed_when is unconditionally false here: gitea admin auth update-oauth
+# prints nothing on success regardless of whether it actually altered
+# anything (verified live), so there is no signal to distinguish a real
+# update from a no-op re-application of the same values. The command still
+# runs every time the source exists, so drift (e.g. a rotated client secret)
+# is still corrected; only the changed-reporting is unconditional.
+- name: Update Gitea OIDC auth source
+  ansible.builtin.command:
+    argv: "{{ gitea_oidc_argv_base + ['update-oauth', '--id', gitea_oidc_auth_source_id] + gitea_oidc_argv_common + gitea_oidc_scope_argv }}"
+  vars:
+    gitea_oidc_argv_base:
+      - runuser
+      - -u
+      - "{{ gitea_run_user }}"
+      - --
+      - "{{ gitea_binary_path }}"
+      - admin
+      - auth
+    gitea_oidc_argv_common:
+      - --name
+      - "{{ gitea_oidc_auth_source_name }}"
+      - --provider
+      - "{{ gitea_oidc_provider }}"
+      - --key
+      - "{{ gitea_oidc_client_id }}"
+      - --secret
+      - "{{ gitea_oidc_client_secret }}"
+      - --auto-discover-url
+      - "{{ gitea_oidc_auto_discover_url }}"
+      - --config
+      - "{{ gitea_app_ini_path }}"
+  environment:
+    GITEA_WORK_DIR: "{{ gitea_work_dir }}"
+  changed_when: false
+  no_log: true
+  when: gitea_oidc_auth_source_id | length > 0

@@ -1,0 +1,85 @@
+---
+- name: Ensure target host is Debian
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: mariadb role supports Debian hosts only.
+
+- name: Ensure MariaDB packages are installed
+  ansible.builtin.apt:
+    name: "{{ mariadb_packages }}"
+    state: present
+    update_cache: "{{ mariadb_update_apt_cache }}"
+
+- name: Ensure MariaDB config is applied
+  ansible.builtin.template:
+    src: 60-gitea.cnf.j2
+    dest: "{{ mariadb_config_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart MariaDB
+
+- name: Ensure MariaDB service is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ mariadb_service_name }}"
+    enabled: "{{ mariadb_service_enabled }}"
+    state: "{{ mariadb_service_state }}"
+
+- name: Flush handlers so a config change is live before provisioning the DB
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure Gitea database settings are provided
+  ansible.builtin.assert:
+    that:
+      - mariadb_gitea_db_name | length > 0
+      - mariadb_gitea_db_user | length > 0
+      - mariadb_gitea_db_password | length > 0
+    fail_msg: >-
+      mariadb_gitea_db_name, mariadb_gitea_db_user and mariadb_gitea_db_password are required.
+      Supply them via Infisical (GITEA_DB_NAME, GITEA_DB_USER, GITEA_DB_PASSWORD).
+
+- name: Ensure Gitea database exists
+  community.mysql.mysql_db:
+    name: "{{ mariadb_gitea_db_name }}"
+    state: present
+    encoding: "{{ mariadb_gitea_db_charset }}"
+    collation: "{{ mariadb_gitea_db_collation }}"
+    login_unix_socket: "{{ mariadb_socket_path }}"
+  # Migration (task 28.4) restores a dump into this DB out of band, before
+  # this role is expected to run against the fully-cut-over host; creating it
+  # here too keeps the role idempotent for a from-scratch host.
+  register: mariadb_gitea_db_result
+
+- name: Ensure Gitea database user exists with expected privileges
+  community.mysql.mysql_user:
+    name: "{{ mariadb_gitea_db_user }}"
+    host: "{{ mariadb_gitea_db_host }}"
+    password: "{{ mariadb_gitea_db_password }}"
+    priv: "{{ mariadb_gitea_db_name }}.*:ALL"
+    state: present
+    login_unix_socket: "{{ mariadb_socket_path }}"
+  no_log: true
+
+- name: Ensure dump account settings are provided
+  ansible.builtin.assert:
+    that:
+      - mariadb_dump_user | length > 0
+      - mariadb_dump_password | length > 0
+    fail_msg: >-
+      mariadb_dump_user and mariadb_dump_password are required.
+      Supply them via Infisical (MARIADB_DUMP_USER, MARIADB_DUMP_PASSWORD).
+
+- name: Ensure dump account exists with read-only scope on the Gitea DB
+  community.mysql.mysql_user:
+    name: "{{ mariadb_dump_user }}"
+    host: "{{ mariadb_dump_host }}"
+    password: "{{ mariadb_dump_password }}"
+    # RELOAD/PROCESS are global-only grants in MySQL/MariaDB's privilege model
+    # (cannot be scoped to a single DB) but carry no data-read access on their
+    # own; actual data access is limited to the Gitea schema by the second
+    # clause. Same split used by the legacy host (task 28.3).
+    priv: "*.*:RELOAD,PROCESS/{{ mariadb_gitea_db_name }}.*:SELECT,LOCK TABLES,SHOW VIEW,TRIGGER"
+    state: present
+    login_unix_socket: "{{ mariadb_socket_path }}"
+  no_log: true

@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic logical (mysqldump) backup of the Gitea database
+
+[Timer]
+OnCalendar={{ mariadb_dump_timer_calendar }}
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

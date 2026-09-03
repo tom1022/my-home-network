@@ -1,12 +1,17 @@
 ---
-- name: Ensure NAS storage prerequisites
-  ansible.builtin.import_tasks: prerequisites.yml
-  when: nas_data_disk_enabled
-
 - name: Configure NAS data disk mount
-  ansible.builtin.import_tasks: storage.yml
+  ansible.builtin.include_role:
+    name: storage_disk
+  vars:
+    storage_disk_items:
+      - name: nas-data
+        scsi_address: "{{ nas_data_disk_scsi_address }}"
+        partition_number: "{{ nas_data_partition_number }}"
+        filesystem_type: "{{ nas_data_filesystem_type }}"
+        mount_path: "{{ nas_data_mount_path }}"
   when: nas_data_disk_enabled
 
 - name: Configure Gitea share on NAS
   ansible.builtin.import_tasks: gitea_share.yml
   when: nas_gitea_share_enabled | default(false)
+  tags: [gitea_share]

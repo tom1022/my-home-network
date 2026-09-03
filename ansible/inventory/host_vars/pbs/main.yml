@@ -10,9 +10,8 @@ pbs_backup_include_pbs_self: true
 pbs_backup_target_datastore_id: zfs-pool
 pbs_backup_target_dataset_path: /mnt/zfs-pool-0
 
-# Managed targets:
-# - Include all inventory-managed guests except gitea
-# - Add legacy MariaDB and recording VM
+# Managed targets: all inventory-managed guests, plus the legacy MariaDB container.
+# Excluded targets (gitea, the recording host) are listed in pbs_backup_excluded_targets below.
 pbs_backup_targets:
   - name: k3s-server
     vmid: 150
@@ -37,7 +36,14 @@ pbs_backup_targets:
     include: true
     source: terraform
     service: k3s-worker
-    skip_extra_zvol_dataset_disks: true
+    # scsi2 (nextcloud, zfs-pool zvol) is still an empty passthrough disk reserved for a
+    # future migration; snapshotting it wastes datastore space without protecting anything
+    # a PBS restore needs. scsi1 held the same kind of empty placeholder until task 28.5
+    # repurposed it as Garage's metadata_dir (real data since) - removed from this list
+    # accordingly. scsi3 (Garage data_dir, zfs-pool zvol) is new and intentionally left out
+    # of this list so it's included by the include-unless-excluded default below.
+    backup_excluded_disks:
+      - scsi2
 
   - name: nas
     vmid: 201
@@ -46,7 +52,6 @@ pbs_backup_targets:
     include: true
     source: terraform
     service: nas
-    skip_extra_zvol_dataset_disks: true
 
   - name: pbs
     vmid: 202
@@ -59,25 +64,12 @@ pbs_backup_targets:
   - name: mariadb-legacy
     vmid: 113
     type: lxc
-    ip: 172.16.0.100
+    ip: 192.168.1.100
     include: true
-    source: external
+    source: terraform
     service: MariaDB
-    mariadb_dump_enabled: true
-    mariadb_dump_databases: all
-    mariadb_dump_user: "{{ lookup('env', 'MARIADB_DUMP_USER') }}"
-    mariadb_dump_password: "{{ lookup('env', 'MARIADB_DUMP_PASSWORD') }}"
 
-  - name: mirakurun-epgstation
-    vmid: 110
-    type: qemu
-    ip: 192.168.1.11
-    include: true
-    source: external
-    service: Mirakurun+EPGStation
-    recording_data_backup_enabled: false
-
-# Explicitly excluded target
+# Explicitly excluded targets, with the reason each is excluded.
 pbs_backup_excluded_targets:
   - name: gitea
     vmid: 200
@@ -85,6 +77,17 @@ pbs_backup_excluded_targets:
     ip: 192.168.1.200
     reason: github-offsite-backup
 
-# Remaining info to confirm before job automation
-pbs_backup_todo:
-  - "Confirm Proxmox VM disk backup=0 for zvol/dataset disks"
+  - name: mirakurun-epgstation
+    vmid: 110
+    type: qemu
+    ip: 192.168.1.11
+    # VM 110 ("tv") IS a live PVE guest, running on hp-z440 - not an external host, and
+    # vmid 110 exists (`pvesh get /cluster/resources --type vm` confirms it). It has a
+    # single active disk (virtio0 -> local-lvm:vm-107-disk-1, 128G) that holds the OS and
+    # the Mirakurun/EPGStation recording data together on one filesystem; there is no
+    # separate disk to flag via backup_excluded_disks that would protect the OS while
+    # still skipping the (intentionally unprotected, non-restorable-in-any-meaningful-sense)
+    # recording data. Excluding the whole guest is the only way the existing infra can
+    # implement that recording-data exclusion, at the cost of leaving the OS/config state
+    # unprotected too. See research.md task 15.5 addendum for the operator escalation.
+    reason: recording-data-and-os-share-a-single-disk-whole-guest-excluded

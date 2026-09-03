@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  role_name: mariadb
+  author: tom1022
+  description: Install MariaDB server and provision the Gitea database on the host running Gitea itself
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

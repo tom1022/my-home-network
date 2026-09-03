@@ -1,0 +1,49 @@
+---
+# Included with gitea_admin_check_stage=before|after to avoid duplicating the
+# list+detect logic. before/after each need a distinct fact name because the
+# create task in between depends on the "before" result.
+#
+# `gitea admin user list --admin` (server-side filtered to admin accounts only,
+# confirmed against a real 1.22.6 install) is used instead of the unfiltered
+# list, so every username this returns is already known to be an admin -
+# there is no separate IsAdmin column to parse or trust.
+- name: Get Gitea admin-only user list for check stage {{ gitea_admin_check_stage }}
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - "{{ gitea_run_user }}"
+      - --
+      - "{{ gitea_binary_path }}"
+      - admin
+      - user
+      - list
+      - --admin
+      - --config
+      - "{{ gitea_app_ini_path }}"
+  environment:
+    GITEA_WORK_DIR: "{{ gitea_work_dir }}"
+  register: gitea_admin_list_result
+  # Read-only; must run even under --check, otherwise Ansible's check-mode stub
+  # returns rc=0 with empty stdout and existence detection always evaluates to
+  # false, which would make the assert below fail on every --check run.
+  check_mode: false
+  changed_when: false
+  failed_when: gitea_admin_list_result.rc != 0
+  no_log: "{{ gitea_admin_create_no_log }}"
+
+- name: Determine whether Gitea admin user exists for check stage {{ gitea_admin_check_stage }}
+  ansible.builtin.set_fact:
+    "gitea_admin_user_exists_{{ gitea_admin_check_stage }}": "{{ gitea_admin_username in gitea_admin_usernames }}"
+  vars:
+    # Column position is read from the header row instead of hard-coded, so a
+    # future Gitea version reordering the table doesn't silently break this.
+    gitea_admin_header_fields: "{{ (gitea_admin_list_result.stdout_lines | default(['']))[0].split() }}"
+    gitea_admin_username_col: "{{ gitea_admin_header_fields.index('Username') if 'Username' in gitea_admin_header_fields else 1 }}"
+    gitea_admin_usernames: >-
+      {{
+        (gitea_admin_list_result.stdout_lines | default([]))[1:]
+        | map('regex_replace', '^(?:\S+\s+){' ~ gitea_admin_username_col ~ '}(\S+).*$', '\1')
+        | list
+      }}
+  no_log: "{{ gitea_admin_create_no_log }}"

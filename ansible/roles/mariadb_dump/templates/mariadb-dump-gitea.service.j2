@@ -1,0 +1,6 @@
+[Unit]
+Description=Logical (mysqldump) backup of the Gitea database
+
+[Service]
+Type=oneshot
+ExecStart={{ mariadb_dump_script_path }}

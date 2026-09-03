@@ -1,0 +1,36 @@
+---
+# Defaults for mariadb_dump role (task 28.4 / requirement 28.10, 19.1).
+#
+# A guest-level snapshot backup (PBS, task 15.4/15.5) protects the Gitea DB
+# guest as a whole but restores only as a whole guest. This adds a logical
+# (mysqldump) backup pulled from a separate guest (PBS itself), so a single
+# table or the schema alone can be restored without rolling back the entire
+# Gitea host.
+
+mariadb_dump_packages:
+  - mariadb-client
+
+# NOT derived from GITEA_DB_HOST: that value is 127.0.0.1 (Gitea connects to
+# MariaDB over loopback, now that both are on the same guest), which is
+# meaningless from this role's host (pbs). Also not the gitea host's LAN IP
+# (inventory ansible_host, 192.168.1.200): the dump account's grant is
+# restricted to the source IP the pbs host presents on the DMZ segment
+# (172.16.0.202, mariadb_dump_host in the mariadb role's defaults), which is
+# only the address the kernel picks when the destination is also on that
+# same /24 -- terraform/locals.tf's "gitea".ip1, same pattern the legacy host
+# used.
+mariadb_dump_source_host: "172.16.0.200"
+mariadb_dump_db_name: "{{ lookup('env', 'GITEA_DB_NAME') }}"
+mariadb_dump_user: "{{ lookup('env', 'MARIADB_DUMP_USER') }}"
+mariadb_dump_password: "{{ lookup('env', 'MARIADB_DUMP_PASSWORD') }}"
+
+mariadb_dump_dest_dir: /var/backups/mariadb-gitea
+mariadb_dump_script_path: /usr/local/sbin/mariadb-dump-gitea.sh
+mariadb_dump_service_name: mariadb-dump-gitea
+# Systemd OnCalendar, not cron: this runs as a systemd timer unit, so the
+# schedule field count/syntax must match what systemd's timer parser
+# interprets (requirement 19.1), not cron's 5-field form.
+mariadb_dump_timer_calendar: "*-*-* 03:20:00"
+# Generations to retain, not a byte/day budget: matches the "保持世代の上限"
+# framing used elsewhere in this repo's backup configs (requirement 19.3).
+mariadb_dump_retain_generations: 14

@@ -1,0 +1,25 @@
+#!/bin/bash
+# Managed by Ansible (mariadb_dump role). Manual edits are overwritten.
+set -euo pipefail
+
+dest_dir="{{ mariadb_dump_dest_dir }}"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+out="${dest_dir}/gitea-${stamp}.sql.gz"
+tmp="${out}.part"
+
+# MYSQL_PWD, not -p on argv: -p would put the password in every local user's
+# `ps` output for the process's lifetime.
+# No --events: dumping events needs the EVENT grant, which the read-only dump
+# account deliberately does not have, and Gitea's schema has none (verified).
+MYSQL_PWD='{{ mariadb_dump_password }}' mariadb-dump \
+  --single-transaction \
+  --routines \
+  --triggers \
+  -h '{{ mariadb_dump_source_host }}' \
+  -u '{{ mariadb_dump_user }}' \
+  '{{ mariadb_dump_db_name }}' \
+  | gzip > "${tmp}"
+mv "${tmp}" "${out}"
+
+# Retain the newest N generations only (requirement 19.3's pattern).
+ls -1t "${dest_dir}"/gitea-*.sql.gz | tail -n "+{{ mariadb_dump_retain_generations | int + 1 }}" | xargs -r rm -f
