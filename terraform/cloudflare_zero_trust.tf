@@ -111,6 +111,12 @@ resource "cloudflare_zero_trust_access_identity_provider" "kanidm" {
 
     scopes = ["openid", "profile", "email", "groups"]
 
+    # Cloudflare Access does not surface a custom claim to policy evaluation
+    # unless the claim name is listed here. Requesting the `groups` scope is
+    # not sufficient on its own: without this the `groups` claim never reaches
+    # the identity, and any policy matching on it can never succeed.
+    claims = ["groups"]
+
     # Kanidm omits the `email` ID token claim for accounts without a `mail`
     # attribute, which is every account in this environment (task 26.9,
     # confirmed against a real token). preferred_username (SPN form) is the
