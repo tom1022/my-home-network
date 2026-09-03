@@ -39,3 +39,6 @@ terraform/.discovery/
 terraform/.env.example
 
 .kiro/specs/infisical-cloudflare-iac-refactor/artifacts/cert-backup/
+
+# stale branchの完全git履歴を含むbundle。平文の秘密が埋まっている可能性があり追跡対象外
+.kiro/specs/iac-hygiene-remediation/artifacts/task-7.3-9.1-secret-sync-and-stale-branches-20260902/branch-bundles/
