@@ -15,8 +15,7 @@ variable "template_vm_id" {
 }
 
 variable "template_node_name" {
-  type    = string
-  default = ""
+  type = string
 }
 
 variable "cores" {
@@ -33,6 +32,11 @@ variable "disk_size" {
 
 variable "disk_datastore" {
   type = string
+}
+
+variable "zfs_pool_datastore" {
+  description = "Datastore backing the additional ZFS-pool disks declared via zfs_pools"
+  type        = string
 }
 
 variable "ssh_public_key" {
@@ -93,7 +97,19 @@ variable "ci_user" {
 }
 
 variable "zfs_pools" {
-  description = "Optional single number or list of numbers describing sizes (GB) for additional ZFS pool volumes to attach."
-  type        = any
-  default     = null
+  description = "Additional ZFS-pool-backed disks keyed by a stable name. Each entry pins its own scsi interface index so removing an entry never renumbers the others."
+  type = map(object({
+    size = number
+    scsi = number
+  }))
+  default = {}
+}
+
+variable "lvm_disks" {
+  description = "Additional disks on the same datastore as the root disk (disk_datastore, typically local-lvm/SSD), keyed by a stable name. Each entry pins its own scsi interface index so removing an entry never renumbers the others."
+  type = map(object({
+    size = number
+    scsi = number
+  }))
+  default = {}
 }

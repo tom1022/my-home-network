@@ -23,33 +23,38 @@ locals {
       ip1   = "172.16.0.151"
     }
     "k3s-agent-z440" = {
-      vmid      = 152
-      node      = "hp-z440"
-      cores     = 8
-      mem       = 16384
-      disk      = 128
-      zfs_pools = [500, 1000]
-      ip0       = "192.168.1.152"
-      ip1       = "172.16.0.152"
+      vmid  = 152
+      node  = "hp-z440"
+      cores = 8
+      mem   = 16384
+      disk  = 128
+      # 注意: この map の for_each はキーのソート順で disk ブロックを生成し、プロバイダは
+      # ディスクブロックを位置で照合する (interface 属性による照合ではない)。既存キーより
+      # ソート順で前に来るキーを追加すると、既存ディスクの interface/size が意図せず入れ替わる。
+      # 新規キーは既存キーよりアルファベット順で後ろに来る名前にすること。
+      zfs_pools = {
+        nextcloud = { size = 1000, scsi = 2 }
+        # Garage の data_dir (実体)。逐次書き込みが主のため容量の大きい HDD 側 (zfs-pool) に置く。
+        object_storage = { size = 200, scsi = 3 }
+      }
+      # Garage の metadata_dir (索引)。不規則な小さい書き込みが主で遅延に敏感なため SSD 側 (local-lvm) に置く。
+      lvm_disks = {
+        garage_metadata = { size = 50, scsi = 1 }
+      }
+      ip0 = "192.168.1.152"
+      ip1 = "172.16.0.152"
     }
-    # "k3s-agent-frontier" = {
-    #   vmid  = 153
-    #   node  = "frontier"
-    #   cores = 8
-    #   mem   = 32768
-    #   disk  = 128
-    #   ip0   = "192.168.1.153"
-    #   ip1   = "172.16.0.153"
-    # }
     "nas" = {
-      vmid      = 201
-      node      = "hp-z440"
-      cores     = 4
-      mem       = 8192
-      disk      = 64
-      zfs_pools = [1000]
-      ip0       = "192.168.1.201"
-      ip1       = "172.16.0.201"
+      vmid  = 201
+      node  = "hp-z440"
+      cores = 4
+      mem   = 8192
+      disk  = 64
+      zfs_pools = {
+        data = { size = 1000, scsi = 1 }
+      }
+      ip0 = "192.168.1.201"
+      ip1 = "172.16.0.201"
     }
   }
 
@@ -72,6 +77,30 @@ locals {
       ip0       = "192.168.1.202"
       zfs_pools = [500]
       ip1       = "172.16.0.202"
+    }
+    # Legacy standalone MariaDB host, predates this Terraform config. Hosts Gitea's
+    # production database (net0/192.168.1.100) alongside decommissioned services'
+    # leftover schemas. protection/firewall/hostname/mtu are pinned to the guest's
+    # actual on-disk config so bringing it under management doesn't change it.
+    "mariadb-legacy" = {
+      vmid     = 113
+      node     = "n100"
+      cores    = 1
+      mem      = 1024
+      disk     = 50
+      ip0      = "192.168.1.100"
+      ip1      = "172.16.0.100"
+      hostname = "MariaDB"
+      # null, not 9000: the real interface has no explicit mtu (defaults to 1500) and
+      # setting it explicitly would touch a live veth on a container holding production data.
+      bridge_secondary_mtu = null
+      protection           = true
+      firewall             = true
+      # Root access predates this Terraform config: authorized_keys was set by hand inside
+      # the guest, not via Proxmox's ssh-public-keys field (which is unset on the real
+      # container). That field only injects keys at container creation, so setting it here
+      # would force a destroy+recreate of a container holding live production data.
+      ssh_public_key = ""
     }
   }
 }

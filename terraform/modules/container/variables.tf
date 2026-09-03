@@ -76,9 +76,6 @@ variable "os_type" {
 variable "start" {
   type = bool
 }
-variable "ci_user" {
-  type = string
-}
 variable "zfs_pools" {
   description = "Optional single number or list of numbers describing sizes (GB) for additional ZFS pool volumes to attach."
   type        = any
@@ -89,4 +86,16 @@ variable "bind_mounts" {
   description = "Optional bind mount definitions for LXC mount_point blocks."
   type        = list(any)
   default     = []
+}
+
+variable "protection" {
+  description = "Whether to set the Proxmox protection flag (blocks remove/update of the container and its disk)."
+  type        = bool
+  default     = false
+}
+
+variable "network_interface_firewall" {
+  description = "Whether to enable the Proxmox per-interface firewall on all of this container's network interfaces."
+  type        = bool
+  default     = false
 }

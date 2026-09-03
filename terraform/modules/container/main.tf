@@ -12,11 +12,12 @@ locals {
   network_interfaces = concat(
     [
       {
-        name   = "eth0"
-        bridge = var.bridge0
+        name     = "eth0"
+        bridge   = var.bridge0
+        firewall = var.network_interface_firewall
       }
     ],
-    var.ip1 != "" ? [{ name = "eth1", bridge = var.bridge1, mtu = var.bridge_secondary_mtu }] : []
+    var.ip1 != "" ? [{ name = "eth1", bridge = var.bridge1, mtu = var.bridge_secondary_mtu, firewall = var.network_interface_firewall }] : []
   )
 
   ssh_keys             = var.ssh_public_key != "" ? [trimspace(var.ssh_public_key)] : []
@@ -37,6 +38,7 @@ resource "proxmox_virtual_environment_container" "this" {
   node_name   = var.node_name
   vm_id       = var.vm_id
   description = "Managed through the bpg/proxmox Terraform provider"
+  protection  = var.protection
 
   unprivileged = true
 
@@ -83,9 +85,10 @@ resource "proxmox_virtual_environment_container" "this" {
   dynamic "network_interface" {
     for_each = local.network_interfaces
     content {
-      name   = network_interface.value.name
-      bridge = network_interface.value.bridge
-      mtu    = lookup(network_interface.value, "mtu", null)
+      name     = network_interface.value.name
+      bridge   = network_interface.value.bridge
+      mtu      = lookup(network_interface.value, "mtu", null)
+      firewall = lookup(network_interface.value, "firewall", null)
     }
   }
 
@@ -113,9 +116,11 @@ resource "proxmox_virtual_environment_container" "this" {
   started = var.start
 
   lifecycle {
-    ignore_changes = [
-      initialization[0].user_account,
-      operating_system,
-    ]
+    # operating_system: このブロックで template_file_id と type を宣言しているが、Proxmox は
+    # クローン後に内部識別用の追加属性を補って返すため、宣言していない部分の不一致が毎回差分として現れる。
+    # features/console: このモジュールはいずれも宣言しないが、Proxmox API はクローン元や実機の
+    # 実効値を computed 属性として返すため、宣言なし=null との差分が常に出る。features の変更は
+    # root@pam 権限を要求し (実測: HTTP 403)、現在の API トークンでは適用できない。
+    ignore_changes = [operating_system, features, console]
   }
 }
