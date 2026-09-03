@@ -127,3 +127,64 @@ plan は 3 added / 0 changed / 0 destroyed のみで、apply も同一の3件の
   ブリッジゲートウェイ) からの接続も記録していた (メッセージは cancel され未達)。この接続が
   同サービスの何らかの経路によるものか、無関係の事象がたまたま同時刻に発生したものかは
   特定していない。実害はない (対応するメッセージは配送されていない) ため深追いしなかった。
+
+## タスク 7.3: 外部への到達性の確認
+
+タスク 7.1 で得た結果 (2026-09-02 時点) を流用せず、本タスクで新たに使い捨てアカウントを作成し、
+新規に外部の受信ドメインへ送信して、受信側が実際に報告する検証結果を確認した。
+
+### 手順
+
+Kanidm に使い捨て人物アカウント `mail73verify` (`mail=mail73verify@fickledev.com`、
+`mail_users` 所属) を作成し、本人セッションでアプリケーションパスワードを自己発行した上で、
+production の submission (587、STARTTLS、`mail.fickledev.com`) へ認証済みで接続し、
+[mail-tester.com](https://www.mail-tester.com/) が新たに発行した一意の宛先
+(`test-2ozq6nmwi@srv1.mail-tester.com`) へテストメールを送信した。件名を
+`task 7.3 SPF/DKIM/DMARC verification` とし、受信側の結果画面の件名表示と突き合わせることで、
+タスク 7.1 の結果の使い回しでないことを確認できるようにした。
+
+### 結果 (受信側 mail-tester.com が報告した検証結果)
+
+スコア 9.5/10、"Wow! Perfect, you can send"。結果ページ: `https://mail-tester.com/test-2ozq6nmwi`
+
+- **送信者方針 (SPF)**: `pass` — `Your server 163.44.119.79 is authorized to use
+  mail73verify@fickledev.com`。`Received-SPF: pass ... identity=mailfrom;
+  envelope-from="mail73verify@fickledev.com"; helo=mail.fickledev.com; client-ip=163.44.119.79`
+- **署名 (DKIM)**: 有効な署名。`d=fickledev.com`, `s=mail`, `a=rsa-sha256`, 2048bit 鍵。
+  `dkim=pass (2048-bit key; unprotected) header.d=fickledev.com header.i=@fickledev.com
+  header.a=rsa-sha256 header.s=mail`
+- **両者に基づく方針 (DMARC)**: `pass` — `dmarc=pass (p=none dis=none)
+  header.from=fickledev.com`。`p=none` (監視のみ) だが、評価結果自体は `pass`。
+- **アライメント**: 受信側が示した `From Domain: fickledev.com` / `DKIM Domain: fickledev.com`
+  が一致 (DKIM アライメント成立)。SPF の envelope-from
+  (`mail73verify@fickledev.com`、ドメイン部 `fickledev.com`) も `From` ヘッダのドメイン
+  (`fickledev.com`) と一致 (SPF アライメント成立)。両者とも `From` ヘッダのドメインと揃っており、
+  DMARC の pass はアライメントの成立によるものであることを送信側の情報からも確認した。
+- 逆引き: `163.44.119.79` → `mail.fickledev.com` (HELO と一致、タスク 7.2 の記録と整合)。
+
+**判定: 送信者方針・署名・両者に基づく方針の 3 つすべてが `pass`。アライメントも成立。合格。**
+
+### 手段の独立性について
+
+運用者からの指摘を受け、当初検討していた実プロバイダのメールボックス (Gmail 等) への送信や
+`check-auth@verifier.port25.com` 等の自動応答型サービスの追加取得は行わなかった。要件が求めるのは
+「外部の受信ドメインに対して送信し、受信側が報告する検証結果を確認する」ことであり、
+`mail-tester.com` はこれを文字どおり満たす外部の受信ドメインである。タスク 7.1 との違いは、
+タスク 7.1 の結果を流用せず、本タスクで新規に使い捨てアカウント (`mail73verify`) を作成し、
+新たに払い出された宛先へ改めて送信し、受信側から新規に得た報告を確認した点にある。
+
+### 後始末
+
+検証後、`mail73verify` を `mail_users` グループから除外し (`DELETE .../_attr/member`、
+指定値のみの削除)、`DELETE /v1/person/mail73verify` で削除した (削除後の `GET` が `null` を
+返すことを確認)。除外直後の `mail_users` メンバー一覧は `null` (空) であり、本タスク着手前の
+状態と一致する。`terraform-kanidm` の `infisical run --env=prod -- terraform plan
+-detailed-exitcode` は **"No changes."** であった。ローカルに一時生成したパスワード・TOTP
+シークレット・アプリケーションパスワード・SMTP デバッグログ (AUTH PLAIN の base64 に資格情報が
+含まれるため) は `shred -u` で削除した。
+
+### 完了可否
+
+**完了。** 定義の存在ではなく、mail-tester.com という外部の受信ドメインが実際に報告した検証結果
+(SPF/DKIM/DMARC すべて `pass`、アライメント成立) によって確認した。タスク 7.1 の結果の流用ではなく、
+本タスクで新規に取得した結果である。DNS レコードやロールの定義の変更は不要だった (是正は発生せず)。
