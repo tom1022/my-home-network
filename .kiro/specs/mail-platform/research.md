@@ -1778,3 +1778,52 @@ fail2ban/ClamAVを段階的に有効化する目的で `ansible-playbook -e mail
 - タイマーの`NEXT`表示がジッターした厳密な原因 (`RandomizedDelaySec`を`FixedRandomDelay`なしで使った場合の再計算タイミングの仕様上の正確な条件) はsystemdのドキュメントで裏を取っていない。実測上、`LAST`/`PASSED`が不変であることから定期実行の実害はないと判断したが、内部的にいつ・なぜ再計算されたかまでは特定していない。
 - IMAPログインによる空Maildirの自動生成が、具体的にどのDovecot設定 (userdb staticのどの挙動) に起因するかはDovecotのソース/ドキュメントまでは追っていない (実機観測のみ)。
 - PV全体を失った場合の復元手順 (runbook 1.3) は、実機での喪失シミュレーションは行っていない (1名分の復元のみ実地検証し、全体復元は1名分の手順の単純な繰り返しとして手順書に記述するに留めた)。
+
+## タスク10.1: 冪等性の確認 (2026-09-04)
+
+### 対象
+
+- Ansibleロール: `mailserver` (`playbooks/mailserver.yml`, host `vps`)、`mail_backup` (`playbooks/mail_backup.yml`, host `k3s-agent-minipc`/`pbs`)、`vps_proxy` (`playbooks/vps.yml`, host `vps`)。`vps_proxy`は本specがメール中継の定義とネットワークフィルタの許可ポートを追加している (design.md Modified Files) ため、対象に含めた。
+- 認証基盤: `terraform-kanidm` ワークスペース `kanidm-identity` の `mail.tf` (`kanidm_group.mail_users`、`kanidm_account_policy.mail_users`、`kanidm_application.mail`、`kanidm_service_account.mail_ldap_search`、`kanidm_group_members.idm_mail_servers`)。
+- k3s: `gitops-apps` `apps/mailbox/` (ArgoCD Application `mailbox`)。
+
+### 結果 (1回目・2回目とも `changed` 件数)
+
+| 対象 | host | 1回目 changed | 2回目 changed |
+|---|---|---|---|
+| mailserver | vps | 0/13 | 0/13 |
+| vps_proxy | vps | 0/53 | 0/53 |
+| mail_backup | k3s-agent-minipc | 0/8 (skipped 8) | 0/8 (skipped 8) |
+| mail_backup | pbs | 0/13 (skipped 3) | 0/13 (skipped 3) |
+
+いずれも1回目の時点で既に `changed=0` であり (定常状態からの開始)、2回連続適用でも変化なしを確認した。是正は不要だった。`mailserver`はタスク6.5でDKIM鍵ディレクトリの冪等性を是正済みだが、その後タスク7.1でDKIM公開鍵のDNSレコードが追加されている (`mail.tf`/`cloudflare_dns.tf`側であり`mailserver`ロール自体は変更されていない) ため改めて確認し、引き続き冪等であることを確認した。`mail_backup`もタスク8.1での確認以降 (8.2の復元検証で世代数上限の一時変更や抽出スクリプトの一時退避を行っているが、いずれも確認後に既定値へ戻し済み) 変わらず冪等であることを再確認した。
+
+是正箇所: なし。例外として扱った箇所: なし。
+
+### `terraform-kanidm` (ワークスペース `kanidm-identity`)
+
+`infisical run --env=prod -- terraform plan -detailed-exitcode` の結果は **"No changes. Your infrastructure matches the configuration."** (exit code 0)。`kanidm_group.mail_users`、`kanidm_service_account.mail_ldap_search`、`kanidm_account_policy.mail_users`、`kanidm_application.mail`、`kanidm_group_members.idm_mail_servers` を含む全リソースがrefresh後も差分なし。applyは不要だった。
+
+### `terraform/` (ワークスペース `my-home-network`, planのみ・applyせず)
+
+`infisical run --env=prod -- terraform plan -detailed-exitcode` は差分ありの終了コードを返したが、内容は `module.virtual_machines["k3s-agent-z440"].proxmox_virtual_environment_vm.this` の `disk.backup = false -> true` のみであり、mail-platformの対象外として既知の (`iac-hygiene-remediation`由来の) ドリフトと一致した。他にmail-platform関連の差分は現れなかった。既知の対象外ドリフトとして扱い、applyしていない。
+
+### k3s側マニフェスト (`gitops-apps/apps/mailbox/`)
+
+ローカル`gitops-apps`は`main`ブランチ、`git fetch origin main`後も`origin/main`と同一コミット (`8bf32ee`) で作業ツリーもclean であることを確認した上で、`kubectl get application -n argocd`で`mailbox`が`SYNC STATUS: Synced` / `HEALTH STATUS: Healthy`であることを確認した。ArgoCDの`Synced`は定義どおり「liveマニフェストとgit上の定義に差分がない」ことを継続的に評価した結果であり、追加でmanifestを再適用しなくても、この時点で観測された`Synced`はそれ自体が「現在の宣言を再適用しても変更が生じない」ことの直接的な証拠になる (ArgoCDの同期エンジン自体がserver-side diffによる冪等性検査を常時行っているため)。これをもって冪対性ありと判断した。
+
+### メール配送の健全性確認
+
+一連の適用の前後で`docker compose ps` (vps, `ansible`アドホック経由) を確認し、`mailserver`コンテナが`Up 2 hours (healthy)`のまま (今回の一連の適用でrecreateが発生していないことと整合) であることを確認した。`kubectl get pods -n mailbox`でも`dovecot-...`が`Running`・`RESTARTS 0`のまま推移しており、配送・格納側とも今回の確認作業による中断は発生していない。
+
+### 完了可否
+
+**完了。** 対象とした全ロール・Terraformワークスペース・k3sマニフェストについて、2回連続適用 (またはplanの差分なし、ArgoCDのSynced) による冪等性を確認し、是正が必要な箇所は見つからなかった。
+
+### 想定外の事象
+
+- `ansible-playbook`の初回実行 (mailserver 2回目) がツール側のタイムアウトで打ち切られる事象があった (`exit 137`)。ホスト側やロール側の問題ではなく、実行環境のコマンドタイムアウトによるものと判断し、タイムアウトを設けずに再実行して完走を確認した。
+
+### 裏が取れなかった点
+
+- 各対象は確認開始時点で既に定常状態 (1回目から`changed=0`) だったため、「変更が生じた状態から2回適用して2回目に収束する」という経路そのものは今回観測していない (収束後の安定性のみを確認した)。
