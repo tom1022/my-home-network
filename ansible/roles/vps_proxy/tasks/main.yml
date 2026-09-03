@@ -1,3 +1,4 @@
+---
 - name: Ensure become password is provided for privileged tasks
   ansible.builtin.assert:
     that:
@@ -34,89 +35,21 @@
     that:
       - vps_proxy_domain_main | length > 0
       - vps_proxy_domain_www | length > 0
-      - vps_proxy_domain_mail | length > 0
-      - vps_proxy_upstream_main | length > 0
-      - vps_proxy_upstream_blog | length > 0
-      - vps_proxy_upstream_mail | length > 0
-    fail_msg: Required domain and upstream variables for vps_proxy are missing.
+    fail_msg: Required domain variables for vps_proxy are missing.
+
+- name: Ensure ACME DNS-01 credentials variable is provided
+  ansible.builtin.assert:
+    that:
+      - vps_proxy_acme_cloudflare_api_token | length > 0
+    fail_msg: >-
+      vps_proxy_acme_cloudflare_api_token is required to obtain/renew the ACME
+      certificate (Infisical: CLOUDFLARE_DNS01_API_TOKEN).
 
 - name: Ensure required packages are installed
   ansible.builtin.apt:
     name: "{{ vps_proxy_required_packages }}"
     state: present
     update_cache: true
-
-- name: Ensure required TCP ports are allowed in UFW
-  community.general.ufw:
-    rule: allow
-    port: "{{ item }}"
-    proto: tcp
-  loop: "{{ vps_proxy_ufw_allow_tcp_ports }}"
-  when: vps_proxy_manage_ufw | bool
-
-- name: Check whether docker command exists
-  ansible.builtin.command:
-    argv:
-      - command
-      - -v
-      - docker
-  register: vps_proxy_docker_command_check
-  changed_when: false
-  failed_when: false
-
-- name: Check whether legacy nginx container exists
-  ansible.builtin.command:
-    argv:
-      - docker
-      - container
-      - inspect
-      - "{{ vps_proxy_legacy_nginx_container_name }}"
-  register: vps_proxy_legacy_nginx_inspect
-  changed_when: false
-  failed_when: false
-  when: vps_proxy_docker_command_check.rc == 0
-
-- name: Check whether legacy haproxy container exists
-  ansible.builtin.command:
-    argv:
-      - docker
-      - container
-      - inspect
-      - "{{ vps_proxy_legacy_haproxy_container_name }}"
-  register: vps_proxy_legacy_haproxy_inspect
-  changed_when: false
-  failed_when: false
-  when: vps_proxy_docker_command_check.rc == 0
-
-- name: Stop and remove legacy nginx container
-  ansible.builtin.command:
-    argv:
-      - docker
-      - container
-      - rm
-      - --force
-      - "{{ vps_proxy_legacy_nginx_container_name }}"
-  register: vps_proxy_legacy_nginx_remove
-  changed_when: vps_proxy_legacy_nginx_remove.rc == 0
-  failed_when: vps_proxy_legacy_nginx_remove.rc != 0
-  when:
-    - vps_proxy_docker_command_check.rc == 0
-    - vps_proxy_legacy_nginx_inspect.rc == 0
-
-- name: Stop and remove legacy haproxy container
-  ansible.builtin.command:
-    argv:
-      - docker
-      - container
-      - rm
-      - --force
-      - "{{ vps_proxy_legacy_haproxy_container_name }}"
-  register: vps_proxy_legacy_haproxy_remove
-  changed_when: vps_proxy_legacy_haproxy_remove.rc == 0
-  failed_when: vps_proxy_legacy_haproxy_remove.rc != 0
-  when:
-    - vps_proxy_docker_command_check.rc == 0
-    - vps_proxy_legacy_haproxy_inspect.rc == 0
 
 - name: Ensure VPS proxy directories exist
   ansible.builtin.file:
@@ -128,51 +61,197 @@
   loop:
     - path: "{{ vps_proxy_nginx_conf_d_dir }}"
       mode: '0755'
-    - path: "{{ vps_proxy_haproxy_certs_dir }}"
-      mode: '0700'
 
-- name: Ensure Let's Encrypt fullchain exists
+- name: Ensure Cloudflare DNS-01 credentials file is present
+  ansible.builtin.copy:
+    content: "dns_cloudflare_api_token = {{ vps_proxy_acme_cloudflare_api_token }}\n"
+    dest: "{{ vps_proxy_acme_cloudflare_credentials_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Ensure certbot and the Cloudflare DNS plugin are installed
+  ansible.builtin.pip:
+    name:
+      - certbot
+      - certbot-dns-cloudflare
+    virtualenv: "{{ vps_proxy_certbot_venv }}"
+    virtualenv_command: python3 -m venv
+    state: present
+
+- name: Ensure certbot binary is on PATH
+  ansible.builtin.file:
+    src: "{{ vps_proxy_certbot_bin }}"
+    dest: /usr/bin/certbot
+    state: link
+    force: true
+
+- name: Check for an existing ACME certificate before the renewal decision
   ansible.builtin.stat:
-    path: "{{ vps_proxy_letsencrypt_live_dir }}/fullchain.pem"
+    path: "{{ vps_proxy_acme_live_dir }}/fullchain.pem"
+  register: vps_proxy_acme_precheck_cert_stat
+
+# x509_certificate_info fails if the target file is missing, so it only runs
+# once a live certificate is confirmed to exist (first-run issuance skips
+# straight to vps_proxy_acme_renewal_required = true below).
+- name: Read ACME certificate expiry metadata
+  community.crypto.x509_certificate_info:
+    path: "{{ vps_proxy_acme_live_dir }}/fullchain.pem"
+    valid_at:
+      renewal_due: "+{{ vps_proxy_acme_renewal_threshold_days }}d"
+  register: vps_proxy_acme_cert_info
+  when: vps_proxy_acme_precheck_cert_stat.stat.exists
+  failed_when: false
+
+# valid_at.renewal_due is true when the certificate is still valid at
+# now+threshold (no renewal needed yet); replaces hand-computed epoch/day-diff
+# arithmetic over `date`/`openssl x509 -enddate` output. `or` short-circuits,
+# so vps_proxy_acme_cert_info is never dereferenced on first run (file absent).
+# An unreadable/truncated fullchain.pem makes x509_certificate_info fail, which
+# would otherwise abort the play and leave renewal permanently blocked until
+# someone intervenes by hand; treating that as "renewal required" hands the
+# situation to certbot, which can reissue over a corrupt file.
+- name: Decide whether ACME certificate issuance/renewal is required
+  ansible.builtin.set_fact:
+    vps_proxy_acme_renewal_required: >-
+      {{ (not vps_proxy_acme_precheck_cert_stat.stat.exists)
+         or (vps_proxy_acme_cert_info.failed | default(false))
+         or (not vps_proxy_acme_cert_info.valid_at.renewal_due) }}
+
+# certonly without --force-renewal is idempotent (rc 0, "not yet due for
+# renewal") even if invoked anyway, but gating on the decision above avoids a
+# pointless certbot invocation every run and makes the renewal/no-renewal
+# branch visible to Ansible (--check --diff) instead of hidden inside certbot.
+- name: Ensure ACME certificate for the edge host is obtained
+  ansible.builtin.command:
+    argv:
+      - "{{ vps_proxy_certbot_bin }}"
+      - certonly
+      - --cert-name
+      - "{{ vps_proxy_acme_cert_name }}"
+      - --dns-cloudflare
+      - --dns-cloudflare-credentials
+      - "{{ vps_proxy_acme_cloudflare_credentials_path }}"
+      - --dns-cloudflare-propagation-seconds
+      - "{{ vps_proxy_acme_propagation_seconds | string }}"
+      - -d
+      - "{{ vps_proxy_domain_main }}"
+      - -d
+      - "*.{{ vps_proxy_domain_main }}"
+      - --non-interactive
+      - --agree-tos
+      - --deploy-hook
+      - "systemctl reload {{ vps_proxy_nginx_service_name }}"
+  register: vps_proxy_acme_issue_result
+  changed_when: "'successfully received certificate' in (vps_proxy_acme_issue_result.stdout | lower)"
+  failed_when: vps_proxy_acme_issue_result.rc != 0
+  when: vps_proxy_acme_renewal_required | bool
+
+- name: Deploy certbot renew systemd service
+  ansible.builtin.template:
+    src: certbot-renew.service.j2
+    dest: /etc/systemd/system/certbot-renew.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Deploy certbot renew systemd timer
+  ansible.builtin.template:
+    src: certbot-renew.timer.j2
+    dest: /etc/systemd/system/certbot-renew.timer
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure certbot renew timer is enabled and started
+  ansible.builtin.systemd:
+    name: certbot-renew.timer
+    daemon_reload: true
+    enabled: true
+    state: started
+
+# --- mydns.jp DDNS updater and DirectEdit DNS-01 hook (tochiweb.mydns.jp) ---
+#
+# Pre-existing on the host as an unmanaged root/trvlr crontab entry with the
+# credential embedded in the DirectEdit config file (and, for the DDNS
+# updater, directly on the crontab command line). Brought under configuration
+# management here; the raw unmarked crontab lines were removed by hand before
+# this role first ran this block, so ansible.builtin.cron owns the entries
+# from here on (no duplicate-line risk on repeat runs).
+- name: Ensure mydns.jp credentials are provided
+  ansible.builtin.assert:
+    that:
+      - vps_proxy_mydns_master_id | length > 0
+      - vps_proxy_mydns_master_password | length > 0
+    fail_msg: >-
+      vps_proxy_mydns_master_id/vps_proxy_mydns_master_password are required
+      for the tochiweb.mydns.jp DDNS updater and DNS-01 hook
+      (Infisical: MYDNS_MASTER_ID, MYDNS_MASTER_PASSWORD).
+
+- name: Ensure DirectEdit config (DNS-01 hook credentials) is present
+  ansible.builtin.template:
+    src: mydns-txtedit.conf.j2
+    dest: "{{ vps_proxy_mydns_directedit_dir }}/txtedit.conf"
+    owner: "{{ vps_proxy_mydns_directedit_user }}"
+    group: "{{ vps_proxy_mydns_directedit_user }}"
+    mode: '0600'
+  no_log: true
+
+- name: Ensure tochiweb.mydns.jp certificate renewal cron job is present
+  ansible.builtin.cron:
+    name: mydns tochiweb.mydns.jp certificate renewal (DirectEdit DNS-01)
+    user: root
+    minute: '30'
+    hour: '3'
+    day: '1'
+    job: >-
+      certbot renew --manual --deploy-hook "/opt/certbot/certbot-renew-hook.sh"
+
+- name: Ensure mydns.jp DDNS updater netrc credentials file is present
+  ansible.builtin.template:
+    src: mydns-netrc.j2
+    dest: "{{ vps_proxy_mydns_ddns_netrc_path }}"
+    owner: "{{ vps_proxy_mydns_ddns_user }}"
+    group: "{{ vps_proxy_mydns_ddns_user }}"
+    mode: '0600'
+  no_log: true
+
+# --netrc-file keeps the credential out of the crontab job string and the
+# process list (a bare `curl -u user:pass` is visible to any local user via
+# `ps` while the request runs; the previous unmanaged crontab did exactly
+# that).
+- name: Ensure mydns.jp DDNS updater cron jobs are present
+  ansible.builtin.cron:
+    name: "mydns.jp DDNS update ({{ item }})"
+    user: "{{ vps_proxy_mydns_ddns_user }}"
+    minute: "*/5"
+    job: >-
+      curl {{ item }}
+      --netrc-file {{ vps_proxy_mydns_ddns_netrc_path }}
+      https://www.mydns.jp/login.html
+  loop:
+    - -4
+    - -6
+
+- name: Ensure ACME fullchain exists
+  ansible.builtin.stat:
+    path: "{{ vps_proxy_acme_live_dir }}/fullchain.pem"
   register: vps_proxy_fullchain_stat
 
-- name: Ensure Let's Encrypt private key exists
+- name: Ensure ACME private key exists
   ansible.builtin.stat:
-    path: "{{ vps_proxy_letsencrypt_live_dir }}/privkey.pem"
+    path: "{{ vps_proxy_acme_live_dir }}/privkey.pem"
   register: vps_proxy_privkey_stat
 
-- name: Ensure required Let's Encrypt files are present
+- name: Ensure required ACME certificate files are present
   ansible.builtin.assert:
     that:
       - vps_proxy_fullchain_stat.stat.exists
       - vps_proxy_privkey_stat.stat.exists
     fail_msg: >-
-      Required certificate files are missing under {{ vps_proxy_letsencrypt_live_dir }}.
-      Obtain or renew certificates before running vps_proxy role.
-
-- name: Read Let's Encrypt fullchain
-  ansible.builtin.slurp:
-    src: "{{ vps_proxy_letsencrypt_live_dir }}/fullchain.pem"
-  register: vps_proxy_fullchain_content
-  no_log: true
-
-- name: Read Let's Encrypt private key
-  ansible.builtin.slurp:
-    src: "{{ vps_proxy_letsencrypt_live_dir }}/privkey.pem"
-  register: vps_proxy_privkey_content
-  no_log: true
-
-- name: Ensure haproxy PEM bundle is present
-  ansible.builtin.copy:
-    content: |-
-      {{ vps_proxy_fullchain_content.content | b64decode }}
-      {{ vps_proxy_privkey_content.content | b64decode }}
-    dest: "{{ vps_proxy_haproxy_pem_dest }}"
-    owner: root
-    group: root
-    mode: '0600'
-  no_log: true
-  notify: Restart haproxy service
+      Required certificate files are missing under {{ vps_proxy_acme_live_dir }}.
+      The ACME issuance task above should have created them.
 
 - name: Ensure nginx main config is deployed
   ansible.builtin.template:
@@ -232,41 +311,180 @@
 - name: Flush handlers to apply config changes immediately
   ansible.builtin.meta: flush_handlers
 
-- name: Ensure IPv4 packet forwarding is enabled
-  ansible.builtin.sysctl:
+# vps_proxy_filter_allow_udp_ports (below) allows 41641 through the host
+# firewall on the assumption tailscaled is actually listening there; this
+# keeps that assumption true regardless of what the tailscaled package's own
+# default ships.
+- name: Ensure tailscaled listens on the port the firewall allow-list expects
+  ansible.builtin.template:
+    src: tailscaled-default.j2
+    dest: /etc/default/tailscaled
+    owner: root
+    group: root
+    mode: '0444'
+  notify:
+    - Restart tailscaled service
+    - Wait for tailnet SSH to come back after tailscaled restart
+
+- name: Flush handlers to reconnect over the tailnet before continuing
+  ansible.builtin.meta: flush_handlers
+
+# nginx/haproxy terminate and re-originate every connection in userspace
+# (SNI/TCP passthrough is an application-layer proxy, not kernel routing), so
+# neither has any use for IP forwarding. This was disabled here on that basis
+# (xrayvpn's VPN egress was the one thing on this host that ever needed it,
+# see the *nat comment in iptables_rules.v4.j2, and it is suspended:
+# vps_proxy_xray_sni: []). That assumption no longer holds: the mailserver
+# role (task 6.1) added a docker-mailserver container on this same host, and
+# any docker container's egress beyond the host (its DNS queries, its LDAPS
+# connection to the mailbox backend's NodePort) is routed through the
+# kernel's FORWARD chain via Docker's bridge NAT, which requires
+# net.ipv4.ip_forward=1 regardless of the removed xrayvpn *nat MASQUERADE
+# rule. Disabling it here breaks that container's network access outright
+# (confirmed on this host on 2026-09-03: with the sysctl forced back to '0'
+# by this task, the mailserver container's LDAP recipient lookups failed
+# with "Can't contact LDAP server" and its DNS resolution timed out, even
+# though the host itself could still reach both). Kept enabled unconditionally
+# rather than gated on the mailserver role being present, since dockerd
+# already forces it back to 1 on every docker.service start regardless of
+# this file's value (confirmed by reboot test on 2026-09-02), so pinning it
+# to '0' never bought lasting protection in the first place — the actual
+# protection against xrayvpn-style VPN egress was always the removed *nat
+# MASQUERADE rule, not this sysctl.
+- name: Ensure IPv4 packet forwarding is enabled (required for docker container egress, e.g. mailserver)
+  ansible.posix.sysctl:
     name: net.ipv4.ip_forward
     value: '1'
     state: present
-    reload: yes
+    reload: true
 
-- name: Set external interface fact from default route
-  ansible.builtin.set_fact:
-    vps_external_interface: "{{ ansible_default_ipv4.interface }}"
-  when: ansible_default_ipv4 is defined
-
-- name: Fail when external interface could not be detected
-  ansible.builtin.assert:
-    that:
-      - vps_external_interface is defined
-    fail_msg: |
-      外向きインターフェースが自動検出できませんでした。ansible_default_ipv4 が未設定です。
-
-- name: Ensure NAT (MASQUERADE) rule exists for external interface
+- name: Ensure iptables-persistent is installed
   ansible.builtin.apt:
     name: iptables-persistent
     state: present
-    update_cache: yes
+    update_cache: true
   environment:
     DEBIAN_FRONTEND: noninteractive
-  when: vps_external_interface is defined
 
-- name: Deploy iptables persistent rules file
+- name: Deploy iptables persistent rules file (IPv4)
   ansible.builtin.template:
     src: iptables_rules.v4.j2
     dest: /etc/iptables/rules.v4
     owner: root
     group: root
     mode: '0644'
-  when: vps_external_interface is defined
   notify: Restart netfilter-persistent
 
+# This host has a public IPv6 address (eth0 inet6, ConoHa-assigned /64);
+# sshd and nginx/haproxy all listen on both families. rules.v4 alone leaves
+# every port reachable unfiltered over IPv6, so the same allow-list has to
+# be mirrored here rather than assuming IPv4-only coverage is enough.
+- name: Deploy iptables persistent rules file (IPv6)
+  ansible.builtin.template:
+    src: iptables_rules.v6.j2
+    dest: /etc/iptables/rules.v6
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart netfilter-persistent
+
+- name: Ensure netfilter-persistent service is enabled and started
+  ansible.builtin.systemd:
+    name: netfilter-persistent
+    enabled: true
+    state: started
+
+- name: Ensure static DNS overrides are present in /etc/hosts (Tailscale DNS rebinding protection workaround)
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE MANAGED BLOCK (vps_proxy_static_dns_overrides)"
+    block: |
+      {% for entry in vps_proxy_static_dns_overrides %}
+      {% for ip in entry.ips %}
+      {{ ip }} {{ entry.name }}
+      {% endfor %}
+      {% endfor %}
+  when: vps_proxy_static_dns_overrides | length > 0
+
+# --- エッジホストの衛生 (EdgeHostAlignment, 要件 16.7-16.10) ---
+
+- name: Gather installed package facts for edge host hygiene checks
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Ensure node_exporter binds only to non-public addresses
+  ansible.builtin.template:
+    src: prometheus-node-exporter-default.j2
+    dest: /etc/default/prometheus-node-exporter
+    owner: root
+    group: root
+    mode: '0644'
+  when: "'prometheus-node-exporter' in ansible_facts.packages"
+  notify: Restart node exporter service
+
+- name: Ensure systemd-timesyncd replaces ntpsec/ntp as the time-sync client
+  ansible.builtin.apt:
+    name: systemd-timesyncd
+    state: present
+    update_cache: true
+
+- name: Ensure systemd-timesyncd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/timesyncd.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure systemd-timesyncd NTP server list is declared
+  ansible.builtin.template:
+    src: timesyncd-vps-proxy.conf.j2
+    dest: /etc/systemd/timesyncd.conf.d/90-vps-proxy.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart systemd-timesyncd
+
+- name: Ensure systemd-timesyncd service is enabled and started
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    enabled: true
+    state: started
+
+- name: Ensure journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure journald storage has a declared upper bound
+  ansible.builtin.template:
+    src: journald-vps-proxy.conf.j2
+    dest: /etc/systemd/journald.conf.d/90-vps-proxy.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart systemd-journald
+
+- name: Flush handlers so hygiene changes apply before service state checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure virtualization-irrelevant and permanently-failing units are stopped and masked
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    masked: true
+  loop: "{{ vps_proxy_irrelevant_units }}"
+
+# --- fail2ban: tailnet 経由の SSH を sshd jail の対象から除外する ---
+
+- name: Ensure fail2ban sshd jail ignoreip drop-in is deployed (tailnet exclusion)
+  ansible.builtin.template:
+    src: fail2ban-sshd-ignoreip.conf.j2
+    dest: /etc/fail2ban/jail.d/90-vps-proxy-sshd-ignoreip.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload fail2ban

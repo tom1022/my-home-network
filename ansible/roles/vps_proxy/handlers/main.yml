@@ -1,3 +1,4 @@
+---
 - name: Reload nginx
   ansible.builtin.service:
     name: "{{ vps_proxy_nginx_service_name }}"
@@ -18,3 +19,41 @@
   ansible.builtin.systemd:
     name: netfilter-persistent
     state: restarted
+
+# Restarting tailscaled tears down and rebuilds tailscale0, which cuts the
+# SSH connection this very task runs over (management access to this host is
+# tailnet-only). async+poll:0 lets the restart be submitted before the
+# connection drops instead of waiting on a response that will never arrive.
+- name: Restart tailscaled service
+  ansible.builtin.systemd:
+    name: tailscaled
+    state: restarted
+  async: 30
+  poll: 0
+
+- name: Wait for tailnet SSH to come back after tailscaled restart
+  ansible.builtin.wait_for_connection:
+    delay: 5
+    timeout: 90
+
+- name: Restart node exporter service
+  ansible.builtin.systemd:
+    name: prometheus-node-exporter
+    state: restarted
+
+- name: Restart systemd-journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+
+- name: Restart systemd-timesyncd
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    state: restarted
+
+# reload (SIGHUP) picks up jail.d changes without dropping the process or
+# clearing currently-tracked ban state, unlike a restart.
+- name: Reload fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: reloaded

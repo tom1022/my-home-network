@@ -26,35 +26,6 @@ frontend ft_tls
     {% endif %}
     default_backend bk_web
 
-{% set _default_listen = {'smtp':25, 'submission':587, 'smtps':465, 'imap':143, 'imaps':993, 'sieve':4190} %}
-{% set _listen_map = vps_proxy_mail_listen_ports | default(_default_listen) %}
-{% set _proxy_opt = ' send-proxy-v2' if (vps_proxy_send_proxy | default(false)) else '' %}
-
-{% if vps_proxy_k3s_nodeports is defined and vps_proxy_k3s_nodeports | length > 0 %}
-{% for svc, nodeport in vps_proxy_k3s_nodeports.items() %}
-frontend ft_{{ svc }}
-    bind *:{{ _listen_map[svc] | default(nodeport) }}
-    mode tcp
-    default_backend bk_k3s_{{ svc }}
-{% endfor %}
-
-{% for svc, nodeport in vps_proxy_k3s_nodeports.items() %}
-backend bk_k3s_{{ svc }}
-    mode tcp
-    balance roundrobin
-{% if groups['k3s'] is defined and groups['k3s'] | length > 0 %}
-{% for h in groups['k3s'] %}
-{% set _ip = hostvars[h].ansible_host | default(hostvars[h].inventory_hostname) %}
-    server {{ svc }}_{{ loop.index }} {{ _ip }}:{{ nodeport }} check inter 10s{{ _proxy_opt }}
-{% endfor %}
-{% elif k3s_internal_ips is defined and k3s_internal_ips | length > 0 %}
-{% for ip in k3s_internal_ips.values() %}
-    server {{ svc }}_{{ loop.index }} {{ ip }}:{{ nodeport }} check inter 10s{{ _proxy_opt }}
-{% endfor %}
-{% endif %}
-{% endfor %}
-{% endif %}
-
 # XRay backend (TCP passthrough to k3s nodes)
 backend bk_xray
     mode tcp
@@ -63,10 +34,6 @@ backend bk_xray
 {% for h in groups['k3s'] %}
 {% set _ip = hostvars[h].ansible_host | default(hostvars[h].inventory_hostname) %}
     server xray_{{ loop.index }} {{ _ip }}:{{ vps_proxy_backend_port | default(32080) }} check inter 10s
-{% endfor %}
-{% elif k3s_internal_ips is defined and k3s_internal_ips | length > 0 %}
-{% for ip in k3s_internal_ips.values() %}
-    server xray_{{ loop.index }} {{ ip }}:{{ vps_proxy_backend_port | default(32080) }} check inter 10s
 {% endfor %}
 {% endif %}
 

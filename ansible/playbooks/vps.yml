@@ -3,7 +3,7 @@
   import_playbook: refresh_known_hosts.yml
 
 - name: Configure VPS reverse proxy host
-  hosts: vps
+  hosts: vps_proxy
   become: true
   roles:
     - vps_proxy

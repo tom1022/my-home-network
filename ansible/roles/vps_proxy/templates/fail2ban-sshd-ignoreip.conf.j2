@@ -1,0 +1,3 @@
+{{ ansible_managed | comment }}
+[sshd]
+ignoreip = {{ vps_proxy_fail2ban_sshd_ignoreip | join(' ') }}

@@ -46,23 +46,17 @@ stream {
 
     # Upstream blocks
     {% for u in vps_proxy_tcp_upstreams %}
-    {# Render upstream only if members present or k3s_internal_ips available #}
+    {# Render upstream only if members are present #}
     {% set members_defined = (u.members is defined and u.members | length > 0) %}
-    {% if members_defined or (k3s_internal_ips is defined and k3s_internal_ips | length > 0) %}
+    {% if members_defined %}
     upstream {{ u.name }} {
         least_conn;
-        {% if members_defined %}
-            {% for m in u.members %}
+        {% for m in u.members %}
         server {{ m.host }}:{{ m.port }} max_fails=3 fail_timeout=10s;
-            {% endfor %}
-        {% else %}
-            {% for ip in k3s_internal_ips.values() %}
-        server {{ ip }}:{{ vps_proxy_backend_port | default(32080) }} max_fails=3 fail_timeout=10s;
-            {% endfor %}
-        {% endif %}
+        {% endfor %}
     }
     {% else %}
-    # Skipping upstream {{ u.name }} because no members and no k3s_internal_ips available
+    # Skipping upstream {{ u.name }} because no members are defined
     {% endif %}
     {% endfor %}
 

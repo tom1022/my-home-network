@@ -1,0 +1,2 @@
+# Set the command-line arguments to pass to the server.
+ARGS="{% for addr in vps_proxy_node_exporter_listen_addresses %}--web.listen-address={{ addr }}{% if not loop.last %} {% endif %}{% endfor %}"

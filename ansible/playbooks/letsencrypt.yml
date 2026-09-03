@@ -1,6 +1,0 @@
----
-- name: Ensure certificates on NAS and distribute to VPS
-  hosts: "{{ letsencrypt_source_host | default('nas') }}"
-  become: true
-  roles:
-    - letsencrypt

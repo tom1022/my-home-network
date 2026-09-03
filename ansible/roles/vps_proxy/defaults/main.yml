@@ -1,7 +1,5 @@
 ---
 # Defaults for vps_proxy role: configure TCP passthrough upstreams/listeners
-# Build `tcp_upstreams` from `k3s_internal_ips` (group_vars/k3s/main.yml)
-# Each member will use port 32080 as requested.
 
 ## TCP upstreams for passthrough services
 ## - This role supports multiple TCP upstreams; the following entry
@@ -14,49 +12,63 @@ vps_proxy_tcp_upstreams:
     #   members:
     #     - host: 172.16.0.10
     #       port: 32080
-    # If you need to generate this dynamically from `k3s_internal_ips`, do that
-    # in a template or playbook rather than here so this defaults file stays
-    # valid YAML for linters and editors.
     members: []
 
 vps_proxy_tcp_listeners: []
-vps_proxy_haproxy_certs_dir: /etc/haproxy/certs
 
 # Default backend port for generated upstreams (xray VPN uses 32080)
 vps_proxy_backend_port: 32080
 
-# SNI names that should be routed to xray VPN backend (exact match, case-insensitive)
-vps_proxy_xray_sni:
-  - appflowy.fickledev.com
+# SNI names that should be routed to xray VPN backend (exact match, case-insensitive).
+# xrayvpn is suspended: empty list removes the use_backend rule from
+# haproxy.cfg, so appflowy.fickledev.com falls through to default_backend
+# bk_web. Revival: restore the entry below and re-run the vps_proxy role.
+vps_proxy_xray_sni: []
+# - appflowy.fickledev.com
 
 vps_proxy_required_packages:
   # Use nginx package that includes the `stream` module (Debian/Ubuntu: nginx-full)
   - nginx-full
   - haproxy
 
-vps_proxy_manage_ufw: true
-vps_proxy_ufw_allow_tcp_ports:
+# --- Host firewall (single mechanism: iptables-persistent) ---
+# ufw is not used here: `apt-cache show ufw` on this host lists
+# `Breaks: iptables-persistent, netfilter-persistent`, and this role already
+# depends on the latter for /etc/iptables/rules.v4 and rules.v6 below.
+# 143 (plaintext IMAP) and 9100 (node_exporter) are deliberately excluded.
+vps_proxy_filter_allow_tcp_ports:
   - 25
   - 80
-  - 143
   - 443
   - 465
   - 587
   - 993
   - 4190
 
+vps_proxy_filter_allow_udp_ports:
+  - 19132  # Minecraft Bedrock passthrough (nginx stream)
+  # tailscaled's direct P2P WireGuard port; without this open on the public
+  # interface too, this node falls back to DERP-relayed connectivity only.
+  - 41641
+
+# tailscale0 stays allowed unconditionally (see the -i tailscale0 rule in
+# the templates) regardless of this flag. false = sshd is reachable only
+# over the tailnet; task 12.5 stage D confirmed a reboot-surviving tailnet
+# SSH path before flipping this from true, so re-flipping to true is the
+# rollback if tailnet access is ever lost.
+vps_proxy_filter_ssh_public_allowed: false
+
+# vps_proxy_filter_allow_udp_ports above only helps if tailscaled is actually
+# listening on 41641; nothing else enforces that pairing, so it is pinned
+# here rather than left to whatever port tailscaled happens to pick.
+vps_proxy_tailscaled_port: 41641
+# Passed through verbatim to tailscaled's FLAGS. Never add
+# --netfilter-mode=off here: the -i tailscale0 ACCEPT rules in the iptables
+# templates assume tailscaled keeps managing its own netfilter rules.
+vps_proxy_tailscaled_flags: ""
+
 vps_proxy_domain_main: ""
 vps_proxy_domain_www: ""
-vps_proxy_domain_mail: ""
-
-vps_proxy_upstream_main: ""
-vps_proxy_upstream_blog: ""
-vps_proxy_upstream_mail: ""
-
-vps_proxy_haproxy_check_smtp_tls_port: 5555
-vps_proxy_haproxy_check_submission_port: 5556
-vps_proxy_haproxy_check_imap_port: 5557
-vps_proxy_haproxy_check_pop3_port: 5558
 
 vps_proxy_nginx_service_name: nginx
 vps_proxy_haproxy_service_name: haproxy
@@ -65,12 +77,142 @@ vps_proxy_nginx_conf_path: /etc/nginx/nginx.conf
 vps_proxy_nginx_conf_d_dir: /etc/nginx/conf.d
 
 vps_proxy_haproxy_conf_path: /etc/haproxy/haproxy.cfg
-vps_proxy_haproxy_cert_path: /etc/haproxy/certs/haproxy.pem
 
-vps_proxy_legacy_nginx_container_name: nginx-proxy
-vps_proxy_legacy_haproxy_container_name: haproxy-proxy
+# --- Certificate supply (EdgeCertificateSupply) ---
+#
+# ACME DNS-01 (Let's Encrypt via the Cloudflare DNS challenge), issued and
+# renewed on this host. DNS-01 does not depend on HTTP reachability, so the
+# same lineage is usable regardless of whether Cloudflare proxies the
+# hostname. One wildcard lineage covers every edge-terminated hostname under
+# the zone (the `*.{{ vps_proxy_domain_main }}` catch-all vhost, and any
+# future non-proxied subdomain) — the sole certificate supply mechanism on
+# this host.
+vps_proxy_acme_cert_name: "{{ vps_proxy_domain_main }}"
+vps_proxy_acme_live_dir: "/etc/letsencrypt/live/{{ vps_proxy_acme_cert_name }}"
+vps_proxy_acme_cloudflare_credentials_path: /etc/letsencrypt/cloudflare.ini
+vps_proxy_acme_propagation_seconds: 30
+# Renewal decision threshold (community.crypto.x509_certificate_info valid_at):
+# certonly is only invoked once the live certificate would already be expired
+# this many days from now. Matches certbot's own default renewal window.
+vps_proxy_acme_renewal_threshold_days: 30
+# Left blank on purpose: this host already has a registered ACME account, and
+# certbot reuses the sole existing account without requiring a fresh email.
+vps_proxy_acme_contact_email: ""
+vps_proxy_acme_cloudflare_api_token: ""
+vps_proxy_certbot_venv: /opt/certbot
+vps_proxy_certbot_bin: "{{ vps_proxy_certbot_venv }}/bin/certbot"
+vps_proxy_acme_renew_timer_calendar: daily
 
-vps_proxy_haproxy_pem_dest: "{{ vps_proxy_haproxy_certs_dir }}/haproxy.pem"
-## Prefer letsencrypt role's `letsencrypt_live_dir` when available; fall back
-## to constructing path from `vps_proxy_domain_main` for backward compat.
-vps_proxy_letsencrypt_live_dir: "{{ letsencrypt_live_dir | default('/etc/letsencrypt/live/' ~ (vps_proxy_domain_main | default('')) ) }}"
+# --- mydns.jp master credentials (tochiweb.mydns.jp) ---
+#
+# One credential pair, used for two purposes on this host: the DirectEdit
+# DNS-01 hook (txtedit.conf, read by txtregist.php/txtdelete.php for the
+# tochiweb.mydns.jp certbot renewal) and the DDNS updater (HTTP Basic auth
+# against mydns.jp's login endpoint). Confirmed identical on the live host
+# before consolidating to a single variable pair.
+vps_proxy_mydns_domain: tochiweb.mydns.jp
+vps_proxy_mydns_master_id: ""
+vps_proxy_mydns_master_password: ""
+vps_proxy_mydns_directedit_dir: /opt/certbot/DirectEdit
+vps_proxy_mydns_directedit_user: trvlr
+vps_proxy_mydns_ddns_user: trvlr
+# curl --netrc-file: keeps the credential out of the crontab job string /
+# process list (a bare `curl -u user:pass` is readable by any local user via
+# `ps` while the request is in flight; a netrc file is not).
+vps_proxy_mydns_ddns_netrc_path: /home/trvlr/.mydns_netrc
+
+# --- LDAPS 到達性のための静的ホスト解決 (要件 26.37, task 26.13) ---
+#
+# Tailscale の DNS プロキシ (100.100.100.100 / quad100) は DNS リバインディング対策として、
+# 公開ホスト名が private (RFC1918) アドレスへ解決する応答を drop する。この VPS では
+# tailscale0 の DNS ルートがカタッチオール (systemd-resolved 上で `~.`) として登録されて
+# おり、既定のリゾルバがそれを経由するため、通常の DNS 解決では
+# ldaps.kanidm.fickledev.com が NODATA になる (`dig @1.1.1.1` は正しく応答する一方、
+# `getent hosts`/`resolvectl query` は失敗することを実測済み)。/etc/hosts に静的登録し、
+# システムの DNS 解決自体を経路から外す。
+#
+# k3s ノードは NodePort (30636) で LDAPS を待ち受けている。Service の
+# externalTrafficPolicy が Local (gitops-apps/apps/kanidm/service.yaml) のため、
+# kanidm Pod を実際にホストするノード (PV の nodeAffinity で k3s-agent-minipc に固定)
+# だけが応答し、他ノードの NodePort は無応答になる。tailnet 限定の NetworkPolicy と
+# 組み合わせて送信元 IP を判定する都合上この構成を採っており、複数 IP を登録しても
+# フェイルオーバーはされない (DMS 側に接続失敗時の別 IP への再試行機能はない) ため、
+# 応答するノード 1 台のみを登録する。Pod の稼働ノードが変わった場合はここを更新する。
+vps_proxy_static_dns_overrides:
+  - name: ldaps.kanidm.fickledev.com
+    ips:
+      - 192.168.1.151
+
+# --- エッジホストの衛生 (EdgeHostAlignment, 要件 16.7-16.10) ---
+
+# node_exporter は apt の未管理パッケージとして実機に存在し (vps_proxy_required_packages
+# に含まれない)、既定でワイルドカードにバインドする。ホストファイアウォールは既に
+# 9100/tcp を許可集合から除外しているが、待受アドレス自体を公開アドレスに残さない
+# (要件 16.7 はフィルタでなく待受そのものを対象とする)。ansible_host はこのインベント
+# リ上では tailnet アドレスそのものなので、専用変数を増やさずそのまま再利用する。
+vps_proxy_node_exporter_port: 9100
+vps_proxy_node_exporter_listen_addresses:
+  - "127.0.0.1:{{ vps_proxy_node_exporter_port }}"
+  - "{{ ansible_host }}:{{ vps_proxy_node_exporter_port }}"
+
+# 時刻同期デーモンは ntpsec (ntp.conf(5) の `interface ignore` は該当アドレスのソケット
+# を一切開かない実装であり、その口を経由した自分自身のクライアント問い合わせへの応答も
+# 受け取れなくなる。本ホストはインターネット経路を持つアドレスが公開 IP (eth0) のみの
+# ため、公開アドレスの listen を止めるとクライアントとしての同期そのものが失われる)。
+# systemd-timesyncd は SNTP クライアント専用実装でサーバ機能を持たず、エフェメラルな
+# 送信元ポートで問い合わせるため待受ソケット自体が存在しない。Ubuntu では ntp/ntpsec と
+# systemd-timesyncd は仮想パッケージ time-daemon を介して互いに Conflicts/Replaces の
+# 関係にあり、後者の導入で前者は apt の依存解決により自動的に削除される。
+# サーバ一覧は既存の ntpsec 設定 (pool 0-3.ubuntu.pool.ntp.org, server ntp.ubuntu.com)
+# をそのまま引き継ぎ、置き換えによる問い合わせ先の変化を避ける。
+vps_proxy_timesyncd_ntp_servers:
+  - 0.ubuntu.pool.ntp.org
+  - 1.ubuntu.pool.ntp.org
+  - 2.ubuntu.pool.ntp.org
+  - 3.ubuntu.pool.ntp.org
+vps_proxy_timesyncd_fallback_ntp_servers:
+  - ntp.ubuntu.com
+
+# journald に保存上限が未設定だった (実機で確認した使用量: 起動ログ約1年分で3.9G)。
+# 1年分から算出した日次平均 (約11MB/day) から、1G はおよそ90日分の履歴を残しつつ、
+# 最悪時の消費をルートファイルシステム(100G)の約1%に抑える値として選んだ。
+vps_proxy_journald_system_max_use: 1G
+
+# KVM ゲストであることを systemd-detect-virt で確認済み、かつ単一の virtio ディスク
+# のみで LVM/multipath/md 冗長化を一切使っていない (pvs/lvs/multipath -ll/mdstat
+# がいずれも空) ため、以下は仮想化環境で意味を持たない。smartmontools.service /
+# thermald.service は ConditionVirtualization=no により自ら起動をスキップしており
+# 現に稼働していないため対象から除外する。openipmi.service は同様のセルフスキップを
+# 持たず、実機で失敗し続けている (LSB スクリプトが IPMI ハードウェアドライバの不在で
+# 異常終了)。
+vps_proxy_irrelevant_units:
+  - openipmi.service
+  - ModemManager.service
+  - multipathd.service
+  - multipathd.socket
+  - lvm2-monitor.service
+  - lvm2-lvmpolld.socket
+  - mdmonitor-oneshot.timer
+
+# --- fail2ban: tailnet 経由の SSH を sshd jail の対象から除外する ---
+#
+# fail2ban はホスト OS の apt パッケージ (docker-mailserver コンテナ側ではない、実機の
+# `dpkg -l`/`docker ps` で確認済み)。sshd jail は /etc/fail2ban/jail.local (パッケージ非管理、
+# dpkg -S で追跡対象外を確認済み) が enabled=true で有効化しており、findtime 600秒に
+# maxretry 5回到達で bantime 86400秒 BAN する。tailnet 経由 (100.100.100.100 の
+# quad100 を通らない、tailscale0 上の WireGuard で認証済み) の接続元が誤って累積 BAN
+# されると、公開 IP 側からの SSH はホストファイアウォールで最初から遮断されている
+# (vps_proxy_filter_allow_tcp_ports に22は無く、iptables_rules.v4.j2 の
+# `-A ts-input -i tailscale0 -j ACCEPT` 経由のみ) ため、管理経路そのものを失う
+# (2026-09-02/03 に実際に発生、ConoHa コンソールでの手動解除を要した)。
+# ドロップインは /etc/fail2ban/jail.d/ に置く (jail.local を編集しない。fail2ban の
+# 設定読み込み順は jail.conf → jail.d/*.conf → jail.local → jail.d/*.local であり、
+# jail.local は ignoreip を設定していないため、jail.d 側でこの回だけを追加しても
+# 上書き・競合は起きない)。ignoreip はオプション全体が置換される (追記でなく上書き)
+# ため、暗黙の既定 (jail.conf の #ignoreip はコメントアウト済みで実質未設定、
+# ループバックは fail2ban 既定の ignoreself=true が別途担う) に加えてループバックも
+# 明示し、将来 jail.d 内の他ファイルとの重複時にも消えないようにする。
+vps_proxy_fail2ban_sshd_ignoreip:
+  - 127.0.0.1/8
+  - "::1"
+  - 100.64.0.0/10

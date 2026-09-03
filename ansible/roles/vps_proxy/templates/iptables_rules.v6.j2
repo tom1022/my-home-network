@@ -1,0 +1,26 @@
+# IPv6 mirror of iptables_rules.v4.j2's *filter table (same allow-list, same
+# tailscale0 trust). No *nat table: this host has no IPv6 NAT/forwarding use
+# (xrayvpn's MASQUERADE precedent was IPv4-only), and omitting it here means
+# iptables-restore leaves the live ip6tables nat table (Docker's empty
+# scaffolding) untouched rather than flushing it.
+*filter
+:INPUT DROP [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -i lo -j ACCEPT
+-A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+-A INPUT -i tailscale0 -j ACCEPT
+# Unlike ICMPv4, ICMPv6 is not optional: Neighbor Discovery and Router
+# Advertisement (address resolution, autoconf) ride on it, so blocking it
+# breaks IPv6 networking itself, not just diagnostics.
+-A INPUT -p ipv6-icmp -j ACCEPT
+{% if vps_proxy_filter_ssh_public_allowed %}
+-A INPUT -p tcp --dport 22 -j ACCEPT
+{% endif %}
+{% for port in vps_proxy_filter_allow_tcp_ports %}
+-A INPUT -p tcp --dport {{ port }} -j ACCEPT
+{% endfor %}
+{% for port in vps_proxy_filter_allow_udp_ports %}
+-A INPUT -p udp --dport {{ port }} -j ACCEPT
+{% endfor %}
+COMMIT

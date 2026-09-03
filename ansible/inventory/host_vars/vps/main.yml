@@ -1,15 +1,15 @@
 ---
 ansible_become_password: "{{ lookup('env', 'VPS_BECOME_PASSWORD') }}"
+vps_proxy_acme_contact_email: "{{ lookup('env', 'LETSENCRYPT_CONTACT_EMAIL') | default('', true) }}"
+vps_proxy_acme_cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_DNS01_API_TOKEN') }}"
+vps_proxy_mydns_master_id: "{{ lookup('env', 'MYDNS_MASTER_ID') }}"
+vps_proxy_mydns_master_password: "{{ lookup('env', 'MYDNS_MASTER_PASSWORD') }}"
+
+mailserver_ldap_search_password: "{{ lookup('env', 'MAIL_LDAP_SEARCH_PASSWORD') }}"
+mailserver_dkim_private_key: "{{ lookup('env', 'MAIL_DKIM_PRIVATE_KEY') }}"
 
 vps_proxy_domain_main: fickledev.com
 vps_proxy_domain_www: www.fickledev.com
-vps_proxy_domain_mail: mail.fickledev.com
-vps_proxy_domain_tochiweb: tochiweb.mydns.jp
-
-vps_proxy_upstream_main: 192.168.1.103
-vps_proxy_upstream_blog: 192.168.1.101
-vps_proxy_upstream_tochiweb: 192.168.1.11
-vps_proxy_upstream_mail: 192.168.1.102
 
 vps_proxy_tcp_upstreams:
   - name: minecraft_bedrock_backend
@@ -20,6 +20,15 @@ vps_proxy_tcp_upstreams:
         port: 19132
       - host: 192.168.1.152
         port: 19132
+  # 取得 (IMAPS/993) の格納側中継先 (task 6.4、要件4.7)。格納側 Dovecot の NodePort
+  # 30993 は externalTrafficPolicy: Local (gitops-apps/apps/mailbox/service.yaml) の
+  # ため、Pod を実際にホストするノード (mailserver ロールの LMTP 配送先と同じ
+  # k3s-agent-minipc、192.168.1.151) のみが応答する。単一メンバーなのは LMTP の
+  # mailserver_mailbox_lmtp_host と同じ理由 (Pod 固定、フェイルオーバーなし)。
+  - name: mailbox_imaps_backend
+    members:
+      - host: 192.168.1.151
+        port: 30993
 
 vps_proxy_tcp_listeners:
   - name: minecraft_bedrock_listener
@@ -27,6 +36,10 @@ vps_proxy_tcp_listeners:
     bind_address: 0.0.0.0
     udp: true
     upstream: minecraft_bedrock_backend
-
-letsencrypt_certificates:
-  - cert_name: fickledev.com
+  # TLS を終端しない TCP パススルー (tls キー省略 = 既定 false)。ssl_preread も SNI
+  # ルーティングも行わず、内容を解さずバイト列をそのまま中継する。TLS の終端は
+  # 格納側 (k3s の Dovecot) が行う (要件4.7 の「中継は内容を解さない」)。
+  - name: mailbox_imaps_listener
+    listen_port: 993
+    bind_address: 0.0.0.0
+    upstream: mailbox_imaps_backend
