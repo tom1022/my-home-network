@@ -1827,3 +1827,330 @@ fail2ban/ClamAVを段階的に有効化する目的で `ansible-playbook -e mail
 ### 裏が取れなかった点
 
 - 各対象は確認開始時点で既に定常状態 (1回目から`changed=0`) だったため、「変更が生じた状態から2回適用して2回目に収束する」という経路そのものは今回観測していない (収束後の安定性のみを確認した)。
+
+## ClamAV の配置の検討
+
+### 現状の実測 (VPS, 2026-09-04 01:25 JST)
+
+ホスト全体のメモリ。
+
+```
+              total   used   free  shared  buff/cache  available
+Mem:           1966   1185    193       0         742        780
+Swap:          2047    647   1400
+```
+
+`clamd` (PID 167907) の `/proc/<pid>/status`。
+
+```
+VmPeak:  2179208 kB   (2.08 GiB)
+VmSize:  1188040 kB
+VmHWM:   1653672 kB   (1.58 GiB)
+VmRSS:    699384 kB
+VmSwap:   299092 kB
+```
+
+**常駐セットの最高到達点 (`VmHWM`) 1.58 GiB は、このホストの物理メモリ 1.92 GiB を上回る**。定常状態でも
+匿名メモリは `VmRSS` + `VmSwap` = 約 998 MiB で、うち 299 MiB は既に swap へ追い出されている。
+`/proc/meminfo` の `Committed_AS` は 3,006,292 kB に対し `CommitLimit` は 3,103,892 kB であり、
+**確約済みメモリが上限の 96.9% に達している**。`/proc/pressure/memory` の累積は起動後 1 日で
+`full total=12,963,852` (約 13 秒の完全停止) であり、無圧迫ではない。
+
+VPS の諸元は 3 コア / メモリ 1966 MiB / SSD 99 GiB (`/` 使用 9.3 GiB) で、ConoHa の 2 GB プランに一致する。
+
+### シグネチャ DB と更新の挙動
+
+`/var/lib/clamav` は `/var/mail-state/lib-clamav` へのシンボリックリンク (すなわち `mail-state` ボリュームで永続化されている)。
+
+| ファイル | サイズ | 署名数 |
+| --- | --- | --- |
+| `main.cvd` | 89,072,577 B | 3,287,027 |
+| `daily.cld` | 86,162,944 B | 355,635 |
+| `bytecode.cvd` | 281,702 B | 80 |
+| 合計 | 168 MiB | 3,628,040 |
+
+ディスク上 168 MiB の DB が、メモリ上では約 1 GiB に展開される。upstream は
+「シグネチャ定義の読み込みだけで 1.2 GiB 以上」「必要メモリは最低 3 GiB、推奨 4 GiB」と明記している。
+docker-mailserver の FAQ も「約 850M で今後も増える」「512MB では ClamAV のようなサービスを避ける必要がある」
+「swap を有効化できないなら 3GB を推奨」としている。
+
+更新は `freshclam` デーモンではなく **cron の一発実行**である。`/etc/cron.d/clamav-freshclam` の内容は
+`0 */6 * * * clamav /usr/bin/freshclam --quiet` で、**6 時間ごと**。`/etc/clamav/freshclam.conf` の
+`Checks 24` はデーモン動作時のみ効く値であり、この構成では効かない。
+
+更新時にメモリが跳ねる経路は 2 つあり、いずれも既定で有効になっている。
+
+- `freshclam` の `TestDatabases yes`。ダウンロードした DB を検証のために自前でメモリへ読み込む。
+  実測では `daily.cld` の検証に 6 秒 (00:00:05 → 00:00:11) を要した。
+- `clamd` の `ConcurrentDatabaseReload` (`clamd.conf` に宣言が無く既定の `yes`)。新しい DB を
+  読み込み終えてから古い DB を落とすため、リロード中は DB 分のメモリが二重に必要になる。
+  upstream は 8 GB 未満のホストでは無効化を推奨している。実測ではリロードに 15 秒
+  (00:00:11 → 00:00:26) を要し、`Database correctly reloaded (3628040 signatures)` で完了している。
+  `VmHWM` 1.58 GiB はこの二重確保の跡である。
+
+### rspamd から ClamAV への呼び出し方
+
+`clamd` は **UNIX ソケットのみ**で待ち受けている (`/etc/clamav/clamd.conf`)。`TCPSocket` の宣言は存在しない。
+
+```
+LocalSocket /var/run/clamav/clamd.ctl
+LocalSocketGroup clamav
+LocalSocketMode 666
+MaxThreads 12
+StreamMaxLength 25M
+MaxScanSize 100M
+MaxFileSize 25M
+SelfCheck 3600
+```
+
+呼び出しは **clamav-milter ではなく rspamd の `antivirus` モジュール**である。
+`/etc/rspamd/local.d/antivirus.conf` の実物。
+
+```
+enabled = true;
+
+ClamAV {
+    type = "clamav";
+    servers = "/var/run/clamav/clamd.ctl";
+    action = "reject";
+    message = '${SCANNER} FOUND VIRUS "${VIRUS}"';
+    scan_mime_parts = false;
+    symbol = "CLAM_VIRUS";
+    log_clean = true;
+    max_size = 25000000;
+    timeout = 10;
+    retransmits = 2;
+}
+```
+
+`scan_mime_parts = false` のため、MIME パートごとではなく**メッセージ全体**が INSTREAM で `clamd` へ渡る。
+
+docker-mailserver 側の配線は `/usr/local/bin/setup.d/security/rspamd.sh` の `__rspamd__setup_clamav()` が行う。
+`ENABLE_CLAMAV=1` のときだけ、上記ファイルの `enabled` 行を `sedfile` で `true` に書き換え、
+`_rspamd` を `clamav` グループへ追加する (UNIX ソケットを読むため)。`ENABLE_CLAMAV=0` ならこの
+書き換えは行われず `enabled` は `false` のまま残る。`CLAMAV_MESSAGE_SIZE_LIMIT` が `25M` 以外なら
+`max_size` も同じ `sedfile` 経路で書き換わる。
+
+利用者が設定を差し込める経路は `/tmp/docker-mailserver/rspamd/override.d/*` と
+`/tmp/docker-mailserver/rspamd/custom-commands.conf` の 2 つだけである (`local.d` の差し込み経路は無い。
+`_rspamd_get_envs()` が宣言するのは `RSPAMD_DMS_OVERRIDE_D` と `RSPAMD_DMS_CUSTOM_COMMANDS_F` のみ)。
+`custom-commands.conf` の `set-option-for-module <module> <option> <value>` は
+`override.d/<module>.conf` のトップレベルへ `option = value;` を書き込む実装であり、
+`antivirus` モジュールの `ClamAV { }` 入れ子の内側へは届かない。したがって接続先を差し替えるなら
+`override.d/antivirus.conf` にブロックごと宣言する必要がある (本リポジトリが
+`override.d/dkim_signing.conf` で既に用いている経路と同じ)。
+
+検査そのものは動作している。EICAR を添付した検証メールに対し `CLAM_VIRUS(0.00){Eicar-Test-Signature;}` が
+付与され `forced: reject "ClamAV FOUND VIRUS"` で拒否されており、rspamd の処理時間は 416 ms だった。
+拒否閾値は 11.00 (ログの `[-0.10/11.00]`)。
+
+`clamd` が応答しない場合、`antivirus` モジュールは `retransmits` 回まで再送し、それでも失敗すると
+`CLAM_VIRUS_FAIL` を付与する。この記号には有効設定上どこにも重みの宣言が無く、既定の重み 0 で
+登録されるため、**検査不能なメールはそのまま配送される (fail-open)**。現在の値では最悪
+`timeout 10` × `retransmits 2` で約 30 秒の遅延を伴う。
+
+### k3s 側の空き資源 (2026-09-04 実測)
+
+`free -m` (Ansible アドホック経由)。
+
+| ノード | total | available | swap | コア |
+| --- | --- | --- | --- | --- |
+| `k3s-server` | 7940 | 6072 | 0 | 4 |
+| `k3s-agent-minipc` | 7940 | 7032 | 0 | 4 |
+| `k3s-agent-z440` | 15991 | 13667 | 0 | 8 |
+
+`kubectl top nodes` は利用可能で、`k3s-agent-z440` は CPU 285m (3%) / メモリ 4759Mi (29%)。
+同ノードの `Allocated resources` はメモリ要求 2468Mi (15%) / 制限 2632Mi (16%) であり、
+1〜2 GiB の要求を追加しても他のワークロードの要求と競合しない。
+
+`mailbox` namespace は `dovecot-5b6d8b6bf8-zlmjl` の 1 Pod のみで、`mailbox-data` PVC の
+nodeAffinity により `k3s-agent-minipc` に固定されている。**メモリの余裕が最も大きい
+`k3s-agent-z440` は Dovecot と別ノードであり、clamd を置いても Dovecot を圧迫しない。**
+
+### tailnet 越しの TCP の評価
+
+VPS から k3s ノードへの疎通は既に本番経路として成立している (`mailserver_mailbox_lmtp_host`
+192.168.1.151:30024 への LMTP 配送)。追加で実測した RTT。
+
+```
+192.168.1.152: 10 packets, 0% loss, rtt min/avg/max/mdev = 22.124/22.788/23.562/0.471 ms
+192.168.1.151:  5 packets, 0% loss, rtt min/avg/max/mdev = 22.216/22.897/24.152/0.661 ms
+```
+
+平均 22.8 ms、標準偏差 0.5 ms、損失なし。
+
+転送量の見積もり。`scan_mime_parts = false` なのでメッセージ全体が流れるが、
+実測されたメッセージサイズは最大 3,859 B、`mail.log` の `status=sent` は約 2.5 時間で 21 通
+(その大半は検証用トラフィック) である。`max_size = 25000000` が上限なので最悪 25 MB / 通だが、
+その場合でも 22.8 ms の RTT では帯域律速であり、tailnet の実効帯域が 10 Mbps あれば 20 秒、
+100 Mbps なら 2 秒で済む。**通常のメールサイズ (数 KB) では、往復 1 回分 (約 23 ms) の追加遅延が
+支配的で、現在の処理時間 416 ms に対して無視できる。** 25 MB 級の添付では
+`timeout = 10` を超え得るため、TCP 化する場合は `timeout` を上げるか `max_size` を下げる判断が要る。
+
+rspamd の `antivirus` モジュールは `servers` に TCP の `host:port` を取れる (clamav 型の既定ポートは
+3310)。DMS 同梱の `modules.d/antivirus.conf` のコメントにも `servers = "127.0.0.1:3310"` の例がある。
+**したがって「clamd だけを k3s 上の Pod にして VPS からネットワーク越しに使う」形は設定上成立する。**
+
+ただし clamd を TCP で公開する場合、`clamd` は認証を持たないため、到達できる相手を絞る責任は
+ネットワーク側にある。既存の `mailbox-tailnet-only` / `kanidm-ldaps-tailnet-only` と同じ
+NetworkPolicy (tailnet CGNAT レンジ 100.64.0.0/10 のみ許可) と `externalTrafficPolicy: Local` の
+組み合わせで満たせる。
+
+### 選択肢の比較
+
+| 案 | VPS のメモリ回収 | 追加費用 | 停止時間 | 新規の依存 | 検査能力 |
+| --- | --- | --- | --- | --- | --- |
+| A. k3s 上の Pod へ clamd を移す | 約 1.0 GiB (ピーク 1.58 GiB) | なし | コンテナ再作成のみ | tailnet + k3s が受信経路に入る | 現状維持 |
+| B. ClamAV をやめる | 約 1.0 GiB (ピーク 1.58 GiB) | なし | コンテナ再作成のみ | なし | ウイルス検査を失う |
+| C. clamd の設定を絞る | ピークのみ約 0.6 GiB | なし | コンテナ再作成のみ | なし | 設定次第 |
+| D. VPS を 4 GB プランへ | +2 GiB 増設 | 月 +535〜1,575 円 | VPS の停止が必須、15 分程度 | なし | 現状維持 |
+| E. swap を増やす | 見かけ上のみ | なし | なし | なし | 現状維持だが極端に遅い |
+
+**案 C の内訳。** 効くのは 2 つで、いずれもピークを削るだけで定常の約 1 GiB には効かない。
+
+- `clamd.conf` に `ConcurrentDatabaseReload no` を宣言する。リロード中のスキャンが
+  ブロックされるようになる代わりに、DB の二重確保が消える。upstream が 8 GB 未満のホストに
+  推奨している設定である。
+- `freshclam.conf` の `TestDatabases no`。検証用の読み込みが消える代わりに、
+  壊れた DB をそのまま `clamd` に読ませる危険が残る。
+
+`freshclam.conf` の `ExcludeDatabase main.cvd` で `main.cvd` を除外すれば署名数は 3,628,040 から
+341,000 程度 (`daily` + `bytecode`) へ落ち、定常メモリも大きく下がる。ただし `main.cvd` は
+全署名の 90.6% を占めるため、これは「ClamAV を動かしたまま検出能力の大半を捨てる」ことに等しく、
+案 B より状態が悪い (資源を消費しつつ検出しない)。採らない。
+
+**案 E の評価。** swap は既に 2047 MiB あり、そのうち 647 MiB が使われ、clamd 自身の 299 MiB が
+追い出されている。すなわち swap の追加は既に起きている事象の延長であり、新たに解決するものが無い。
+clamd は 1 通ごとに全署名を参照するため、署名テーブルが swap にあると検査ごとにディスク I/O が
+発生し、`timeout = 10` を超えて `CLAM_VIRUS_FAIL` (fail-open) に落ちる確率が上がる。
+「ウイルス検査があるように見えて実際は素通りする」状態を作るため、案 B より悪い。採らない。
+
+**案 D の評価。** 2 GB プラン 2,033 円/月 (長期割引で 944〜632 円/月) に対し
+4 GB プランは 3,608 円/月 (同 1,642〜1,167 円/月)。差額は月 535〜1,575 円。
+プラン変更には VPS の停止が必須で、所要は 15 分程度。ダウングレードも可能だが差額の返金はない。
+メモリ圧迫そのものを最も素直に解消するが、**手元に 13.6 GiB の空きメモリがある状態で
+月額を払う判断になる**。
+
+**案 B の評価。** 迷惑メール判定 (rspamd) は ClamAV とは独立に動くため、ClamAV を落としても
+spam 判定・SPF/DKIM/DMARC 検証・DKIM 署名は影響を受けない。個人利用の規模では
+「1 GiB の常駐メモリと 6 時間ごとの 168 MiB のダウンロードを、実効的にはほぼ発生しない
+メール経由のマルウェア検出に払う」取引になる。ただし `mailserver_enable_clamav: true` は
+要件として明示的に宣言された値であり、検査を捨てるかどうかは運用者の判断に属する。
+
+### 推奨
+
+**案 A (k3s 上の Pod へ clamd を移す) を推奨する。** ただし移設の前に案 C の
+`ConcurrentDatabaseReload no` を当て、急性のリスク (物理メモリを超える 1.58 GiB のピーク) を先に潰す。
+
+根拠。
+
+1. **VPS はこのワークロードを載せる前提を満たしていない。** upstream の要求は最低 3 GiB / 推奨 4 GiB、
+   VPS は 1.92 GiB。実測の `VmHWM` 1.58 GiB は物理メモリを超えており、`Committed_AS` は上限の 96.9%。
+   これは調整で吸収する範囲ではなく、配置が間違っている。
+2. **空きは既に手元にある。** `k3s-agent-z440` の available は 13.6 GiB、メモリ要求は 15% しか
+   埋まっていない。ここに置けば追加費用ゼロで upstream の推奨値を満たす。
+3. **経路は既に本番で使っている。** VPS → k3s の tailnet 経路は LMTP 配送で既に受信の必須経路であり、
+   clamd を同じ経路に載せることは新しい単一障害点を作らない (tailnet が落ちれば配送自体が止まる)。
+   RTT 22.8 ms は現在の rspamd 処理時間 416 ms に対して無視できる。
+4. **rspamd 側の変更は接続先の 1 行である。** `antivirus` モジュールは TCP を第一級で扱う。
+   milter を差し替える必要はない。
+5. **可逆である。** 戻すのは `mailserver_enable_clamav: true` に戻して `override.d/antivirus.conf` を
+   外すだけ。プラン変更 (案 D) と違って停止も課金も伴わない。
+
+案 D は「月額を払えば確実に解決する」点で妥当な代替であり、k3s 側の可用性を受信経路に
+持ち込みたくないという判断を採るなら選ぶ価値がある。案 B は要件の変更を伴うため、
+運用者が「個人利用でウイルス検査は不要」と判断した場合にのみ成立する。
+
+### 案 A を採る場合の設計
+
+**配置先。** namespace は `mailbox` に相乗りさせる (メール基盤の一部であり、新しい namespace を
+増やす理由が無い)。`nodeSelector` で `k3s-agent-z440` に固定する。Dovecot が固定されている
+`k3s-agent-minipc` (available 7.0 GiB) とは別ノードになるため、格納側を圧迫しない。
+マニフェストは `gitops-apps` の `apps/mailbox/` に追加し、`kustomization.yaml` の `resources` に加える
+(ArgoCD の `apps` ApplicationSet が `apps/mailbox` を 1 Application として拾う既存の構成に乗る)。
+
+**ワークロード種別。** Deployment。単一レプリカで、識別子の安定性も順序付き起動も不要であり、
+StatefulSet を選ぶ理由が無い。`strategy: Recreate` にする (PVC が RWO で、ローリング更新時に
+新旧 Pod が同じ PVC を掴めないため)。
+
+**イメージ。** 公式の `clamav/clamav`。既定で clamd が TCP 3310 を待ち受け、
+`CLAMAV_NO_FRESHCLAMD` / `FRESHCLAM_CHECKS` で freshclam デーモンを制御できる。
+本リポジトリの慣例に合わせてタグではなくダイジェストで固定する。
+
+**シグネチャ DB の永続化。** PVC を用意する (`storageClassName: local-path`, RWO, 1Gi)。
+DB は 168 MiB で今後も増えるため 1Gi を確保する。永続化しないと Pod 再作成のたびに
+168 MiB を再取得し、そのあいだ検査が成立しない (clamd は DB 無しでは起動を完了しない)。
+実データではないので `argocd.argoproj.io/sync-options: Prune=false,Delete=false` は付けない
+(消えても再取得できる。`mailbox-data` と性質が異なる)。
+
+**freshclam。** イメージ同梱の freshclam デーモンをそのまま使い、`FRESHCLAM_CHECKS` を
+既定の 1 日 1 回のままにする。CronJob を別に立てない (別 Pod からは同じ PVC を RWO で
+掴めず、clamd への更新通知経路も自前で作ることになる)。メモリの余裕があるノードに置くので
+`ConcurrentDatabaseReload` は既定 (`yes`) のままでよく、リロード中もスキャンが継続する。
+Pod には `resources.requests.memory: 1536Mi` / `limits.memory: 3Gi` を与える
+(定常 1 GiB + リロード時の二重確保 + スキャン作業領域)。
+
+**公開と到達性の担保。** Service を `type: NodePort`, `externalTrafficPolicy: Local`,
+`nodePort: 30310` で公開する (既存の割り当ては 30024/30993/30636/31762/32080/32206 で衝突しない)。
+`externalTrafficPolicy: Local` により、Pod が載っているノード (`k3s-agent-z440`, 192.168.1.152) のみが
+応答し、NetworkPolicy が SNAT されていない本来の送信元 IP を見て判定できる
+(`mailbox-tailnet-only` / `kanidm-ldaps-tailnet-only` と同じ形)。NetworkPolicy は
+`100.64.0.0/10` (tailnet CGNAT) からの `clamd` ポートのみを許可する。clamd は認証を持たないため、
+この絞り込みが唯一の防御である。Pod CIDR (`10.42.0.0/16`) からの許可は不要
+(クラスタ内に利用者がいない)。
+
+**VPS 側の変更。**
+
+- `ansible/roles/mailserver/defaults/main.yml`: `mailserver_enable_clamav` を `false` にし、
+  接続先 (`mailserver_clamav_host: 192.168.1.152`, `mailserver_clamav_port: 30310`) を宣言する。
+  `ENABLE_CLAMAV=0` により supervisor が clamd を起動しなくなり、`mail-state/lib-clamav` の
+  168 MiB も不要になる。
+- `ansible/roles/mailserver/templates/` に `rspamd-antivirus.conf.j2` を追加し、
+  `tasks/main.yml` の既存のテンプレート配布ループ (`rspamd/override.d/dkim_signing.conf` を
+  配っている箇所) に `rspamd/override.d/antivirus.conf` として並べる。`local.d` の差し込み経路は
+  DMS に存在しないため `override.d` を使う。`ENABLE_CLAMAV=0` では DMS が `local.d/antivirus.conf` の
+  `enabled` を書き換えないので、`override.d` 側で `enabled = true;` と `ClamAV { }` ブロックを
+  丸ごと宣言する (rspamd の `override.d` は該当セクションを置き換える意味を持つため、
+  `servers` だけの部分指定にはしない)。`type` / `action` / `symbol` / `max_size` /
+  `scan_mime_parts` は現行値を引き継ぎ、`servers` を `<host>:<port>` に、`timeout` を
+  tailnet の RTT と最大メッセージサイズを見て設定する。
+- `custom-commands.conf` の `set-option-for-module` は使わない。トップレベルへ
+  `option = value;` を書き込む実装であり、`ClamAV { }` の内側には届かない。
+
+**検査不能なメールの扱い。** 現行の既定 (fail-open) を維持する。`clamd` に到達できない場合
+`CLAM_VIRUS_FAIL` が重み 0 で付き、メールは通常の spam 判定だけを経て配送される。
+これを止める (拒否する) 選択肢は採らない。rspamd の拒否は閾値 11.00 の恒久エラー (5xx) であり、
+スキャナの一時的な不在で正当なメールを恒久拒否することになる。一方で fail-open は
+「検査があるように見えて実際は素通りする」状態を作るため、`CLAM_VIRUS_FAIL` の出現を
+可視化する手段 (rspamd ログの監視) が前提になる。tailnet が落ちれば LMTP 配送も同時に止まり
+Postfix の待ち行列に滞留するため、k3s 側の全断は fail-open ではなく配送遅延として現れる。
+fail-open が実際に効くのは「k3s は生きているが clamd Pod だけが落ちている」場合に限られる。
+
+### 想定外の事象
+
+- 引き継がれた実測値 (`used 1602MB` / `available 363MB` / `Swap 136MB`) と、今回の実測
+  (`used 1185MB` / `available 780MB` / `Swap 647MB`) が食い違う。swap の使用量が 136 MiB から
+  647 MiB へ増え、その分 `available` が回復している。clamd の匿名メモリ合計
+  (`VmRSS` + `VmSwap` = 998 MiB) は引き継ぎ値の RSS 965 MiB と整合するため、
+  差は「clamd が使う量」ではなく「そのうちどれだけが swap に落ちたか」の違いである。
+  メモリ余裕の薄さという結論は変わらない。
+- `freshclam` の更新頻度は `freshclam.conf` の `Checks 24` (毎時) ではなく cron の 6 時間ごとだった。
+  DMS は freshclam をデーモンとして起動していない (プロセス一覧に `clamd` のみが存在する)。
+- コンテナ内の ClamAV は 1.4.3 で、`freshclam` が `Your ClamAV installation is OUTDATED!`
+  `Recommended version: 1.4.6` を警告している。DMS イメージに同梱された版であり、
+  ダイジェスト固定の対象内で更新するものではない。
+
+### 裏が取れなかった点
+
+- リロード時のメモリの跳ねは `VmHWM` (起動後の最高到達点) からの推定である。リロードの瞬間に
+  RSS を継続サンプリングして観測したわけではない。`VmHWM` 1.58 GiB がリロード以外の事象
+  (起動時の初回読み込み) で記録された可能性は排除できていない。ただし起動時の初回読み込みも
+  同じ DB 全体の展開であり、いずれにせよ物理メモリ 1.92 GiB に対する余裕が無いという結論は同じ。
+- `CLAM_VIRUS_FAIL` による fail-open は、有効設定にこの記号の重みの宣言が存在しないことから
+  導いた。稼働中の `clamd` を止めて実際にメールが通ることを確認する検証は行っていない
+  (稼働中の受信経路を止める必要があるため)。
+- tailnet の実効帯域 (VPS ↔ k3s) は測定していない。RTT と損失率のみを実測した。
+  25 MB 級の添付を検査する場合の所要時間は帯域律速になるため、`max_size` を現行のまま
+  TCP 化する場合は帯域の実測が別途必要である。
+- ConoHa のプラン変更に伴う実際の停止時間は、サポート文書の記述 (15 分程度) に依拠している。
+  実施していないため実測値ではない。
