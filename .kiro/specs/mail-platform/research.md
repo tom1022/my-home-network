@@ -1528,3 +1528,47 @@ ldap(...): Can't connect to server` がログに記録され `code=temp_fail` �
 
 - 第三者中継の拒否が `554` (恒久) になったのは `smtpd_recipient_restrictions` の `reject_unauth_destination` が `smtpd_relay_restrictions` の `defer_unauth_destination` より先に評価されたためと考えられるが、両restrictionsの評価順序の正確な仕様は docker-mailserver 側のドキュメントで確認していない (実機の応答から推測)。
 - ArgoCD の同期反映が数分単位で遅延した根本原因 (アプリケーション数、コントローラの負荷、並行するクラスタ操作のいずれが支配的か) は特定していない。単発の事象であり、本タスクの受入基準には影響しなかったため深追いしていない。
+
+## 追補: LMTP配送とIMAP認証のメールボックス位置不一致の是正 (2026-09-03)
+
+### 原因
+
+`gitops-apps/apps/mailbox/configmap.yaml` の `userdb static` が `home = /srv/vmail/%{user}` を無加工の `%{user}` で組み立てていた。Dovecotのuserdb変数`%{user}`はプロトコルごとに実際に渡される値の形が異なり、実機で以下の食い違いを確認した。
+
+- LMTP配送 (RCPT TO由来) の `%{user}` は完全なメールアドレス (`someone@fickledev.com`)。
+- IMAP認証の `%{user}` はアカウント名のみ (`someone`)。Kanidmのbind DNテンプレート (`spn=%{user},app=mail,dc=kanidm,dc=fickledev,dc=com`) がこの形式でしか成立しないため、Dovecotのpassdb側から見た `%{user}` はアカウント名のみに保たれる。
+
+結果、`/srv/vmail/someone@fickledev.com/` へ配送されたメールが、`/srv/vmail/someone/` を見るIMAPログインからは不可視になっていた。
+
+Dovecotの公式ドキュメント (userdb, https://doc.dovecot.org/2.4.2/core/config/auth/userdb.html) は「Userdb lookups are utilized for IMAP & POP3 logins, LMTP mail delivery, and doveadm commands.」と明記しており、userdbはLMTP配送とIMAP認証の双方で共通に参照される唯一の項目である。一方 `lmtp_proxy = yes` を設定しない限りLMTPの受信ではpassdbは評価されない (`lmtp_proxy` を有効にした場合のみプロキシ判定のためpassdb lookupが走る、と同ドキュメントの summaries/settings.html に明記)。本構成は `lmtp_proxy` を設定していない (既定で無効) ため、passdb (bind DNテンプレート) はIMAP認証専用であり、LMTP配送はuserdbのみで完結する。したがって、両者を揃える着地点はuserdb側であり、passdb側 (bind DNテンプレート) には触れずに解決できる。
+
+### 是正方法とその根拠
+
+`userdb static.home` を `%{user}` から `%{user | username | lower}` に変更した (`gitops-apps` commit `8bf32ee`)。
+
+根拠はDovecot 2.4のSettings Variablesのフィルタ機構 (https://doc.dovecot.org/2.4.2/core/settings/variables.html、および 2.3→2.4 移行ガイド https://doc.dovecot.org/2.4.2/installation/upgrade/2.3-to-2.4.html) である。`%{user | username}` は値のローカル部 (`@`より前) を取り出すフィルタで、既に`@`を含まない値 (IMAP認証時の`%{user}`) には無害に働く。`%{user | username | lower}` の形は移行ガイドの例示 (`%{user | username | lower }`) と一致する。
+
+`lower` を追加したのは、当該ConfigMap冒頭のコメント (18-22行目付近) が「イメージ既定値 (`mail_home = /srv/vmail/%{user|lower}`) が既に要件5.1/5.5を満たす」と記していたにもかかわらず、実際には `userdb static` がその既定値を完全に上書きしており `|lower` を伴っていなかった、という記述と実体の不整合が既にあったため。今回の修正でこの不整合も解消し、コメントも「userdb staticが既定値を上書きするため既定値自体は使われない」と実体に合わせて書き換えた。
+
+bind DNテンプレート (`passdb ldap.bind_userdn = spn=%{user},app=mail,...`) は変更していない。上記のとおりLMTP配送の解決にpassdbは関与しないため、`%{user}`を無加工のままアカウント名のみで成立させる必要があるbind DN側に手を入れる理由がない。
+
+### 検証結果
+
+**是正前の記録**: Pod `dovecot-75dbb99fb7-ln7cj` (再起動0)。`/srv/vmail/` 配下に `mail-6-3-verify@fickledev.com` `mail64verify` `mail64verify@fickledev.com` `mailq0903verify@fickledev.com` `mailtest` `sender@fickledev.com` `testfile` `verify-sender@fickledev.com` が存在 (いずれも過去タスクの使い捨て検証アカウントの残骸で、対応するKanidm人物アカウントは本タスク着手前に全て削除済みであることをresearch.mdの既存記録 (タスク3.1・6.3の後始末節) で確認した。実データを持つ現行アカウントは無い)。
+
+**適用**: `gitops-apps` へcommit `8bf32ee` をpush。ArgoCD `mailbox` Applicationが自動同期し (`sync.status=Synced`, `health.status=Healthy`)、`Recreate`戦略により新Pod `dovecot-5b6d8b6bf8-zlmjl` が起動 (再起動0)。既存の `/srv/vmail/` 配下のエントリは同一PVCのままで全て残存していることを確認した (データ損失なし)。
+
+**LMTP配送とIMAP認証が同一パスを解決することの確認手順**: `terraform-kanidm`サービスアカウントのトークンでKanidmの生REST API (`https://kanidm.fickledev.com`、OpenAPI定義 `/docs/v1/openapi.json` および `kanidm/kanidm` リポジトリのRust実装 (`proto/src/v1/auth.rs`, `proto/src/internal/credupdate.rs`, `libs/client/src/lib.rs`) で厳密なJSON形状を確認したうえで叩いた) を用い、使い捨て検証用人物アカウント `mboxfixverify` (`mail = mboxfixverify@fickledev.com`) を作成、`mail_users`グループへ追加 (`POST .../_attr/member`、既存メンバーを保持する追加方式)、パスワード+TOTPを資格情報更新セッションAPIで設定してcommitした。続けて `mboxfixverify` 自身のセッションで `/v1/auth` (passwordmfa) ログイン → `/v1/reauth` 特権昇格 → `/scim/v1/Person/mboxfixverify/Application/_create_password` によりアプリケーションパスワードを自己発行した (タスク3.1と同じく、管理者代理発行ではなく本人セッションによる自己発行)。
+
+1. VPS (`100.109.6.7:25`、Tailscale経由) へ未認証でRFC 5322準拠のテストメール (`Date`/`Message-ID`ヘッダあり) をSMTPで直接投入し、`mboxfixverify@fickledev.com`宛のRCPT TOが`250 2.1.5 Ok`で受理されることを確認した。
+2. VPSのコンテナログ (`docker logs mailserver`、ansible経由で読み取り) で `postfix/lmtp` が `to=<mboxfixverify@fickledev.com>, relay=192.168.1.151[192.168.1.151]:30024, ... status=sent (250 2.0.0 <mboxfixverify@fickledev.com> ... Saved)` を出力したことを確認した。
+3. `kubectl exec`で格納側Podの `/srv/vmail/` を確認し、`mboxfixverify` (バウンド、`@fickledev.com`を含まない) というディレクトリにメールが配送されたことを確認した。
+4. ローカル端末からVPSの993番 (`100.109.6.7:993`、TLSはSNI `mail.fickledev.com` を明示しワイルドカード証明書 `CN=*.fickledev.com` の検証を有効にしたまま実施) へIMAPで接続し、ユーザー名 `mboxfixverify` (アカウント名のみ) + 発行したアプリケーションパスワードでLOGINが成立、`INBOX`を`SELECT`して`SEARCH ALL`が1件を返し、`FETCH`したSubject/Message-IDが手順1で送信したテストメールと一致することを確認した。
+
+以上により、LMTP配送で書き込まれたメールをIMAP認証で取得できることを実機で確認した (**合格**)。
+
+**既存メールボックスの保全確認**: 是正前後で `/srv/vmail/` 配下のエントリ一覧を比較し、既存の8エントリ (前段落) がいずれも変更・消失していないことを確認した。これらは実データを持つ現行アカウントに属さない過去の検証残骸であり、対応するKanidm人物アカウントが既に存在しない (ログインする経路が無い) ため、本タスクでは移動も削除も行わなかった。検証用に新規作成した `/srv/vmail/mboxfixverify` は、格納側Podのコンテナイメージが最小限 (`rm`/`ls`等のcoreutilsを含まない) でありPod内から削除する手段がなかったため、他の残骸と同様に残置した (Kanidm側のアカウントは削除済みのため到達経路は無い)。
+
+**後始末**: 検証後、`mail_users`グループから `mboxfixverify` を除外 (`DELETE .../_attr/member`、指定値のみの削除で他メンバーに影響しない方式。除外後 `GET`が空を返すことを確認)、`DELETE /v1/person/mboxfixverify` で削除 (削除後の`GET`が`null`を返すことを確認)。`terraform-kanidm` (`infisical run --env=prod -- terraform plan -detailed-exitcode`、ワークスペース`kanidm-identity`) は是正前後どちらも **"No changes."** (exit code 0) であり、`mail_users`のメンバーシップ変更がTerraformの管理対象外であることと整合する結果を確認した。
+
+**mailbox Applicationの最終状態**: `sync.status=Synced`, `health.status=Healthy`, `sync.revision=8bf32ee...`。Pod `dovecot-5b6d8b6bf8-zlmjl` の再起動回数は0。
