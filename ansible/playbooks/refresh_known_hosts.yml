@@ -33,7 +33,13 @@
       ansible.builtin.known_hosts:
         path: "{{ ssh_known_hosts_path }}"
         name: "{{ ansible_host | default(inventory_hostname) }}"
-        key: "{{ scanned_host_key.stdout }}"
+        # ssh-keyscan interleaves "# host:22 SSH-2.0-..." banner lines into stdout
+        # (one per connection attempt; the attempt count varies run to run) and
+        # returns the rsa/ecdsa/ed25519 key lines in non-deterministic order.
+        # Dropping the banner lines and sorting the rest keeps this idempotent
+        # (previously the module saw a different string each run and always
+        # reported changed, even with identical host keys).
+        key: "{{ scanned_host_key.stdout_lines | reject('match', '^#') | sort | join('\n') }}"
         state: present
       delegate_to: localhost
       become: false

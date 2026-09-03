@@ -20,7 +20,7 @@
     nfs_client_nas_addr: "{{ hostvars[nfs_client_nas_host].ansible_default_ipv4.address | default(hostvars[nfs_client_nas_host].ansible_host) }}"
 
 - name: Mount NFS export
-  ansible.builtin.mount:
+  ansible.posix.mount:
     path: "{{ nfs_client_mount_path }}"
     src: "{{ nfs_client_nas_addr }}:{{ nfs_client_export_path }}"
     fstype: "{{ nfs_client_fstype }}"
