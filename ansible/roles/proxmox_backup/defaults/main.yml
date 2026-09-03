@@ -1,8 +1,10 @@
 ---
-proxmox_backup_api_host: "{{ lookup('env', 'PROXMOX_API_HOST') }}"
-proxmox_backup_api_user: "{{ lookup('env', 'PROXMOX_API_USER') }}"
-proxmox_backup_api_token_id: "{{ lookup('env', 'PROXMOX_API_TOKEN_ID') }}"
-proxmox_backup_api_token_secret: "{{ lookup('env', 'PROXMOX_API_TOKEN_SECRET') }}"
+# Sourced from group_vars/all/main.yml (the inventory-side lookup('env', ...) binding), not
+# re-read here, so Infisical values have a single point of entry (Requirement 19.10/6.15).
+proxmox_backup_api_host: "{{ proxmox_api_host }}"
+proxmox_backup_api_user: "{{ proxmox_api_user }}"
+proxmox_backup_api_token_id: "{{ proxmox_api_token_id }}"
+proxmox_backup_api_token_secret: "{{ proxmox_api_token_secret }}"
 proxmox_backup_api_validate_certs: false
 proxmox_backup_sensitive_no_log: true
 proxmox_backup_api_token_name: "{{ proxmox_backup_api_token_id | regex_replace('^.*!', '') }}"
@@ -35,13 +37,23 @@ proxmox_backup_job_enabled: true
 proxmox_backup_pbs_storage_name: pbs-zfs-pool
 proxmox_backup_pbs_server: "{{ hostvars[proxmox_backup_target_host].ansible_host | default('') }}"
 proxmox_backup_pbs_datastore: "{{ hostvars[proxmox_backup_target_host].pbs_backup_target_datastore_id | default('') }}"
-proxmox_backup_pbs_username: "{{ lookup('env', 'PROXMOX_PBS_USERNAME') }}"
-proxmox_backup_pbs_password: "{{ lookup('env', 'PROXMOX_PBS_PASSWORD') }}"
-proxmox_backup_pbs_fingerprint: "{{ lookup('env', 'PROXMOX_PBS_FINGERPRINT') }}"
+proxmox_backup_pbs_username: "{{ proxmox_pbs_username }}"
+proxmox_backup_pbs_password: "{{ proxmox_pbs_password }}"
+proxmox_backup_pbs_fingerprint: "{{ proxmox_pbs_fingerprint }}"
 
 proxmox_backup_pbs_storage_nodes:
   - n100
   - hp-z440
+
+# /storage config/status calls this role makes (disable/fingerprint/password sync, storage
+# status probe) only ever need Datastore.Allocate (config read/write) and Datastore.Audit
+# (status read); PVEDatastoreAdmin's extra Datastore.AllocateSpace/AllocateTemplate govern
+# creating disk images/templates on the storage, which this role never does via the API (the
+# scheduled backup itself runs as PVE's own root-owned scheduler, not through this token).
+proxmox_backup_storage_acl_roleid: AnsibleStorageConfigAdmin
+proxmox_backup_storage_acl_privileges:
+  - Datastore.Allocate
+  - Datastore.Audit
 
 proxmox_backup_targets: "{{ hostvars[proxmox_backup_target_host].pbs_backup_targets | default([]) }}"
 proxmox_backup_excluded_targets: "{{ hostvars[proxmox_backup_target_host].pbs_backup_excluded_targets | default([]) }}"

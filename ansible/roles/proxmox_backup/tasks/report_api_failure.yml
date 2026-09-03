@@ -1,0 +1,20 @@
+---
+# Included after every Proxmox/PBS API call. The calling task registers its result under
+# `proxmox_backup_api_call` with `failed_when: false` so a non-2xx response reaches here instead
+# of being swallowed by the no_log-censored generic failure message. This task itself is not
+# no_log, so the status code and the API's own error text (never the request's Authorization
+# header or body) surface by default without a separate opt-in variable (Requirement 8.6/19.13).
+- name: "Report API failure: {{ proxmox_backup_api_call_context }}"
+  ansible.builtin.fail:
+    msg: >-
+      {{ proxmox_backup_api_call_context }} failed
+      (HTTP {{ proxmox_backup_api_call.status | default('n/a') }}):
+      {{
+        proxmox_backup_api_call.json.errors
+        | default(proxmox_backup_api_call.json.message)
+        | default(proxmox_backup_api_call.msg)
+        | default('no additional detail in API response')
+      }}
+  when: >-
+    (proxmox_backup_api_call.failed | default(false))
+    or (proxmox_backup_api_call.status is defined and proxmox_backup_api_call.status not in [200])
