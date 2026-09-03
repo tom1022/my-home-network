@@ -1,0 +1,19 @@
+---
+- name: Ensure storage base packages are installed
+  ansible.builtin.apt:
+    name: "{{ storage_disk_base_packages }}"
+    state: present
+    update_cache: true
+  when: storage_disk_items | length > 0
+
+- name: Ensure filesystem-specific packages are installed
+  ansible.builtin.apt:
+    name: "{{ storage_disk_items | map(attribute='filesystem_type') | unique | map('extract', storage_disk_filesystem_package_map) | list }}"
+    state: present
+  when: storage_disk_items | length > 0
+
+- name: Provision each configured disk
+  ansible.builtin.include_tasks: provision.yml
+  loop: "{{ storage_disk_items }}"
+  loop_control:
+    loop_var: disk_item

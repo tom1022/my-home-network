@@ -4,15 +4,34 @@
 k3s_agent: true
 # k3s_server_endpoint は group_vars/k3s/main.yml で解決します（ホストの ansible_host を参照）
 
+# Agent join credential: see playbooks/k3s.yml post_tasks. The role's
+# k3s.service.j2 has no variable hook to substitute the token it embeds
+# (hardcoded to the master's server-token hostvar), and the value that
+# hostvar resolves to depends on which hosts are included in a given run
+# (the master's own set_fact override only applies within a run that
+# includes the master), so a text-pattern strip in the unit file cannot
+# reliably tell the role's line apart from an intentionally injected one.
+# The playbook instead owns the Environment=K3S_TOKEN line for agent hosts
+# outright: it deletes whatever the role wrote and inserts exactly one line
+# with the agent-scoped token.
+
 # Data Storage Settings
 agent_data_disks:
-  - name: "minio"
-    scsi_address: "0:0:0:1"
-    partition_number: 1
-    filesystem_type: "xfs"
-    mount_path: "/var/lib/minio"
   - name: "nextcloud"
     scsi_address: "0:0:0:2"
     partition_number: 1
     filesystem_type: "xfs"
     mount_path: "/var/lib/nextcloud"
+  # Garage の metadata_dir (索引)。SSD (local-lvm) 上の追加ディスク。
+  # name は xfs label としても使われ 12 文字までのため mount_path と別名にする。
+  - name: "garage-meta"
+    scsi_address: "0:0:0:1"
+    partition_number: 1
+    filesystem_type: "xfs"
+    mount_path: "/var/lib/garage-metadata"
+  # Garage の data_dir (実体)。HDD (zfs-pool) 上の追加ディスク。
+  - name: "garage-data"
+    scsi_address: "0:0:0:3"
+    partition_number: 1
+    filesystem_type: "xfs"
+    mount_path: "/var/lib/garage-data"

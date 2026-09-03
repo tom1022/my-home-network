@@ -1,0 +1,24 @@
+---
+# Defaults for the storage_disk role.
+#
+# storage_disk_items: list of disk_item, e.g.
+#   - name: str                  # required; used as filesystem label and identifier
+#     scsi_address: str          # required; used to resolve the by-path link
+#     partition_number: int      # default 1
+#     filesystem_type: str       # default xfs
+#     mount_path: str            # required; absolute mount destination
+#     mount_opts: str            # default "defaults"
+#     owner: str                 # default root
+#     group: str                 # default root
+#     mode: str                  # default "0755"
+storage_disk_items: []
+
+# Packages always required to manage disks/partitions, regardless of filesystem type.
+storage_disk_base_packages:
+  - parted
+
+# Filesystem type -> package providing its mkfs tooling.
+storage_disk_filesystem_package_map:
+  ext4: e2fsprogs
+  xfs: xfsprogs
+  btrfs: btrfs-progs

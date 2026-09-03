@@ -1,0 +1,134 @@
+---
+# Per-disk_item provisioning, looped over by tasks/main.yml with loop_var: disk_item.
+# Ported verbatim from the former playbooks/configure_scsi_disk.yml task fragment;
+# behavior is unchanged except that mount_opts/owner/group/mode are now overridable
+# per disk_item (defaulting to the same values this logic always used).
+- name: Reset partition device variable ({{ disk_item.name }})
+  ansible.builtin.set_fact:
+    storage_disk_partition_device: ""
+
+- name: Try to find data partition by label ({{ disk_item.name }})
+  ansible.builtin.command: blkid -L {{ disk_item.name }}
+  register: storage_disk_disk_by_label
+  # blkid exits 2 when the label genuinely isn't found (expected: falls through to
+  # the SCSI-address lookup below). Any other non-zero rc (e.g. 127 = blkid missing,
+  # 4 = usage error) is a real environment/execution failure and must not be
+  # silently treated as "label not found".
+  failed_when: storage_disk_disk_by_label.rc not in [0, 2]
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Set data partition path from label if found ({{ disk_item.name }})
+  ansible.builtin.set_fact:
+    storage_disk_partition_device: "{{ storage_disk_disk_by_label.stdout }}"
+  when:
+    - not ansible_check_mode
+    - storage_disk_disk_by_label.rc == 0
+    - storage_disk_disk_by_label.stdout | length > 0
+
+- name: Decide whether SCSI-address identification is needed ({{ disk_item.name }})
+  ansible.builtin.set_fact:
+    storage_disk_needs_scsi_identification: "{{ storage_disk_partition_device == '' }}"
+
+- name: Identify disk by SCSI address if label not found ({{ disk_item.name }})
+  # ブロックの when は内側の各タスクに個別に再適用される。ここで直接
+  # `storage_disk_partition_device == ""` を使うと、ブロック内の set_fact が storage_disk_partition_device
+  # を書き換えた時点で以降のタスク (mkfs 含む) が全て skip されてしまう
+  # (パーティション作成のみで終わり、ファイルシステムが作られない)。ブロック
+  # 開始前に固定した storage_disk_needs_scsi_identification を使うことで回避する。
+  when: storage_disk_needs_scsi_identification
+  block:
+    - name: Find data disk by SCSI address from by-path ({{ disk_item.name }})
+      ansible.builtin.find:
+        paths: /dev/disk/by-path
+        recurse: false
+        file_type: link
+        patterns:
+          - "*-scsi-{{ disk_item.scsi_address }}"
+      register: storage_disk_disk_by_path_links
+
+    - name: Validate exactly one data disk by-path link is found ({{ disk_item.name }})
+      ansible.builtin.assert:
+        that:
+          - storage_disk_disk_by_path_links.matched == 1
+        fail_msg: >-
+          Expected exactly one /dev/disk/by-path link for scsi address {{ disk_item.scsi_address }},
+          but found {{ storage_disk_disk_by_path_links.matched }}.
+
+    - name: Inspect selected data disk by-path link ({{ disk_item.name }})
+      ansible.builtin.stat:
+        path: "{{ storage_disk_disk_by_path_links.files[0].path }}"
+        follow: false
+      register: storage_disk_disk_symlink
+
+    - name: Set data disk paths ({{ disk_item.name }})
+      ansible.builtin.set_fact:
+        storage_disk_disk_by_path: "{{ storage_disk_disk_by_path_links.files[0].path }}"
+        storage_disk_disk_device: "/dev/{{ storage_disk_disk_symlink.stat.lnk_source | basename }}"
+        storage_disk_partition_suffix: "{{ 'p' if (storage_disk_disk_symlink.stat.lnk_source | basename) is search('^(nvme|mmcblk|loop)') else '' }}"
+
+    - name: Gather data disk partition table info ({{ disk_item.name }})
+      community.general.parted:
+        device: "{{ storage_disk_disk_device }}"
+        unit: MiB
+        state: info
+      register: storage_disk_disk_parted_info
+
+    - name: Validate data disk has at most one partition before managing ({{ disk_item.name }})
+      ansible.builtin.assert:
+        that:
+          - storage_disk_disk_parted_info.partitions | length <= 1
+          - storage_disk_disk_parted_info.partitions | length == 0 or storage_disk_disk_parted_info.partitions[0].num == disk_item.partition_number | default(1)
+        fail_msg: >-
+          Unexpected partition layout on {{ storage_disk_disk_device }}. Refusing to proceed automatically.
+
+    - name: Ensure data partition exists ({{ disk_item.name }})
+      community.general.parted:
+        device: "{{ storage_disk_disk_device }}"
+        label: gpt
+        number: "{{ disk_item.partition_number | default(1) }}"
+        part_start: 1MiB
+        part_end: 100%
+        state: present
+
+    - name: Set data partition paths ({{ disk_item.name }})
+      ansible.builtin.set_fact:
+        storage_disk_partition_device: >-
+          {{ storage_disk_disk_device }}{{ storage_disk_partition_suffix }}{{ disk_item.partition_number | default(1) }}
+        storage_disk_partition_by_path: "{{ storage_disk_disk_by_path }}-part{{ disk_item.partition_number | default(1) }}"
+
+    - name: Wait for data partition by-path link ({{ disk_item.name }})
+      ansible.builtin.wait_for:
+        path: "{{ storage_disk_partition_by_path }}"
+        timeout: 30
+      when: not ansible_check_mode
+
+    - name: Ensure filesystem exists on data partition ({{ disk_item.name }})
+      community.general.filesystem:
+        fstype: "{{ disk_item.filesystem_type | default('xfs') }}"
+        dev: "{{ storage_disk_partition_device }}"
+        opts: "-L {{ disk_item.name }}"
+      when: not ansible_check_mode
+
+- name: Ensure data mount directory exists ({{ disk_item.name }})
+  ansible.builtin.file:
+    path: "{{ disk_item.mount_path }}"
+    state: directory
+    owner: "{{ disk_item.owner | default('root') }}"
+    group: "{{ disk_item.group | default('root') }}"
+    mode: "{{ disk_item.mode | default('0755') }}"
+
+- name: Get partition UUID ({{ disk_item.name }})
+  ansible.builtin.command: blkid -s UUID -o value {{ storage_disk_partition_device }}
+  register: storage_disk_partition_uuid
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Ensure data partition is mounted persistently ({{ disk_item.name }})
+  ansible.posix.mount:
+    path: "{{ disk_item.mount_path }}"
+    src: "UUID={{ storage_disk_partition_uuid.stdout }}"
+    fstype: "{{ disk_item.filesystem_type | default('xfs') }}"
+    opts: "{{ disk_item.mount_opts | default('defaults') }}"
+    state: mounted
+  when: not ansible_check_mode
