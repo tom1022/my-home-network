@@ -3,7 +3,7 @@
   import_playbook: refresh_known_hosts.yml
 
 - name: Install / Bootstrap Argo CD on k3s
-  hosts: k3s
+  hosts: k3s_master
   become: true
   roles:
     - argocd

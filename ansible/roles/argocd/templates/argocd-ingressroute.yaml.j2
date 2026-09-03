@@ -7,10 +7,10 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`argocd.fickledev.com`)
+    - match: Host(`{{ argocd_domain }}`)
       kind: Rule
       services:
         - name: argocd-server
           port: 80
   tls:
-    secretName: tls-fickledev-com
+    secretName: {{ argocd_tls_secret_name }}

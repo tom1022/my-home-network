@@ -51,13 +51,15 @@
   delegate_to: "{{ k3s_control_plane }}"
   become: true
 
-- name: Create Argo CD ApplicationSet bootstrap manifest
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../gitops/apps/gitops-apps-set.yaml"
-    dest: /var/lib/rancher/k3s/server/manifests/gitops-apps-set.yaml
-    mode: '0644'
-  delegate_to: "{{ k3s_control_plane }}"
-  become: true
+# gitops-apps-set.yaml is intentionally NOT deployed here. Once ArgoCD exists,
+# the "apps" ApplicationSet self-manages via GitOps (gitops-apps repo's
+# apps/argocd/applicationset.yaml, synced by the self-referential "argocd"
+# Application). Redeploying it through the k3s manifests auto-deploy mechanism
+# on every run creates a second, permanently drifting ApplicationSet object
+# that fights the GitOps-managed one for ownership of the generated
+# Applications (see iac-hygiene-remediation task 4.1). For a genuine
+# from-scratch cluster bootstrap, apply gitops/apps/gitops-apps-set.yaml
+# manually once (kubectl apply -f) to seed the initial ApplicationSet.
 
 - name: Wait for Argo CD server to be ready
   ansible.builtin.command:
@@ -71,8 +73,7 @@
       - --timeout=300s
   delegate_to: "{{ k3s_control_plane }}"
   become: true
+  # Read-only cluster query; run even under --check so the wait/timeout logic
+  # itself gets exercised during dry-run verification instead of being skipped.
+  check_mode: false
   changed_when: false
-  retries: 10
-  delay: 10
-  register: argocd_wait_result
-  until: argocd_wait_result.rc == 0

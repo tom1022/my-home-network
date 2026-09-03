@@ -1,0 +1,25 @@
+# Managed by Ansible role kanidm_unixd. Local edits will be overwritten.
+version = '2'
+
+home_prefix = "{{ kanidm_unixd_home_prefix }}"
+home_attr = "{{ kanidm_unixd_home_attr }}"
+{% if kanidm_unixd_home_mount_prefix %}
+home_mount_prefix = "{{ kanidm_unixd_home_mount_prefix }}"
+{% endif %}
+home_alias = "{{ kanidm_unixd_home_alias }}"
+home_strategy = "{{ kanidm_unixd_home_strategy }}"
+use_etc_skel = {{ kanidm_unixd_use_etc_skel | lower }}
+
+uid_attr_map = "{{ kanidm_unixd_uid_attr_map }}"
+gid_attr_map = "{{ kanidm_unixd_gid_attr_map }}"
+
+# 空集合は「default-deny」= 誰もログインできない。ホスト単位の制限は
+# host_vars の kanidm_unixd_allowed_login_groups で与える (要件 26.12)。
+[kanidm]
+pam_allowed_login_groups = {{ kanidm_unixd_allowed_login_groups | to_json }}
+{% for m in kanidm_unixd_map_groups %}
+
+[[kanidm.map_group]]
+local = "{{ m.local }}"
+with = "{{ m.remote }}"
+{% endfor %}

@@ -1,0 +1,24 @@
+---
+# 決定根拠は .kiro/specs/iac-hygiene-remediation/research.md の
+# 「タスク 26.4」節を参照。NAS 実機の既存 UID/GID (システムアカウント 0-999、
+# login.defs の UID_MIN/UID_MAX 1000-60000、実在の debian=1000/tochi=1001)
+# のいずれとも重ならない、Kanidm の既定動的割当レンジをそのまま採用する
+# (Kanidm 側・NAS 側とも追加のオフセット設定は不要)。
+kanidm_unixd_uid_range: [1879048192, 2147483647]
+kanidm_unixd_gid_range: [1879048192, 2147483647]
+
+kanidm_unixd_uri: https://kanidm.fickledev.com
+
+# タスク 26.5 (要件 26.12)。ホスト単位の許可制限: nas_access
+# (terraform-kanidm/identities.tf) のメンバーのみ NAS へログインできる。
+kanidm_unixd_allowed_login_groups:
+  - nas_access
+
+# タスク 26.5 (要件 26.13)。NAS のローカル管理者は tochi/debian の 2 アカウント
+# のみで、いずれも local sudo グループのメンバ (research.md タスク 26.4 実測)。
+# nas_access は「NAS へログインできる POSIX 利用者」の唯一のクラスであり、この
+# ホームラボでは同じ人物 (管理者自身) が Kanidm 経由でも同じ管理者権限を持つ想定の
+# ため、sudo をそのまま拡張する。
+kanidm_unixd_map_groups:
+  - local: sudo
+    remote: nas_access

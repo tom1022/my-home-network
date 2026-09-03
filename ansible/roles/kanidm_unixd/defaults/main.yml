@@ -1,0 +1,43 @@
+---
+# Kanidm PPA (https://kanidm.github.io/kanidm_ppa/) apt source coordinates.
+# `kanidm-unixd` pulls in libnss-kanidm/libpam-kanidm as apt dependencies, and
+# `kanidm` is the CLI used for the password-change guidance in requirement 26.16.
+kanidm_unixd_ppa_uri: https://kanidm.github.io/kanidm_ppa
+kanidm_unixd_ppa_key_uri: https://kanidm.github.io/kanidm_ppa/kanidm_ppa.asc
+kanidm_unixd_ppa_component: stable
+kanidm_unixd_packages:
+  - kanidm-unixd
+  - kanidm
+
+# Shared client config (/etc/kanidm/config, also read by kanidm-unixd itself).
+kanidm_unixd_uri: ""
+kanidm_unixd_verify_ca: true
+kanidm_unixd_verify_hostnames: true
+
+# UID/GID range decided in research.md タスク 26.4 (NAS 実機の既存 UID/GID との
+# 非衝突を確認済み)。kanidm_unixd の設定ファイルにはレンジを扱うキーが存在しない
+# ため、ここでは決定の記録としてのみ保持し、tasks/main.yml のアサートで
+# ドリフト検知にのみ使う。
+kanidm_unixd_uid_range: []
+kanidm_unixd_gid_range: []
+kanidm_unixd_expected_uid_range: [1879048192, 2147483647]
+kanidm_unixd_expected_gid_range: [1879048192, 2147483647]
+
+# ホームディレクトリ自動生成 (要件 26.11 の 6 項目)。
+kanidm_unixd_home_prefix: /home/
+kanidm_unixd_home_attr: uuid
+kanidm_unixd_home_alias: name
+kanidm_unixd_home_strategy: symlink
+kanidm_unixd_use_etc_skel: true
+kanidm_unixd_home_mount_prefix: ""
+
+# ログイン名/グループ名の表示に SPN ではなく素の名前を使う (要件外だが、
+# ローカルアカウント (tochi/debian) と同じ見た目のユーザ名で SSH できないと
+# 運用上あまりに不便なため明示する)。
+kanidm_unixd_uid_attr_map: name
+kanidm_unixd_gid_attr_map: name
+
+# ホスト単位で上書きする前提の設定 (要件 26.12/26.13)。既定は「誰もログインできない」
+# 安全側。
+kanidm_unixd_allowed_login_groups: []
+kanidm_unixd_map_groups: []

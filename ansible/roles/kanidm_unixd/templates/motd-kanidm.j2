@@ -1,0 +1,13 @@
+#!/bin/sh
+# Managed by Ansible role kanidm_unixd. Local edits will be overwritten.
+#
+# passwd(1) only rewrites the local shadow database, so it silently does
+# nothing for Kanidm-issued accounts (requirement 26.16).
+cat <<'EOF'
+
+Kanidm 経由のアカウントのパスワードは、この端末上の `passwd` コマンドでは変更できません。
+変更は以下のいずれかで行ってください:
+  - Web:  {{ kanidm_unixd_uri }}/ (ログイン後、プロフィール画面の認証情報から変更)
+  - CLI:  kanidm login --name <username> && kanidm self credential update
+
+EOF

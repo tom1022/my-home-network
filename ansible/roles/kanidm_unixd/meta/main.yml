@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  role_name: kanidm_unixd
+  author: tom1022
+  description: Integrate a Debian host's login with Kanidm via kanidm-unixd (PAM/NSS)
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

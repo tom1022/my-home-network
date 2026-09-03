@@ -13,7 +13,26 @@ spec:
   valuesContent: |
     configs:
       cm:
-        url: https://argocd.fickledev.com
+        url: https://{{ argocd_domain }}
+        oidc.config: |
+          name: Kanidm
+          issuer: {{ argocd_oidc_issuer }}
+          clientID: {{ argocd_oidc_client_id }}
+          cliClientID: {{ argocd_oidc_client_id }}
+          enablePKCEAuthentication: true
+          requestedScopes:
+            - openid
+            - profile
+            - email
+            - groups
+          requestedIDTokenClaims:
+            groups:
+              essential: true
+      rbac:
+        policy.default: ''
+        policy.csv: |
+          g, {{ argocd_oidc_admin_group }}, role:admin
+          g, {{ argocd_oidc_viewer_group }}, role:readonly
       params:
         server.insecure: true
     server:

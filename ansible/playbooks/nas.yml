@@ -7,6 +7,7 @@
   become: true
   roles:
     - nas
+    - kanidm_unixd
 
 - name: Ensure Proxmox nodes mount Gitea NFS
   hosts: proxmox_nodes

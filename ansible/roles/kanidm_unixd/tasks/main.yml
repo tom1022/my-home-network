@@ -1,0 +1,93 @@
+---
+- name: Assert the decided UID/GID range still matches Kanidm's fixed dynamic allocation range
+  ansible.builtin.assert:
+    that:
+      - kanidm_unixd_uid_range == kanidm_unixd_expected_uid_range
+      - kanidm_unixd_gid_range == kanidm_unixd_expected_gid_range
+    fail_msg: >-
+      host_vars の kanidm_unixd_uid_range/gid_range が research.md タスク 26.4 の
+      決定 (Kanidm の gidnumber 自動生成レンジ) と一致しない。レンジを変更する場合は
+      NAS 実機の既存 UID/GID を再確認してから決定すること (要件 26.14/26.15)。
+  when: kanidm_unixd_uid_range | length > 0
+
+- name: Add the Kanidm PPA apt source
+  ansible.builtin.deb822_repository:
+    name: kanidm_ppa
+    types: deb
+    uris: "{{ kanidm_unixd_ppa_uri }}"
+    suites: "{{ ansible_distribution_release }}"
+    components: "{{ kanidm_unixd_ppa_component }}"
+    architectures: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+    signed_by: "{{ kanidm_unixd_ppa_key_uri }}"
+
+- name: Install kanidm-unixd and the kanidm CLI
+  ansible.builtin.apt:
+    name: "{{ kanidm_unixd_packages }}"
+    state: present
+    # Always re-check the index so a freshly-added PPA (above) is visible to
+    # this same run; apt itself no-ops (and reports unchanged) when the
+    # cache is already current, so this doesn't cost idempotency.
+    update_cache: true
+  # libpam-kanidm's postinst (dependency of kanidm-unixd) runs
+  # `pam-auth-update --package` itself and registers the "Kanidm
+  # Authentication" pam-config profile (Default: yes), which auto-enables it
+  # on a host with no prior manual PAM customisation. No separate
+  # pam-auth-update step is needed or re-run on subsequent installs.
+
+- name: Configure the shared Kanidm client URI (/etc/kanidm/config)
+  ansible.builtin.template:
+    src: config.j2
+    dest: /etc/kanidm/config
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Restart kanidm-unixd
+    - Restart kanidm-unixd-tasks
+
+- name: Configure kanidm_unixd (/etc/kanidm/unixd)
+  ansible.builtin.template:
+    src: unixd.j2
+    dest: /etc/kanidm/unixd
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Restart kanidm-unixd
+    - Restart kanidm-unixd-tasks
+
+- name: Put kanidm ahead of files in nsswitch passwd/group resolution
+  ansible.builtin.lineinfile:
+    path: /etc/nsswitch.conf
+    regexp: "^{{ item }}:"
+    line: "{{ item }}:\t\tkanidm files"
+  loop:
+    - passwd
+    - group
+
+- name: Enable SSH login via kanidm_ssh_authorizedkeys (AuthorizedKeysCommand)
+  ansible.builtin.template:
+    src: sshd_kanidm.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-kanidm.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload ssh
+
+- name: Present password-change guidance for POSIX-integrated logins (requirement 26.16)
+  ansible.builtin.template:
+    src: motd-kanidm.j2
+    dest: /etc/update-motd.d/60-kanidm-password
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Enable and start kanidm-unixd services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - kanidm-unixd
+    - kanidm-unixd-tasks
