@@ -1,30 +1,77 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: apps
   namespace: argocd
 spec:
+  # goTemplate と templatePatch は syncOptions を per-app に出し分けるために
+  # 有効化している (cert-manager の CRD 個別の ServerSideApply、下記参照)。
+  # 有効化に伴い変数参照は非 goTemplate 構文 ({{path.basename}}) から
+  # goTemplate 構文 ({{.path.basename}}) へ変わる。template 内の値リスト
+  # (syncOptions 等) はフィールド単位でテンプレート評価されるため
+  # {{if}} で要素を出し入れできない。要素の出し入れは templatePatch
+  # (全体が 1 つの文字列としてテンプレート評価されてから YAML としてマージ
+  # される)側で行う。
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
   generators:
   - git:
-      repoURL: http://192.168.1.200:3000/giteaadmin/gitops-apps.git
+      repoURL: &gitopsAppsRepoURL http://192.168.1.200:3000/giteaadmin/gitops-apps.git
       revision: HEAD
       directories:
       - path: "apps/*"
+      # apps/base はクラスタスコープの共有リソース (StorageClass 等) の置き場で、
+      # 個々の namespace を持つアプリケーションではない。exclude しないと
+      # ApplicationSet が "base" という空の Application/namespace を生成してしまう。
+      - path: "apps/base"
+        exclude: true
   template:
     metadata:
-      name: "{{path.basename}}"
+      name: "{{.path.basename}}"
     spec:
       project: default
       source:
-        repoURL: http://192.168.1.200:3000/giteaadmin/gitops-apps.git
+        repoURL: *gitopsAppsRepoURL
         targetRevision: HEAD
-        path: "{{path}}"
+        path: "{{.path.path}}"
       destination:
         server: https://kubernetes.default.svc
-        namespace: "{{path.basename}}"
+        namespace: "{{.path.basename}}"
       syncPolicy:
         automated:
           prune: true
           selfHeal: true
         syncOptions:
         - CreateNamespace=true
+  # cert-manager の CRD (clusterissuers/issuers) は last-applied-configuration
+  # アノテーションの 262144 バイト上限に抵触する規模まで成長している。
+  # 当初 ServerSideApply=true を使ったが、本クラスタの k8s (v1.35+k3s3) が
+  # 返す Deployment.status に ArgoCD v2.12.1 の埋め込みスキーマが知らない
+  # フィールド (terminatingReplicas) が含まれ、SSA 経路の structured-merge-diff
+  # によるタイプ化に失敗し Application 全体が比較不能 (sync status: Unknown)
+  # に陥った。Replace は last-applied-configuration を使わず同アノテーション
+  # 上限を回避しつつ、通常の diff 経路のまま比較できるためこちらを採用する。
+  # 他アプリの apply 意味論を変えないよう、Application 個別ではなく本アプリの
+  # みへ限定する。
+  #
+  # cnpg-operator の `clusters.postgresql.cnpg.io` CRD も同じ理由で Replace=true
+  # を使う。1.28.4 時点で上限まで残り 4512 バイト (98.3%) しかなく、1.29.2 では
+  # 上限超過 (270156 バイト) が確定しているため、段階アップグレードの最初の段
+  # (1.27.4) から先行して切り替える。Cluster/Backup/ScheduledBackup は別
+  # Application (postgres) が管理しており本設定の対象外。
+  templatePatch: |
+    {{- if eq .path.basename "cert-manager" }}
+    spec:
+      syncPolicy:
+        syncOptions:
+        - CreateNamespace=true
+        - Replace=true
+    {{- end }}
+    {{- if eq .path.basename "cnpg-operator" }}
+    spec:
+      syncPolicy:
+        syncOptions:
+        - CreateNamespace=true
+        - Replace=true
+    {{- end }}
