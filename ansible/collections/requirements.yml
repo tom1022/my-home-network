@@ -1,0 +1,21 @@
+---
+collections:
+  # nas/tasks/storage.yml (parted, filesystem), vps_proxy/tasks/main.yml (ufw),
+  # rlex.k3s/tasks/gvisor.yml (modprobe)
+  - name: community.general
+    version: ">=9.5.0,<10.0.0"
+  # nas/tasks/storage.yml (mount), rlex.k3s/tasks/preconf.yml (sysctl)
+  - name: ansible.posix
+    version: ">=1.6.0,<3.0.0"
+  # rlex.k3s/tasks/kuberesources.yml (k8s)
+  - name: kubernetes.core
+    version: ">=3.2.0,<4.0.0"
+  # proxmox_backup/tasks/main.yml (proxmox_storage, proxmox_backup_info, proxmox_backup_schedule)
+  - name: community.proxmox
+    version: ">=2.0.0,<3.0.0"
+  # 証明書有効期限判定 (x509_certificate_info) に使用
+  - name: community.crypto
+    version: ">=2.0.0,<3.0.0"
+  # mariadb/mariadb_dump roles (mysql_db, mysql_user) に使用
+  - name: community.mysql
+    version: ">=3.11.0,<4.0.0"

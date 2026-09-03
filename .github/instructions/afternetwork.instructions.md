@@ -54,15 +54,12 @@ flowchart TB
  subgraph K3S_FLOATING["k3s Workloads (Argo CD 管理)"]
         POD_INGRESS["Ingress Controller<br>Traefik"]
         POD_ARGO["Argo CD (GitOps)"]
-        POD_AUTHENTIK["Pod: Authentik<br>(fickledev SSO/IdP)"]
         POD_CLOUDFLARED["Pod: cloudflared<br>(fickledev Tunnel)"]
         POD_XRAYVPN["Pod: xrayvpn<br>(VPN Proxy)"]
-        POD_MAILU["Pod: Mailu<br>(Mail Server)"]
         POD_HOMEASSISTANT["Pod: Home Assistant"]
         POD_MINECRAFT["Pod: Minecraft Bedrock"]
         POD_GARAGE["Pod: Garage<br>(S3 Object Storage)"]
         POD_POSTGRES["Pod: PostgreSQL<br>(CloudNativePG)"]
-        POD_K8SDASH["Pod: Kubernetes Dashboard"]
         POD_PLATFORM["Platform Controllers<br>cert-manager / cluster-issuer /<br>cnpg-operator / infisical-operator /<br>reflector / reloader"]
   end
  subgraph HW_VCLUSTER["Proxmox Cluster"]
@@ -87,7 +84,6 @@ flowchart TB
   end
     NET_INTERNET --- NET_CFCDN & NET_CFZT & HW_ROUTER_ONU
     NET_CFCDN -- Web(443) --> VPS_NGINX
-    NET_INTERNET -- Mail(25/587/993) --> VPS_HAPROXY
     VPS_NGINX --> VPS_TAILSCALE
     VPS_HAPROXY --> VPS_TAILSCALE
     VPS_TAILSCALE -- Tunnel --> HW_ROUTER_OPNSENSE
@@ -97,13 +93,11 @@ flowchart TB
     HW_SWITCH_TPLink -- "LAN-VLAN" --> HW_SWITCH_TPLINK_LAN
     HW_SWITCH_TPLink -- "CONSOLE-VLAN" --> HW_ADMIN_PC
     HW_ROUTER_OPNSENSE -- Port Fwd/Routing --> POD_INGRESS
-    POD_INGRESS --> POD_ARGO & POD_GARAGE & POD_HOMEASSISTANT & POD_K8SDASH & POD_MAILU
-    POD_INGRESS -- TCP --> POD_MAILU
+    POD_INGRESS --> POD_ARGO & POD_GARAGE & POD_HOMEASSISTANT
     HW_ROUTER_OPNSENSE -- "Port Fwd (NodePort)" --> POD_XRAYVPN
     HW_ROUTER_OPNSENSE -- "Port Fwd (UDP 19132)" --> POD_MINECRAFT
-    NET_CFZT -- "Tunnel (idp/crafty)" --> POD_CLOUDFLARED
-    POD_CLOUDFLARED --> POD_AUTHENTIK & POD_MINECRAFT
-    POD_AUTHENTIK --> POD_POSTGRES
+    NET_CFZT -- "Tunnel (crafty)" --> POD_CLOUDFLARED
+    POD_CLOUDFLARED --> POD_MINECRAFT
     STORAGE_HDD == ZFS === VM_NAS
     STORAGE_HDD === LXC_PBS
     VM_NAS -- NFS --> LXC_GITEA & VM_REC & K3S_FLOATING

@@ -1,0 +1,9 @@
+# Normalize line endings to LF for everything git treats as text.
+# artifacts/ holds point-in-time backups of live/removed system state; -text
+# keeps them byte-identical to what was captured. Vendored upstream content
+# (ansible/collections/, ansible/roles/rlex.k3s/) keeps its own line endings.
+* text=auto eol=lf
+
+.kiro/specs/*/artifacts/** -text
+ansible/collections/** -text
+ansible/roles/rlex.k3s/** -text

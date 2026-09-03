@@ -1,0 +1,11 @@
+---
+# rlex.k3s は Galaxy 取得物であり、内容の改変を本リポジトリの管理対象としない (Boundary Context)。
+profile: production
+exclude_paths:
+  - .venv/
+  - ansible/roles/rlex.k3s/
+  # vendored via ansible-galaxy (gitignored, see ansible/collections/requirements.yml);
+  # only populated locally/in CI, never a lint target.
+  - ansible/collections/
+  # point-in-time backups of live/removed state; not applied by any playbook.
+  - .kiro/specs/*/artifacts/

@@ -1,0 +1,30 @@
+---
+extends: default
+
+# ansible/collections/ and ansible/roles/rlex.k3s/ are vendored upstream
+# distributions (see .ansible-lint for the same exclusion). artifacts/ holds
+# point-in-time backups of live/removed cluster state, some copied verbatim
+# from Helm chart templates that are not valid standalone YAML.
+ignore: |
+  ansible/collections/
+  ansible/roles/rlex.k3s/
+  .kiro/specs/*/artifacts/
+  .venv/
+
+rules:
+  line-length: disable
+  indentation:
+    indent-sequences: consistent
+  truthy:
+    check-keys: false
+  # ansible-lint reads this same file for its wrapped yamllint checks and
+  # requires these exact overrides (comments-indentation off, braces sized
+  # for Jinja's "{{ var }}" spacing) or it refuses to run its yaml auto-fixer.
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

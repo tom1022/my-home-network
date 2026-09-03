@@ -6,5 +6,8 @@ useDefault = true
 [[rules]]
 id = "k3s-node-token"
 description = "k3s node token (K10<64 hex>::server:<32 hex> format, not matched by default gitleaks rules)"
-regex = '''K10[0-9a-f]{64}::(server|node):[0-9a-f]{16,64}'''
+# capture group must stay non-capturing: gitleaks defaults --redact's target to the
+# first capture group when one exists, so a capturing (server|node) here caused
+# --redact to mask only that keyword and leave the actual token hex unmasked.
+regex = '''K10[0-9a-f]{64}::(?:server|node):[0-9a-f]{16,64}'''
 keywords = ["k3s", "node_token", "K10"]

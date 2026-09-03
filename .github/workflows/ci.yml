@@ -1,0 +1,97 @@
+---
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python (yamllint / pytest / ruff / host-address drift)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.10"
+
+      - run: uv run yamllint .
+
+      # scoped to scripts/ via [tool.pytest.ini_options] testpaths in
+      # pyproject.toml; without it, ansible/collections/ (vendored, not a
+      # project dependency) would be collected too and fail to import.
+      - run: uv run pytest
+
+      - run: uv run ruff check scripts/
+      - run: uv run ruff format --check scripts/
+
+      - run: uv run python scripts/check_host_address_drift.py
+
+  ansible:
+    name: Ansible (syntax-check / lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.10"
+
+      # ansible/collections/ is gitignored (vendored via ansible-galaxy, see
+      # requirements.yml); both syntax-check and lint need the FQCN modules
+      # (e.g. community.proxmox.*) actually resolvable, not just present as
+      # strings.
+      - name: Install Ansible collections
+        run: uv run ansible-galaxy collection install -r ansible/collections/requirements.yml -p ansible/collections
+
+      # roles_path in ansible/ansible.cfg is relative (./roles); ansible-playbook
+      # only resolves it when invoked with cwd == ansible/.
+      - name: Syntax-check all playbooks
+        working-directory: ansible
+        run: |
+          set -e
+          for playbook in playbooks/*.yml; do
+            echo "== $playbook =="
+            uv run --project .. ansible-playbook --syntax-check "$playbook"
+          done
+
+      # Pre-existing violations (fqcn/var-naming/name/key-order/schema, ~23
+      # findings across nfs_client / proxmox_backup / storage_disk /
+      # vps_proxy / a couple of playbooks and role meta files) predate this
+      # spec and aren't in scope for any of its tasks; renaming role-internal
+      # variables carries real behavior risk and isn't verification-automation
+      # work. Non-blocking until a dedicated task clears them (Requirement
+      # 12.9: don't gate on a check that fails before remediation reaches a
+      # passing state) — kept running, not disabled, so findings stay visible.
+      - name: ansible-lint (non-blocking, see step note)
+        env:
+          # ansible-lint is invoked from the repo root so .ansible-lint's
+          # exclude_paths (repo-root-relative) match; ANSIBLE_CONFIG points it
+          # at ansible/ansible.cfg for the same roles_path resolution the
+          # syntax-check step gets from its cwd.
+          ANSIBLE_CONFIG: ansible/ansible.cfg
+        run: uv run ansible-lint
+        continue-on-error: true
+
+  terraform:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # -backend=false skips the HCP Terraform (remote state) handshake, which
+      # needs TF_TOKEN_app_terraform_io — not available to this runner. Syntax
+      # and type validation don't need state or provider credentials.
+      - run: terraform init -backend=false
+      - run: terraform validate
