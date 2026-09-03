@@ -5,10 +5,10 @@ k3s_control_plane: k3s-server
 # コントロールプレーンの接続先。ホスト名の ansible_host を優先して参照します。
 k3s_server_endpoint: "{{ hostvars[k3s_control_plane].ansible_host | default(k3s_control_plane) }}"
 
-# Map role expected group names to this inventory group
+# Map role expected group names to the actual control-plane / agent groups
 # role defaults expect `k3s_master_group` and `k3s_agent_group`
-k3s_master_group: k3s
-k3s_agent_group: k3s
+k3s_master_group: k3s_master
+k3s_agent_group: k3s_agent
 # expose master IP in role-compatible variable
 k3s_master_ip: "{{ hostvars[k3s_control_plane].ansible_host | default(k3s_control_plane) }}"
 k3s_master_port: 6443
@@ -21,9 +21,6 @@ k3s_agent_extra_args: []
 # Resolve per-host internal IP from the map (defined in group_vars/all/main.yml).
 # If not found, default to empty. Roles/templates check for non-empty value before applying.
 k3s_internal_ip: "{{ k3s_internal_ips[inventory_hostname] | default('') }}"
-
-# k3s certificates are managed in-cluster via cert-manager (no NAS copy)
-letsencrypt_cert_target: false
 
 # Gitea repository configuration used by the argocd role
 argocd_gitea_repo_url: "http://192.168.1.200:3000/giteaadmin/gitops-apps.git"

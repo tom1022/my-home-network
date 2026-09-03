@@ -1,15 +1,9 @@
 ---
-sssd_bind_password: "{{ lookup('env', 'SSSD_BIND_PASSWORD') }}"
-
 # Default k3s inventory group names (ensure roles referencing these work when
 # running against other target groups)
-k3s_master_group: k3s
-k3s_agent_group: k3s
+k3s_master_group: k3s_master
+k3s_agent_group: k3s_agent
 k3s_master_port: 6443
-
-letsencrypt_copy_target_hosts: vps
-letsencrypt_contact_email: "{{ lookup('env', 'LETSENCRYPT_CONTACT_EMAIL') }}"
-letsencrypt_cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_DNS01_API_TOKEN') }}"
 
 proxmox_api_host: "{{ lookup('env', 'PROXMOX_API_HOST') }}"
 proxmox_api_user: "{{ lookup('env', 'PROXMOX_API_USER') }}"

@@ -1,12 +1,11 @@
 ---
 # Copy this file to vault.yml and encrypt it:
 # ansible-vault encrypt inventory/group_vars/all/vault.yml
-vault_sssd_bind_password: "CHANGEME_SSSD_BIND_PASSWORD"
+vault_vps_proxy_acme_contact_email: "admin@fickledev.com"
+vault_vps_proxy_acme_cloudflare_api_token: "CHANGEME_CLOUDFLARE_DNS_API_TOKEN"
 
-vault_letsencrypt_contact_email: "admin@fickledev.com"
-vault_letsencrypt_cloudflare_api_token: "CHANGEME_CLOUDFLARE_DNS_API_TOKEN"
-
-# cert-manager on k3s uses these values for Cloudflare DNS-01 ACME issuance.
+# cert-manager on k3s uses this same underlying Cloudflare DNS-01 token value
+# (supplied to k3s independently via the Infisical Operator, not via Ansible).
 
 # Proxmox VE API credentials (token auth)
 # vault_proxmox_api_token_id should be token name (example: ansible).
