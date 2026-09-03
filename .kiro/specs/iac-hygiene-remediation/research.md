@@ -8072,6 +8072,44 @@ Gitea データベース側にあるため、この再生成タスクは何度�
 
 **裏が取れなかった点**: `ldaps.kanidm.fickledev.com` への実 LDAPS bind 疎通、Proxmox スナップショットからの実復元等、本タスクの 10 項目に含まれない周辺確認は引き続き対象外。`mailserver` role の `risky-file-permissions` 指摘は編集権限外のため是正していない(mail-platform 側での対応が必要)。
 
+### タスク 28.7: 役割を持たなくなったデータベースホストを取り除く（Boundary: `GuestInventoryReconciliation`）
+
+**Context**: 要件 28.16。対象は `n100` 上の LXC 113(`mariadb-legacy`)。タスク 28.4 で Gitea のデータベースを LXC 200 へ移設した結果、`gitea` データベース・`gitea`@`%`・未管理の資格情報 `ansible`@`192.168.%` を含む全ユーザ(`root@localhost` を除く)を `DROP` 済みで、実データも正当な利用者も持たない空のゲストになっていた。運用者が除去を明示的に指示した。
+
+**退避の取得と復元確認**: `n100` 上で `vzdump 113 --storage pbs-zfs-pool --mode snapshot --compress zstd` を実行し、`pbs-zfs-pool:backup/ct/113/2026-09-03T14:06:05Z` を取得した(前日 9/2 の既存退避から差分 110.744 MiB のみ新規転送、90.6% を再利用したインクリメンタル取得)。
+
+復元可能性はカタログ確認に留めず、使い捨て VMID 999 へ `pct restore 999 pbs-zfs-pool:backup/ct/113/2026-09-03T14:06:05Z --storage local-lvm` で実際に試験復元した。**なお試験直後に誤って `pct start 999` を実行してしまい、復元された `net0`/`net1` の IP・MAC アドレスが稼働中の CT 113 と完全に同一(`192.168.1.100`/`172.16.0.100`、同一 hwaddr)であることに起因する IP/MAC 重複のリスクを生じさせた。約 3 秒で `pct stop 999` により即座に停止し、目視で異常は確認されなかったが、想定外の事象として記録する。**以降は `pct mount 999` によるルートファイルシステムの直接マウントに切り替え、ネットワークを起動せずに次を確認した:
+
+- `mysql` スキーマディレクトリ配下のファイル数が稼働中 CT 113 と復元後 CT 999 とで一致(90 件)
+- `/etc/mysql/debian.cnf` の md5sum が両者で完全一致
+- `/etc/os-release` の内容が両者で完全一致(byte-identical)
+
+確認後 `pct unmount 999` → (復元されたゲストは退避元の `protection: 1` を継承していたため) `pct set 999 --protection 0` → `pct destroy 999 --purge 1` で試験用ゲストを除去し、`pct list` が CT 113/200 のみを示す状態に戻したことを確認した。
+
+**除去直前の再確認**: `pct exec 113 -- mysql -u root -e "SELECT user, host FROM mysql.user;"` で `root@localhost` のみであること、`SHOW DATABASES;` で `information_schema`・`mysql`・`performance_schema` のみ(利用者データベース無し)であることを、除去の直前に改めて確認した。
+
+**採った除去方法とその理由**: LXC 113 は `terraform/locals.tf` の `containers["mariadb-legacy"]` として Terraform 管理下にあったため、Proxmox 側で直接消して state から外す方式ではなく、`infisical run --env=prod -- terraform destroy -target='module.containers["mariadb-legacy"]' -auto-approve` で除去した。理由は、対象が既に IaC で管理されているリソースである以上、`pct destroy` による実機直接操作と事後の `terraform state rm` を組み合わせるより、Terraform の apply/destroy サイクルそのもので閉じたほうが state の残骸(drift)を生む余地が無く、本 spec(iac-hygiene-remediation)の趣旨に沿うため。除去前に `pct set 113 --protection 0` で仮想化基盤上の保護フラグを外し(`terraform destroy -target` 単独では実機側の `protection: 1` を書き換えないため、事前に実機側で解除する必要があった)、その後の baseline `terraform plan -target` では `protection: false -> true` のみが差分として表示され(定義側が `protection = true` のままだったため、Terraform の視点では「保護を戻す」向きの差分)、他の属性には差分が無いことを確認してから destroy を実行した。destroy は `Destroy complete! Resources: 1 destroyed.` で完了し、`pct list` で実機からも CT 113 が消えたことを確認した。
+
+**定義側から取り除いた箇所**:
+
+- `terraform/locals.tf`: `containers` map の `"mariadb-legacy"` ブロック全体(コメント含む)
+- `ansible/inventory/inventory.yml`: `target_hosts.hosts.mariadb-legacy` のホスト定義、および `containers.hosts.mariadb-legacy: {}` のグループ所属
+- `ansible/inventory/host_vars/pbs/main.yml`: `pbs_backup_targets` の `mariadb-legacy`(vmid 113)エントリ、および該当エントリの存在を前提としていた冒頭コメント("plus the legacy MariaDB container" の文言)
+- `ansible/inventory/host_vars/mariadb-legacy/` のようなホスト専用ディレクトリは元から存在しなかった(確認済み、取り除く対象なし)
+- 付随して `.kiro/steering/tech.md` の `## Proxmox Guests` 節に、LXC 113 を Terraform 管理下として言及する記述(`mariadb-legacy（113）`)と、Terraform 管理外ゲスト一覧の表に矛盾して残っていた `| n100 | LXC | 113 | MariaDB |` の行(実機の現況が「管理外」ではなく「Terraform 管理下→除去済み」であるにもかかわらず旧い記述が残っていた)があったため、事実と一致させるためあわせて是正した。3 箇所の除去対象(ゲスト定義・構成管理対象ホスト一覧・退避対象一覧)には含まれないが、除去直後に虚偽の記述が残ることを避けるための最小限の追随修正である
+
+**除去後の確認**:
+
+- `ansible target_hosts --list-hosts`(非ブロッキング IO 対策として fd の `O_NONBLOCK` を明示的に解除する使い捨て python ラッパー経由で実行。原因はタスク 21.1 で確認済みの既知事象と同様と推測)で 9 ホスト(`n100`/`hp-z440`/`k3s-server`/`k3s-agent-minipc`/`k3s-agent-z440`/`nas`/`gitea`/`pbs`/`vps`)のみが列挙され、`mariadb-legacy` は現れないことを確認した
+- `infisical run --env=prod -- terraform plan -detailed-exitcode` は `exit 2`(変更あり)を返した。差分の内容は `module.virtual_machines["k3s-agent-z440"].disk.backup: false -> true` の 1 件のみで、本タスクとは無関係な VM リソース(`module.virtual_machines`、`module.containers` ではない)についての既存ドリフトであり、`mariadb-legacy`/LXC 113 への言及は出力に一切無い。このドリフトは本タスクが着手する前から存在していたもの(本タスクの一連の操作は `module.containers["mariadb-legacy"]` のみを対象としており、`k3s-agent-z440` の VM ディスク設定には一度も触れていない)で、対象範囲外のため是正していない
+- `ansible/playbooks/proxmox_backup.yml` を `infisical run --env=prod -- ansible-playbook`(前述の non-blocking IO 対策ラッパー経由)で適用したところ、1 回目は `changed=1`(`/etc/pve/jobs.cfg` の vzdump ジョブから `vmid` リストの `113` が除去され `150,151,152,201,202` になった)、2 回目は `changed=0` で冪等に収束することを確認した
+
+**完了可否**: 完了。要件 28.16(運用者の明示指示による除去、事前の復元可能な退避、除去直前の再確認、保護フラグの解除、定義側の追随除去、除去後の実機・定義一致確認)をいずれも満たした。
+
+**想定外の事象と対処**: 上記のとおり、復元検証用の使い捨て CT 999 を誤って `pct start` し、稼働中の CT 113 と同一の IP/MAC を持つゲストが一瞬ネットワーク上に同時存在する状態を作ってしまった。実害は確認されなかったが、以後は `pct mount` によるオフラインでのファイル内容確認のみで復元検証を行う方式に切り替えた。今後同様の復元検証を行う際は、対象ゲストが稼働中である限り試験復元先の `pct start` を行わない(mount のみで完結させる)ことを徹底する必要がある。
+
+**裏が取れなかった点**: `pbs-zfs-pool` 上の退避カタログ自体の保持期間(`pbs_backup_keep_last: 2` はインベントリ管理対象のみに適用される設定で、本エントリは除去済みのため今後の新規取得は無い)による、今回取得した最終退避(`ct/113/2026-09-03T14:06:05Z` を含む既存の一連の履歴)の将来的な prune タイミングは確認していない。恒久的に保持する必要がある場合は、PBS 側で個別に retain 設定するか、リポジトリ外へのアーカイブが別途必要になる旨を申し送る。`module.virtual_machines["k3s-agent-z440"].disk.backup` の既存ドリフトの根本原因(タスク 28.5 の一連の変更に起因するか等)は本タスクの範囲外のため未調査。
+
 ## 追補: タスク 28.8 名前空間と永続ボリュームの双方が失われた孤児ディレクトリの解放 (2026-09-03)
 
 - **Context**: 要件 18.4。タスク 6.1 (段階 0.5) で固定した孤児ディレクトリ一覧 6 件（本ファイル 428〜439 行目）を解放する。運用者が解放を明示的に指示した。

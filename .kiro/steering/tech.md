@@ -237,11 +237,10 @@ PBS（Proxmox Backup Server、LXC 202）が両 Proxmox ノードからのバッ�
 ## Proxmox Guests
 
 `terraform/locals.tf` に定義があるのは k3s 3 台（150/151/152）、nas（201）、gitea（200）、
-pbs（202）、mariadb-legacy（113）。**以下は実機に存在するが Terraform 管理外**で、実機と定義の対応が付いていない。
+pbs（202）。**以下は実機に存在するが Terraform 管理外**で、実機と定義の対応が付いていない。
 
 | ノード | 種別 | ID | 名前 |
 |---|---|---|---|
-| n100 | LXC | 113 | MariaDB |
 | n100 | VM | 9000 | debian-12-template（停止） |
 | hp-z440 | VM | 105 | nextcloud（`/dev/sdb` を raw passthrough） |
 | hp-z440 | VM | 108 | windows（停止、OS ディスクの定義が無い） |

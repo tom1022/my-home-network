@@ -78,29 +78,5 @@ locals {
       zfs_pools = [500]
       ip1       = "172.16.0.202"
     }
-    # Legacy standalone MariaDB host, predates this Terraform config. Hosts Gitea's
-    # production database (net0/192.168.1.100) alongside decommissioned services'
-    # leftover schemas. protection/firewall/hostname/mtu are pinned to the guest's
-    # actual on-disk config so bringing it under management doesn't change it.
-    "mariadb-legacy" = {
-      vmid     = 113
-      node     = "n100"
-      cores    = 1
-      mem      = 1024
-      disk     = 50
-      ip0      = "192.168.1.100"
-      ip1      = "172.16.0.100"
-      hostname = "MariaDB"
-      # null, not 9000: the real interface has no explicit mtu (defaults to 1500) and
-      # setting it explicitly would touch a live veth on a container holding production data.
-      bridge_secondary_mtu = null
-      protection           = true
-      firewall             = true
-      # Root access predates this Terraform config: authorized_keys was set by hand inside
-      # the guest, not via Proxmox's ssh-public-keys field (which is unset on the real
-      # container). That field only injects keys at container creation, so setting it here
-      # would force a destroy+recreate of a container holding live production data.
-      ssh_public_key = ""
-    }
   }
 }

@@ -10,7 +10,7 @@ pbs_backup_include_pbs_self: true
 pbs_backup_target_datastore_id: zfs-pool
 pbs_backup_target_dataset_path: /mnt/zfs-pool-0
 
-# Managed targets: all inventory-managed guests, plus the legacy MariaDB container.
+# Managed targets: all inventory-managed guests.
 # Excluded targets (gitea, the recording host) are listed in pbs_backup_excluded_targets below.
 pbs_backup_targets:
   - name: k3s-server
@@ -61,13 +61,6 @@ pbs_backup_targets:
     source: terraform
     service: proxmox-backup-server
 
-  - name: mariadb-legacy
-    vmid: 113
-    type: lxc
-    ip: 192.168.1.100
-    include: true
-    source: terraform
-    service: MariaDB
 
 # Explicitly excluded targets, with the reason each is excluded.
 pbs_backup_excluded_targets:
