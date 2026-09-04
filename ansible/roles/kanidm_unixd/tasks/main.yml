@@ -5,9 +5,9 @@
       - kanidm_unixd_uid_range == kanidm_unixd_expected_uid_range
       - kanidm_unixd_gid_range == kanidm_unixd_expected_gid_range
     fail_msg: >-
-      host_vars の kanidm_unixd_uid_range/gid_range が research.md タスク 26.4 の
-      決定 (Kanidm の gidnumber 自動生成レンジ) と一致しない。レンジを変更する場合は
-      NAS 実機の既存 UID/GID を再確認してから決定すること (要件 26.14/26.15)。
+      host_vars の kanidm_unixd_uid_range/gid_range が決定済みのレンジ
+      (Kanidm の gidnumber 自動生成レンジ) と一致しない。レンジを変更する場合は
+      NAS 実機の既存 UID/GID を再確認し、衝突しないことを確かめてから決定すること。
   when: kanidm_unixd_uid_range | length > 0
 
 - name: Add the Kanidm PPA apt source

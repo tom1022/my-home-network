@@ -1,7 +1,7 @@
 {{ ansible_managed | comment }}
 # documentation: https://rspamd.com/doc/modules/dkim_signing.html
 #
-# DKIM 署名の担当を rspamd に一本化する (要件11.2)。旧来の OpenDKIM は
+# DKIM 署名の担当を rspamd に一本化する。旧来の OpenDKIM は
 # mailserver_enable_opendkim: false により無効化済み。両方を有効なまま残すと署名が二重に
 # 付与され、受信側の検証に失敗する。
 #

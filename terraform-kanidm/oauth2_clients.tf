@@ -1,9 +1,8 @@
 # 開発基盤 (autonomous-parallel-dev-platform) 向けの OIDC クライアント 2 件。
-# 開発環境の構築自体は本モジュールのスコープ外 (design.md IdentityPlatform の
-# Implementation Notes を参照)。origin/redirect_uris は当該基盤がまだ存在しないため
-# 暫定値であり、実際の Ingress ホスト名確定時に更新する前提で宣言する。
-# 宣言を後から追加する際に非公式 provider のバージョン固定を再確認する手間を避けるため
-# (要件 26.36 に対応する将来のクライアントも含め) 最初の宣言に含めている。
+# 開発環境の構築自体は本モジュールのスコープ外。origin/redirect_uris は当該基盤がまだ
+# 存在しないため暫定値であり、実際の Ingress ホスト名確定時に更新する前提で宣言する。
+# 宣言を後から追加する際に非公式 provider のバージョン固定を再確認する手間を避けるため、
+# 将来必要になるクライアントも含め最初の宣言に含めている。
 
 # 開発環境そのものへの到達 (Sandbox Pod の IDE/端末) を制御するクライアント。
 # origin は末尾スラッシュ付きで宣言する。Kanidm サーバ側が oauth2_rs_origin_landing を
@@ -28,7 +27,7 @@ resource "kanidm_oauth2_basic" "dev_platform_workspace" {
 
 # 開発環境が公開するサービス (ワークスペース内で稼働するアプリケーションのプレビュー) への
 # 到達を制御するクライアント。許可グループ・認証情報種別・セッション有効期限を
-# dev_platform_workspace とは独立に設定する (要件 26.33)。
+# dev_platform_workspace とは独立に設定する。
 resource "kanidm_oauth2_basic" "dev_platform_services" {
   name        = "dev-platform-services"
   displayname = "Dev Platform Services"
@@ -44,9 +43,9 @@ resource "kanidm_oauth2_basic" "dev_platform_services" {
   }
 }
 
-# Gitea (k8s 外の LXC ホスト、gitea.fickledev.com) 向けの OIDC クライアント (要件 26.18)。
+# Gitea (k8s 外の LXC ホスト、gitea.fickledev.com) 向けの OIDC クライアント。
 # redirect_uris は Gitea が ROOT_URL と認証ソース名から組み立てる形式
-# (https://gitea.fickledev.com/user/oauth2/<認証ソース名>/callback、タスク 26.6 で確認済み)。
+# (https://gitea.fickledev.com/user/oauth2/<認証ソース名>/callback)。
 # 認証ソース名は ansible/roles/gitea が登録する "kanidm" と一致させる。
 resource "kanidm_oauth2_basic" "gitea" {
   name        = "gitea"
@@ -63,7 +62,7 @@ resource "kanidm_oauth2_basic" "gitea" {
   }
 }
 
-# ArgoCD (argocd.fickledev.com) 向けの OIDC クライアント (要件 26.20-26.22)。
+# ArgoCD (argocd.fickledev.com) 向けの OIDC クライアント。
 #
 # UI (ブラウザ) と CLI (`argocd login --sso`) を別々の Kanidm クライアントに分けない。
 # Kanidm は OAuth2 クライアントごとに issuer URL (https://.../oauth2/openid/:client_id:/)
@@ -82,7 +81,7 @@ resource "kanidm_oauth2_basic" "gitea" {
 # (code_challenge/codeVerifier/S256) を同梱しており、ブラウザ側でも PKCE 完結の認可コード
 # フローが行えることを実機のバンドルで確認済み (argocd-cm 側で enablePKCEAuthentication:
 # true を設定する)。public クライアントは PKCE を無効化できない (Kanidm 側の仕様) ため、
-# 要件 26.21 が要求する「PKCE を要求する公開クライアント」を UI 用途にも安全に転用できる。
+# PKCE を要求する公開クライアントを UI 用途にも安全に転用できる。
 resource "kanidm_oauth2_public" "argocd" {
   name        = "argocd"
   displayname = "ArgoCD"
@@ -106,12 +105,12 @@ resource "kanidm_oauth2_public" "argocd" {
   }
 }
 
-# forward auth 判定ワークロード (apps/oauth2-proxy、gitops-apps) 向けの OIDC クライアント
-# (要件 26.35, 26.36)。認証基盤は OIDC のみを提供し forward auth の終端を提供しないため、
+# forward auth 判定ワークロード (apps/oauth2-proxy、gitops-apps) 向けの OIDC クライアント。
+# 認証基盤は OIDC のみを提供し forward auth の終端を提供しないため、
 # Traefik の forwardAuth middleware の転送先となる oauth2-proxy をこのクライアントで
 # 認証させる。confidential クライアント (client_secret あり) とする。
 # origin は末尾スラッシュ付きで宣言し、scope_map.group には kanidm_group.<name>.id
-# (UUID) を渡す (provider 0.1.10 の実装バグ回避策。タスク 26.3 の記録を参照)。
+# (UUID) を渡す (provider 0.1.10 の実装バグ回避策)。
 resource "kanidm_oauth2_basic" "forward_auth" {
   name        = "forward-auth"
   displayname = "Forward Auth"
@@ -128,14 +127,14 @@ resource "kanidm_oauth2_basic" "forward_auth" {
 }
 
 # Cloudflare Access (console.fickledev.com の唯一の認証層) の識別提供元を Kanidm に
-# 差し替えるための OIDC クライアント (要件 26.27, 26.29)。Guacamole 自体は k8s 外の
+# 差し替えるための OIDC クライアント。Guacamole 自体は k8s 外の
 # 管理用 PC の localhost にのみ bind されており forward auth や cluster ingress を
-# 経由しないため (research.md タスク 26.12)、他サービスと同じ forward auth 経路には載せず、
+# 経由しないため、他サービスと同じ forward auth 経路には載せず、
 # トンネル手前の既存の接続制御 (Cloudflare Access) の識別提供元だけを差し替えて委譲を
 # 完結させる。CONSOLE-VLAN → DMZ-VLAN の到達性は新設しない。OIDC の RP は Guacamole
 # ではなく Cloudflare Access 自身であるため、origin/redirect_uris は Guacamole の
 # ホスト名ではなく Cloudflare の team domain を指す。Guacamole 内蔵の OIDC 拡張は
-# implicit flow のみを実装し Kanidm が拒否するため使用しない (要件 26.27)。
+# implicit flow のみを実装し Kanidm が拒否するため使用しない。
 resource "kanidm_oauth2_basic" "guacamole" {
   name        = "guacamole"
   displayname = "Guacamole (Cloudflare Access)"

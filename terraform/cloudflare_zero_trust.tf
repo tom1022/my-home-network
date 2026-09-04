@@ -7,7 +7,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared" "kubernetes" {
 }
 
 # Public hostname routes for the kubernetes-tunnel. Kubernetes-side cloudflared
-# runs with a token only (task 7.5); this is the sole place ingress is defined.
+# runs with a token only; this is the sole place ingress is defined.
 resource "cloudflare_zero_trust_tunnel_cloudflared_config" "kubernetes" {
   account_id = var.cloudflare_account_id
   tunnel_id  = cloudflare_zero_trust_tunnel_cloudflared.kubernetes.id
@@ -23,7 +23,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "kubernetes" {
       },
       {
         # Kanidm terminates TLS itself with a cert-manager-issued certificate
-        # for this hostname (task 26.1), so origin_server_name lets cloudflared
+        # for this hostname, so origin_server_name lets cloudflared
         # verify it instead of skipping verification like the crafty route.
         hostname = "kanidm.${var.managed_domain}"
         service  = "https://kanidm.kanidm.svc.cluster.local:8443"
@@ -43,7 +43,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "kubernetes" {
         }
       },
       {
-        # Gitea (LXC host, task 26.6) has no TLS of its own; the tunnel
+        # Gitea (LXC host) has no TLS of its own; the tunnel
         # transport is already encrypted end-to-end to Cloudflare's edge, so
         # the origin scheme does not need to be https (same tolerance as the
         # crafty route above).
@@ -51,7 +51,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "kubernetes" {
         service  = "http://192.168.1.200:3000"
       },
       {
-        # oauth2-proxy (forward auth, task 26.35) already terminates TLS via
+        # oauth2-proxy (forward auth) already terminates TLS via
         # its own Ingress (tls-fickledev-com) behind Traefik, same shape as
         # the argocd route above: route through Traefik with matching SNI
         # instead of a second direct-to-service definition.
@@ -72,15 +72,13 @@ resource "cloudflare_zero_trust_tunnel_cloudflared" "guacamole" {
   account_id = var.cloudflare_account_id
   name       = "Guacamole"
   config_src = "cloudflare"
-  # status: down at code time (task 7.1 dump). Not the app targeted for
-  # removal in this refactor, so it is coded and imported as-is rather
-  # than deleted. Confirmed alive and unchanged in task 26.12 (status:
-  # healthy, cloudflared runs on an admin PC outside this repo's reach) --
-  # do not destroy/replace this resource.
+  # cloudflared for this tunnel runs on an admin PC outside this repo's
+  # reach, so the resource is imported and kept as-is -- do not
+  # destroy/replace it.
 }
 
 # Guacamole's own OIDC extension only implements the implicit flow, which
-# Kanidm rejects (task 26.12, requirement 26.27). Guacamole itself is not on
+# Kanidm rejects (requirement 26.27). Guacamole itself is not on
 # the cluster or any Proxmox guest -- it binds to localhost on a physically
 # separate admin PC on CONSOLE-VLAN, reachable only through this Access
 # application's dedicated tunnel. Routing it through the same forward-auth
@@ -118,8 +116,8 @@ resource "cloudflare_zero_trust_access_identity_provider" "kanidm" {
     claims = ["groups"]
 
     # Kanidm omits the `email` ID token claim for accounts without a `mail`
-    # attribute, which is every account in this environment (task 26.9,
-    # confirmed against a real token). preferred_username (SPN form) is the
+    # attribute, which is every account in this environment.
+    # preferred_username (SPN form) is the
     # claim Kanidm guarantees on every account, so use it in place of email.
     email_claim_name = "preferred_username"
 
@@ -136,8 +134,8 @@ resource "cloudflare_zero_trust_access_policy" "guacamole_kanidm" {
   include = [
     {
       # Kanidm's `groups` ID token claim lists each group in both UUID and
-      # SPN (name@domain) form (task 26.8, confirmed against a real token);
-      # only the SPN form is a stable, human-assignable value to match on.
+      # SPN (name@domain) form; only the SPN form is a stable,
+      # human-assignable value to match on.
       oidc = {
         identity_provider_id = cloudflare_zero_trust_access_identity_provider.kanidm.id
         claim_name           = "groups"

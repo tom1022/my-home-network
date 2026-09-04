@@ -46,7 +46,7 @@
     encoding: "{{ mariadb_gitea_db_charset }}"
     collation: "{{ mariadb_gitea_db_collation }}"
     login_unix_socket: "{{ mariadb_socket_path }}"
-  # Migration (task 28.4) restores a dump into this DB out of band, before
+  # Migration restores a dump into this DB out of band, before
   # this role is expected to run against the fully-cut-over host; creating it
   # here too keeps the role idempotent for a from-scratch host.
   register: mariadb_gitea_db_result
@@ -78,7 +78,7 @@
     # RELOAD/PROCESS are global-only grants in MySQL/MariaDB's privilege model
     # (cannot be scoped to a single DB) but carry no data-read access on their
     # own; actual data access is limited to the Gitea schema by the second
-    # clause. Same split used by the legacy host (task 28.3).
+    # clause. Same split used by the legacy host.
     priv: "*.*:RELOAD,PROCESS/{{ mariadb_gitea_db_name }}.*:SELECT,LOCK TABLES,SHOW VIEW,TRIGGER"
     state: present
     login_unix_socket: "{{ mariadb_socket_path }}"

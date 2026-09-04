@@ -1,6 +1,6 @@
 ---
 # Sourced from group_vars/all/main.yml (the inventory-side lookup('env', ...) binding), not
-# re-read here, so Infisical values have a single point of entry (Requirement 19.10/6.15).
+# re-read here, so Infisical values have a single point of entry.
 proxmox_backup_api_host: "{{ proxmox_api_host }}"
 proxmox_backup_api_user: "{{ proxmox_api_user }}"
 proxmox_backup_api_token_id: "{{ proxmox_api_token_id }}"

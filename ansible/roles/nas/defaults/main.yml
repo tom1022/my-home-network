@@ -28,7 +28,6 @@ nas_gitea_export_opts_defaults: "rw,sync,no_subtree_check,all_squash"
 # host after that container's default 1-range /etc/subuid|subgid shift
 # (root:100000:65536) -- not this NAS's own local `gitea` system user. The
 # container's user namespace can never represent the NAS-local user's raw host
-# id, so squashing to it left the container's writes owned by nobody:nogroup
-# (research.md task 21.7).
+# id, so squashing to it leaves the container's writes owned by nobody:nogroup.
 nas_gitea_export_anon_uid: 100999
 nas_gitea_export_anon_gid: 101000

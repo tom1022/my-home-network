@@ -57,7 +57,7 @@
 # Application). Redeploying it through the k3s manifests auto-deploy mechanism
 # on every run creates a second, permanently drifting ApplicationSet object
 # that fights the GitOps-managed one for ownership of the generated
-# Applications (see iac-hygiene-remediation task 4.1). For a genuine
+# Applications. For a genuine
 # from-scratch cluster bootstrap, apply gitops/apps/gitops-apps-set.yaml
 # manually once (kubectl apply -f) to seed the initial ApplicationSet.
 

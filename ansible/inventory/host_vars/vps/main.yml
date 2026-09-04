@@ -20,7 +20,7 @@ vps_proxy_tcp_upstreams:
         port: 19132
       - host: 192.168.1.152
         port: 19132
-  # 取得 (IMAPS/993) の格納側中継先 (task 6.4、要件4.7)。格納側 Dovecot の NodePort
+  # 取得 (IMAPS/993) の格納側中継先。格納側 Dovecot の NodePort
   # 30993 は externalTrafficPolicy: Local (gitops-apps/apps/mailbox/service.yaml) の
   # ため、Pod を実際にホストするノード (mailserver ロールの LMTP 配送先と同じ
   # k3s-agent-minipc、192.168.1.151) のみが応答する。単一メンバーなのは LMTP の
@@ -38,7 +38,7 @@ vps_proxy_tcp_listeners:
     upstream: minecraft_bedrock_backend
   # TLS を終端しない TCP パススルー (tls キー省略 = 既定 false)。ssl_preread も SNI
   # ルーティングも行わず、内容を解さずバイト列をそのまま中継する。TLS の終端は
-  # 格納側 (k3s の Dovecot) が行う (要件4.7 の「中継は内容を解さない」)。
+  # 格納側 (k3s の Dovecot) が行う。
   - name: mailbox_imaps_listener
     listen_port: 993
     bind_address: 0.0.0.0

@@ -1,7 +1,7 @@
 ---
-# Defaults for mariadb_dump role (task 28.4 / requirement 28.10, 19.1).
+# Defaults for mariadb_dump role (requirement 28.10, 19.1).
 #
-# A guest-level snapshot backup (PBS, task 15.4/15.5) protects the Gitea DB
+# A guest-level snapshot backup (PBS) protects the Gitea DB
 # guest as a whole but restores only as a whole guest. This adds a logical
 # (mysqldump) backup pulled from a separate guest (PBS itself), so a single
 # table or the schema alone can be restored without rolling back the entire

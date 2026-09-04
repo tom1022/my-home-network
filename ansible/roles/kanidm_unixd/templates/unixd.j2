@@ -14,7 +14,7 @@ uid_attr_map = "{{ kanidm_unixd_uid_attr_map }}"
 gid_attr_map = "{{ kanidm_unixd_gid_attr_map }}"
 
 # 空集合は「default-deny」= 誰もログインできない。ホスト単位の制限は
-# host_vars の kanidm_unixd_allowed_login_groups で与える (要件 26.12)。
+# host_vars の kanidm_unixd_allowed_login_groups で与える。
 [kanidm]
 pam_allowed_login_groups = {{ kanidm_unixd_allowed_login_groups | to_json }}
 {% for m in kanidm_unixd_map_groups %}

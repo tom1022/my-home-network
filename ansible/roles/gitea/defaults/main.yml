@@ -18,7 +18,7 @@ gitea_service_state: started
 
 gitea_run_user: git
 gitea_run_group: git
-# Pinned to the id this account already has (task 21.7): the NAS-side NFS
+# Pinned to the id this account already has: the NAS-side NFS
 # export's anonuid/anongid are fixed to this id's host-shifted value, so a
 # container recreate silently reassigning a different id would break that
 # mapping again.
@@ -27,7 +27,7 @@ gitea_run_gid: 1000
 gitea_work_dir: /var/lib/gitea
 # /var/lib/gitea is NFS-mounted (all_squash) directly inside this unprivileged
 # LXC. The export's anonuid/anongid are pinned to gitea_run_uid/gid's
-# host-shifted id (task 21.7), so files appear owned by git:git from inside
+# host-shifted id, so files appear owned by git:git from inside
 # the container and an owner-only mode is reachable without touching the
 # "other" bits.
 gitea_storage_mode: '0750'

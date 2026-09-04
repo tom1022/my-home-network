@@ -13,7 +13,7 @@
 # 開発基盤 (autonomous-parallel-dev-platform) そのものへ到達できる利用者の集合。
 # ワークスペース (Sandbox Pod の IDE/端末) への直接到達を許可する対象であり、
 # 開発環境が公開するサービスへの到達 (dev_platform_service_access) とは
-# 保護すべき対象が異なるため、別グループとして分離する (要件 26.32)。
+# 保護すべき対象が異なるため、別グループとして分離する。
 resource "kanidm_group" "dev_platform_workspace_access" {
   name        = "dev_platform_workspace_access"
   description = "autonomous-parallel-dev-platform のワークスペース (Sandbox Pod) へ到達できる利用者"
@@ -35,30 +35,28 @@ resource "kanidm_account_policy" "dev_platform_workspace_access" {
 }
 
 # 公開サービスの閲覧は相対的に低リスクなため、認証情報種別・セッション有効期限を
-# ワークスペース側と独立に緩めた値で設定する (要件 26.33 の「独立設定」の実証)。
+# ワークスペース側と独立に緩めた値で設定する。
 resource "kanidm_account_policy" "dev_platform_service_access" {
   group                   = kanidm_group.dev_platform_service_access.name
   credential_type_minimum = "any"
   authsession_expiry      = 86400 # 24h
 }
 
-# Gitea (gitea.fickledev.com) へ OIDC でログインできる利用者の集合 (要件 26.18)。
+# Gitea (gitea.fickledev.com) へ OIDC でログインできる利用者の集合。
 resource "kanidm_group" "gitea_access" {
   name        = "gitea_access"
   description = "Gitea (gitea.fickledev.com) へ OIDC でログインできる利用者"
 }
 
 # ArgoCD (argocd.fickledev.com) の RBAC (argocd-rbac-cm) にグループ名で対応付ける
-# 2 グループ (要件 26.22)。グループ名は policy.csv 側の g 行と大文字小文字を含め
+# 2 グループ。グループ名は policy.csv 側の g 行と大文字小文字を含め
 # 完全一致させること。
 resource "kanidm_group" "argocd_admins" {
   name        = "argocd_admins"
   description = "ArgoCD で role:admin (フル権限) を持つ利用者"
 }
 
-# role:readonly に対応する検証用グループ。常時は空メンバーで宣言する
-# (role:readonly が書き込みを拒否することは argocd_viewers のみに一時的に
-# 所属させた状態で実機確認済み。検証記録は research.md 参照)。
+# role:readonly に対応する検証用グループ。常時は空メンバーで宣言する。
 # members を明示的な空集合 ([]) にすると、apply 直後は成功することもあるが
 # 後続の plan/refresh でサーバ側の読み取りが null を返し際限なく
 # "+ members = []" の差分を出し続ける (provider 0.1.10 で実測、収束しない)。
@@ -69,10 +67,10 @@ resource "kanidm_group" "argocd_viewers" {
   description = "ArgoCD で role:readonly (読み取り専用) を持つ利用者"
 }
 
-# forward auth 判定ワークロード (apps/oauth2-proxy、要件 26.35) の OIDC クライアントに
+# forward auth 判定ワークロード (apps/oauth2-proxy) の OIDC クライアントに
 # ログインできる利用者の集合。この単一クライアントは複数サービス共通の forward auth
 # 判定ワークロード向けであり、サービスごとの認可 (どのグループがどのサービスに
-# 到達できるか) は forward auth 側 (タスク 26.10-26.12 の管轄) で絞り込む前提のため、
+# 到達できるか) は forward auth 側で絞り込む前提のため、
 # ここでは「forward auth を経由できる」利用者の集合のみを表す。
 resource "kanidm_group" "forward_auth_access" {
   name        = "forward_auth_access"
@@ -91,9 +89,9 @@ resource "kanidm_account_policy" "forward_auth_access" {
 }
 
 # Guacamole (console.fickledev.com) は Cloudflare Access の背後にのみ存在し、他サービスと
-# 異なり forward auth や cluster ingress を経由しない唯一の認証層である (タスク 26.12,
-# 要件 26.27, 26.29)。この Access のポリシーが判定に使う集合であり、admin PC への
-# 到達可否を直接左右するため dev_platform_workspace_access と同じ判断で MFA を必須にする。
+# 異なり forward auth や cluster ingress を経由しない唯一の認証層である。この Access の
+# ポリシーが判定に使う集合であり、admin PC への到達可否を直接左右するため
+# dev_platform_workspace_access と同じ判断で MFA を必須にする。
 resource "kanidm_group" "guacamole_access" {
   name        = "guacamole_access"
   description = "Cloudflare Access 経由で Guacamole (console.fickledev.com) にログインできる利用者"
@@ -105,11 +103,10 @@ resource "kanidm_account_policy" "guacamole_access" {
   authsession_expiry      = 28800 # 8h
 }
 
-# NAS (192.168.1.201) への POSIX ログインを許可する利用者の集合 (要件 26.12)。
+# NAS (192.168.1.201) への POSIX ログインを許可する利用者の集合。
 # kanidm_unixd の pam_allowed_login_groups は POSIX 拡張されたグループしか
 # 受け付けないため posix_enabled を有効にする。gidnumber は明示せず、Kanidm の
-# 既定動的割当レンジ (research.md タスク 26.4 で NAS 実機の既存 UID/GID との
-# 非衝突を確認済み) に委ねる。
+# 既定動的割当レンジ (NAS 実機の既存 UID/GID とは重ならない) に委ねる。
 resource "kanidm_group" "nas_access" {
   name          = "nas_access"
   description   = "NAS (192.168.1.201) へ POSIX ログインできる利用者"

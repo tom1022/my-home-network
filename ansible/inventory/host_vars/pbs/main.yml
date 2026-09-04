@@ -38,10 +38,8 @@ pbs_backup_targets:
     service: k3s-worker
     # scsi2 (nextcloud, zfs-pool zvol) is still an empty passthrough disk reserved for a
     # future migration; snapshotting it wastes datastore space without protecting anything
-    # a PBS restore needs. scsi1 held the same kind of empty placeholder until task 28.5
-    # repurposed it as Garage's metadata_dir (real data since) - removed from this list
-    # accordingly. scsi3 (Garage data_dir, zfs-pool zvol) is new and intentionally left out
-    # of this list so it's included by the include-unless-excluded default below.
+    # a PBS restore needs. scsi3 (Garage data_dir, zfs-pool zvol) is intentionally left
+    # out of this list so it's included by the include-unless-excluded default below.
     backup_excluded_disks:
       - scsi2
 
@@ -82,5 +80,5 @@ pbs_backup_excluded_targets:
     # still skipping the (intentionally unprotected, non-restorable-in-any-meaningful-sense)
     # recording data. Excluding the whole guest is the only way the existing infra can
     # implement that recording-data exclusion, at the cost of leaving the OS/config state
-    # unprotected too. See research.md task 15.5 addendum for the operator escalation.
+    # unprotected too.
     reason: recording-data-and-os-share-a-single-disk-whole-guest-excluded

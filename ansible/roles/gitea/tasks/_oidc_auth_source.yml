@@ -1,10 +1,10 @@
 ---
-# Requirement 26.19: idempotency must not be delegated to Gitea itself -
-# `add-oauth` inserts a new row every time it runs, even when a source with
-# the same name already exists (verified live: running it twice produced two
-# separate IDs for the same name). This lists existing sources first and
-# branches to add-oauth (create) vs update-oauth --id (update) based on
-# whether a source named gitea_oidc_auth_source_name is already present.
+# Idempotency must not be delegated to Gitea itself - `add-oauth` inserts a
+# new row every time it runs, even when a source with the same name already
+# exists (verified live: running it twice produced two separate IDs for the
+# same name). This lists existing sources first and branches to add-oauth
+# (create) vs update-oauth --id (update) based on whether a source named
+# gitea_oidc_auth_source_name is already present.
 - name: Get Gitea auth source list
   ansible.builtin.command:
     argv:

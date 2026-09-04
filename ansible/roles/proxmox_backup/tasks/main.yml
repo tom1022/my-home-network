@@ -95,8 +95,8 @@
 # 'perm-modify' check), which this token intentionally does not hold - a token that could grant
 # itself arbitrary privileges would defeat the point of scoping it. Swapping the token's /storage
 # grant from PVEDatastoreAdmin to the role above therefore cannot be done through this token's own
-# API calls; it was done once via `pveum acl modify/delete` as root over SSH (see research.md task
-# 15.5 addendum). This role only keeps the target role definition itself idempotent.
+# API calls; it has to be done via `pveum acl modify/delete` as root over SSH. This role only
+# keeps the target role definition itself idempotent.
 
 - name: Ensure Proxmox VE can use PBS storage via API
   community.proxmox.proxmox_storage:

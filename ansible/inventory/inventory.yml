@@ -6,7 +6,7 @@ target_hosts:
     # the same path resolves to different key material per execution
     # environment. The connecting key is supplied from Infisical
     # (ANSIBLE_SSH_PRIVATE_KEY) into an ssh-agent before running Ansible; see
-    # ansible/roles/ssh_authorized_keys and .kiro/specs/iac-hygiene-remediation/research.md.
+    # ansible/roles/ssh_authorized_keys.
   hosts:
     n100:
       ansible_host: 192.168.1.10

@@ -191,7 +191,7 @@
   # same-length-but-differently-encoded secret) always fails Gitea's validation,
   # so Ansible and Gitea fought over this key on every single run. Nothing
   # outside Gitea itself needs a specific JWT_SECRET value (only OAuth2/LFS
-  # ephemeral tokens are signed with it, confirmed in research.md task 14.3),
+  # ephemeral tokens are signed with it),
   # so the safe fix is to let Gitea own and generate it entirely.
   no_log: true
 

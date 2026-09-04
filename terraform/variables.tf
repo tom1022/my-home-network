@@ -39,9 +39,8 @@ variable "proxmox_api_url" {
   type        = string
 }
 # Proxmox's own cluster CA (self-signed, not in any public/system trust
-# store) is the only CA either node presents; see the iac-hygiene-remediation
-# research.md "タスク 13.1" entry. Default is the safe (verify) side — the
-# actual deployment overrides this to true in terraform.tfvars.
+# store) is the only CA either node presents. Default is the safe (verify)
+# side — the actual deployment overrides this to true in terraform.tfvars.
 variable "insecure" {
   description = "Skip TLS verification against the Proxmox API"
   type        = bool

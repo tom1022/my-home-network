@@ -3,7 +3,7 @@
 # `proxmox_backup_api_call` with `failed_when: false` so a non-2xx response reaches here instead
 # of being swallowed by the no_log-censored generic failure message. This task itself is not
 # no_log, so the status code and the API's own error text (never the request's Authorization
-# header or body) surface by default without a separate opt-in variable (Requirement 8.6/19.13).
+# header or body) surface by default without a separate opt-in variable.
 - name: "Report API failure: {{ proxmox_backup_api_call_context }}"
   ansible.builtin.fail:
     msg: >-

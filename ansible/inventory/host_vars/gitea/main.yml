@@ -3,7 +3,7 @@
 gitea_admin_username: giteaadmin
 gitea_admin_email: admin@example.local
 
-# Public HTTPS origin (task 26.6), reached via the kubernetes cloudflared
+# Public HTTPS origin, reached via the kubernetes cloudflared
 # tunnel (terraform/cloudflare_zero_trust.tf). DOMAIN/SSH_DOMAIN are left at
 # the role default (LAN IP) so SSH clone URLs and ArgoCD's internal repo pull
 # (plain HTTP to 192.168.1.200, group_vars/k3s/main.yml) are unaffected --

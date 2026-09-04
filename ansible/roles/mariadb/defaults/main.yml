@@ -1,5 +1,5 @@
 ---
-# Defaults for MariaDB role. Installed alongside Gitea itself (task 28.4) so a
+# Defaults for MariaDB role. Installed alongside Gitea itself so a
 # guest-level snapshot backup captures the app and its data at the same point
 # in time, instead of two guests whose backups can drift apart.
 
@@ -34,7 +34,7 @@ mariadb_gitea_db_collation: utf8mb4_general_ci
 # loopback-only (the legacy host granted 'gitea'@'%').
 mariadb_gitea_db_host: 127.0.0.1
 
-# Same restricted-scope dump account used by the legacy host (task 28.3):
+# Same restricted-scope dump account used by the legacy host:
 # global RELOAD/PROCESS (grant-table-only, no data access) plus read-only
 # access to the Gitea schema, granted from the PBS host's single IP.
 mariadb_dump_user: "{{ lookup('env', 'MARIADB_DUMP_USER') }}"

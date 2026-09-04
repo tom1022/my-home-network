@@ -20,13 +20,13 @@
     # is evaluated against this id regardless of what raw uid it physically has
     # on this NAS filesystem, so the directory's real on-disk owner must match
     # anonuid/anongid or the container loses owner/group access once mode
-    # narrows below (research.md task 21.7). ansible.builtin.file resolves a
+    # narrows below. ansible.builtin.file resolves a
     # purely-numeric owner/group string as a raw uid/gid when no matching
     # local account exists.
     owner: "{{ nas_gitea_export_anon_uid }}"
     group: "{{ nas_gitea_export_anon_gid }}"
     mode: '0750'
-  # Split from the rest of this file's tasks (task 21.7) so the mode narrowing
+  # Split from the rest of this file's tasks so the mode narrowing
   # can be applied strictly after the anonuid/anongid switch below and its
   # owner-match verification -- applying both together would narrow
   # permissions before the container can prove it resolves to the new anon

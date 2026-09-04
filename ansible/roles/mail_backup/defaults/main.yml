@@ -1,20 +1,20 @@
 ---
-# mail_backup role (mail-platform task 8.1 / requirement 9.1-9.10).
+# mail_backup role (requirement 9.1-9.10).
 #
 # Two sides of one pull-based archive job, selected per play via
 # mail_backup_side ('source' | 'destination'):
 #
 # - source (k3s-agent-minipc): the node local-path pins the mailbox PV to.
 #   Its actual physical disk is n100's single SSD (/dev/sda, local-lvm) --
-#   n100 has no ZFS/second disk, so this is NOT the hp-z440 "sda" the task
-#   text assumes. Only a restricted, forced-command SSH key is authorized
+#   n100 has no ZFS/second disk, so this is NOT hp-z440's own "sda".
+#   Only a restricted, forced-command SSH key is authorized
 #   here; it can run nothing but the tar extraction below.
 # - destination (pbs, LXC 202 on hp-z440): pulls the archive over the LAN,
 #   verifies it, retains N generations, and stores it under the zfs-pool
 #   mount already bind-mounted into this container at /mnt/zfs-pool-0
 #   (hp-z440's /dev/sdc) -- a different host AND a different physical disk
-#   from the source, so the separation holds regardless of which "sda"
-#   reading of the task text is used.
+#   from the source, so the separation holds regardless of which host's
+#   "sda" is meant.
 mail_backup_side: destination
 
 # --- source side (k3s-agent-minipc) ---

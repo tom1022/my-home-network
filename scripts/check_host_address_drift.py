@@ -4,8 +4,7 @@
 Cross-checks terraform/locals.tf against ansible/inventory/ (inventory.yml,
 host_vars/pbs, host_vars/vps, group_vars/all, group_vars/k3s). Free-form
 sources (.kiro/steering/, gitops/) are not machine-parseable and are out of
-scope for this checker; see research.md for the human-maintained inventory
-of those.
+scope for this checker.
 
 Read-only. Never modifies any source file. Exit 0 = no drift, non-zero =
 drift found or a source file's structure could not be parsed (the two cases
@@ -32,10 +31,10 @@ K3S_VARS_PATH = REPO_ROOT / "ansible" / "inventory" / "group_vars" / "k3s" / "ma
 
 # Hosts whose address is defined outside Terraform: Ansible/Terraform can
 # disagree about these without it being a drift bug, so they're excluded
-# from mismatch judgment (Requirement 7.3) but still collected for the
-# inventory. Most of these come from host_vars/pbs `source: external`
-# automatically (see unmanaged_hosts()); this set is only for hosts that
-# never appear in that list.
+# from mismatch judgment but still collected for the inventory. Most of
+# these come from host_vars/pbs `source: external` automatically (see
+# unmanaged_hosts()); this set is only for hosts that never appear in that
+# list.
 #
 # mirakurun-epgstation (VM 110) is listed in pbs_backup_excluded_targets,
 # not pbs_backup_targets, so unmanaged_hosts() never sees its

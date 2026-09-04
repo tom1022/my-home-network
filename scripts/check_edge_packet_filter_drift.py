@@ -3,9 +3,9 @@
 declared iptables allow-set (`ansible/roles/vps_proxy/defaults/main.yml`).
 
 Both layers must independently allow a port before traffic reaches the host
-(task 12.7 research: the 4190/tcp rule that matched no source, and the
-41641/udp rule that didn't exist at all, were each invisible from the other
-layer). This script is the repeatable check for that class of divergence.
+(the 4190/tcp rule that matched no source, and the 41641/udp rule that
+didn't exist at all, were each invisible from the other layer). This script
+is the repeatable check for that class of divergence.
 
 Desired provider-side state is declared in DESIRED_PROVIDER_RULES below —
 this module *is* the single definition of ConoHa's rules, since ConoHa
@@ -15,8 +15,8 @@ ConoHa quirk (confirmed 2026-09 against this tenant): the ready-made
 "template" security groups it offers in the console (IPv4v6-Web,
 IPv4v6-Mail, ...) return zero rows from GET /v2.0/security-group-rules even
 while attached and actively passing traffic (verified empirically via
-check-host.net refused-vs-timeout probes in research.md — 80/443/25/587/993
-all reach the host despite these groups' API-visible rule list being
+check-host.net refused-vs-timeout probes: 80/443/25/587/993 all reach the
+host despite these groups' API-visible rule list being
 empty). Their enforcement is internal to ConoHa and not exposed by this
 API, so this script can only record that a template group is attached
 (OPAQUE_TEMPLATE_GROUPS) — it cannot declare, diff, or manage their actual
