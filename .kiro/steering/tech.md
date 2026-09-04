@@ -12,6 +12,8 @@ OS/ミドルウェア構成を適用する。Gitea（自前 CI 起点）から T
 - **Configuration Management**: Ansible >= 10.7.0（Role ベース）, ansible-lint >= 26.3.0
 - **Virtualization**: Proxmox VE（VM: qemu-guest-agent 前提, LXC: Debian 12 テンプレート）
 - **GitOps**: ArgoCD（`gitops/apps/`, ApplicationSet パターン）
+- **Identity**: Kanidm（k3s 上、OIDC / LDAPS / kanidm-unixd を提供）, oauth2-proxy（Traefik の
+  forwardAuth 判定先）
 - **Edge/Proxy**: Nginx, HAProxy（TCP stream）, Cloudflare, Tailscale
 - **Runtime**: Python >= 3.10（uv 管理, `pyproject.toml` / `uv.lock`）
 
@@ -19,6 +21,8 @@ OS/ミドルウェア構成を適用する。Gitea（自前 CI 起点）から T
 
 - `rlex.k3s`（外部 Ansible Role, k3s クラスタ構築）
 - Terraform provider `bpg/proxmox`（VM/LXC/ストレージ/ネットワーク管理）
+- Terraform provider `seanlatimer/kanidm`（サードパーティ製。Kanidm に宣言的適用の上流公式手段が
+  無いため採用。`terraform-kanidm/versions.tf` でバージョンを完全一致固定し、`~>` は使わない）
 
 ## Development Standards
 
@@ -28,8 +32,8 @@ OS/ミドルウェア構成を適用する。Gitea（自前 CI 起点）から T
 - Ansible: ロール本体は一般名の変数のみ参照する既存の変数間接化層を維持し、`group_vars` /
   `host_vars` の右辺だけを `lookup('env', 'VAR_NAME')` に束縛する。`inventory/**/vault.yml`
   （Ansible Vault 暗号化ファイル）は追跡対象・作業ツリーの双方から存在せず、供給経路として使わない。
-  `vault.yml.example` は移行前の変数名一覧としてのみ残置している（ファイル自体のヘッダーコメントは
-  Ansible Vault への複製・暗号化手順を示しており実態と食い違っている。是正は未了）。
+  `vault.yml.example` は Infisical `prod` に登録すべき変数名の一覧であり、値の供給経路ではない
+  （ヘッダーコメントがその位置づけと Infisical キー名への変換規則を示す）。
   `ansible-inventory --list` はインベントリのパースに成功する。
 - Terraform: 変数名を変えず `TF_VAR_` 接頭辞を保持したまま Infisical に格納し、`infisical run` で
   子プロセスの環境変数として供給する。`terraform.tfvars` / `.env` はシークレットの供給経路として
@@ -42,8 +46,10 @@ OS/ミドルウェア構成を適用する。Gitea（自前 CI 起点）から T
   除去済みだが、**クラスタ上には残骸が現存する**（`argocd` namespace の ConfigMap
   `argocd-avp-plugin-config` と Secret `argocd-sops-age`）。参照元のマニフェストが存在しない孤児
   リソースであり、消費者はいない。除去は未実施（クラスタ孤児の除去作業の対象）。
-- `terraform.tfstate` はローカルに存在せず HCP Terraform（organization `fickledev`, workspace
-  `my-home-network`）が保持する。機微情報を含み得るためローカルへの生成物（`.terraform/` 含む）は
+- `terraform.tfstate` はローカルに存在せず HCP Terraform（organization `fickledev`）が保持する。
+  ワークスペースは `terraform/` が `my-home-network`、`terraform-kanidm/` が `kanidm-identity`。
+  Kanidm の認証は `TF_VAR_kanidm_token`（Kanidm のサービスアカウント API トークン）を Infisical
+  から供給する。機微情報を含み得るためローカルへの生成物（`.terraform/` 含む）は
   コミット対象外方針を維持する。
 
 #### Infisical CLI の使い方（machine identity / 非対話）
@@ -68,7 +74,10 @@ OS/ミドルウェア構成を適用する。Gitea（自前 CI 起点）から T
   `infisical secrets get <name> --plain` を使う。
 
 ### Code Quality
-- pre-commit + gitleaks（`--redact`, `.gitleaks.toml`）で秘密情報の混入を検知
+- gitleaks で秘密情報の混入を検知する。強制力を持つのは `.github/workflows/secret-scan.yml`
+  （push / PR は差分スキャン、日次スケジュールと手動実行は全履歴スキャン。設定は
+  `.gitleaks.toml` を gitleaks 自身が自動検出する）。`.pre-commit-config.yaml` は同じフックを
+  ローカルで走らせる任意の手段で、`pre-commit install` を実行した環境でのみ効く。
 - ansible-lint を playbook 適用前に実行
 
 ### Testing
@@ -107,14 +116,20 @@ infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- \
 - Terraform の state は HCP Terraform に移行済み。
 - `cloudflare_dns.tf` の `proxied` は `root` / `www` / `console` / `crafty` / `idp` が `true`、
   `mc` / `mail` / `appflowy` が `false`（grey-cloud）。
-- 証明書供給は VPS 上の certbot + `certbot-dns-cloudflare`（ACME DNS-01）の単一機構として
-  `vps_proxy` role が管理する。`fickledev.com` + `*.fickledev.com` のワイルドカード証明書
-  1 枚を VPS 上の全 vhost が共有し、`systemd` の `certbot-renew.timer`（日次）で自動更新する。
-  そのため **1 枚の更新失敗が複数のホスト名を同時に落とす**。Cloudflare Origin CA 機構
-  (`vps_proxy_origin_ca_*`) は proxied ホスト名の移設 (Workers 化) により利用者を失い撤去済み。
-- `fickledev.com` / `www.fickledev.com` の配信は Cloudflare Workers (`fickledev-portfolio`) へ移設済み。
-  `vps_proxy` role はこの 2 ホスト名向けの vhost を持たず、`fickledev.com.conf.j2` は
-  `*.fickledev.com` の SNI 不一致キャッチオール (403 応答) のみを持つ。
+- `fickledev.com` / `www.fickledev.com` の配信元は Cloudflare Workers (`fickledev-portfolio`)。
+  `terraform/cloudflare_workers.tf` が `cloudflare_workers_custom_domain` で両ホスト名を Worker へ
+  向け、`cloudflare_dns.tf` の対応する `vps_hosts` エントリは無効化してある（同一ホスト名に
+  custom domain とアドレスレコードは共存できない）。`vps_proxy` role はこの 2 ホスト名向けの
+  vhost を持たず、`fickledev.com.conf.j2` は `*.fickledev.com` の SNI 不一致キャッチオール
+  (403 応答) のみを持つ。
+- 証明書供給は VPS 上の certbot + `certbot-dns-cloudflare`（ACME DNS-01）が `vps_proxy` role の
+  管理下で行う。`fickledev.com` + `*.fickledev.com` のワイルドカード証明書 1 枚を、上記の
+  キャッチオール vhost（127.0.0.1:8443、Cloudflare を迂回した偽装 SNI のスキャンが直接届くため
+  公的に信頼される証明書が要る）と、`/etc/letsencrypt` を読み取り専用マウントする
+  docker-mailserver（`SSL_TYPE: letsencrypt`）が共有する。更新は `systemd` の
+  `certbot-renew.timer`（日次）。そのため **1 枚の更新失敗がメールの TLS まで巻き込む**。
+  443/TCP の HAProxy は SNI パススルーで、この証明書を終端に使わない。Cloudflare Origin CA
+  機構 (`vps_proxy_origin_ca_*`) は proxied ホスト名の Workers 移設により利用者を失い撤去済み。
 
 ## Tailscale
 
@@ -186,14 +201,16 @@ PBS（Proxmox Backup Server、LXC 202）が両 Proxmox ノードからのバッ�
 
 - データストアは `zfs-pool`（`/mnt/zfs-pool-0`）、PVE 側ストレージ名は `pbs-zfs-pool`。
   保存先の物理ディスクは保護対象のディスクと分離されている。
-- vzdump ジョブは毎日 04:30 (cron) のスケジュールで定義され、対象は `host_vars/pbs/main.yml` の
-  `pbs_backup_targets`（7 件: vmid 150/151/152/201/202/113/110）と実行基盤側（`/etc/pve/jobs.cfg`）
-  で一致している。保持世代は `keep-last=2`。
-- 7 件中 6 件（113/150/151/152/201/202）は復元可能なバックアップを保持し、
-  `proxmox-backup-manager verify` によるデータ整合性検証も確認済み。**110（録画データ用 VM）は
-  ディスク単位の除外実装が未了のため、初回バックアップを意図的に見送っている**（対象に含めると
-  録画データ全体〔thin 実使用約 124G〕が毎回バックアップされ、除外意図に反するため）。
-- 対象外（明示的除外）: 200（gitea）。GitHub へのオフサイトミラーで代替する方針。
+- vzdump ジョブのスケジュール・対象・保持世代の正は `host_vars/pbs/main.yml`
+  （`pbs_backup_schedule` / `pbs_backup_targets` / `pbs_backup_keep_last`）で、実行基盤側
+  （`/etc/pve/jobs.cfg`）はこの宣言から生成される。件数やホスト名を別の場所に写して二重管理しない。
+- ゲスト単位ではなくディスク単位の除外が必要な対象は、`pbs_backup_targets` の各エントリの
+  `backup_excluded_disks` で外す（例: k3s-agent-z440 の `scsi2` は将来の移行用に確保した空の
+  パススルーディスクで、スナップショットしても復元時に守るものが無い）。
+- 明示的除外は `pbs_backup_excluded_targets` に理由付きで列挙する。gitea は GitHub への
+  オフサイトミラーで代替する方針。mirakurun-epgstation は録画データと OS が単一ディスクを
+  共有しており、録画データだけを `backup_excluded_disks` で外す手段が無いため、ゲストごと
+  除外している（OS / 設定も保護されないことを受け入れている）。
 
 ## Storage
 
@@ -249,9 +266,16 @@ pbs（202）。**以下は実機に存在するが Terraform 管理外**で、�
 
 ## Cluster Management
 
-クラスタの管理操作（デプロイ状態の確認、手動介入）は kubeconfig と端末クライアント（`kubectl` 等）に
-一本化している。ブラウザ経由の管理 UI は存在しない。kubeconfig は `~/.kube/config`（コンテキスト
-`default`）。
+クラスタ全体に対する無制限の管理操作（任意リソースの参照・手動介入）は kubeconfig と端末
+クライアント（`kubectl` 等）に限る。kubeconfig は `~/.kube/config`（コンテキスト `default`）。
+クラスタ全体を素通しにするブラウザ管理 UI（Kubernetes Dashboard の類）は置かない。
+
+例外は ArgoCD の Web UI で、これは GitOps の同期状態に閲覧・操作範囲が限られる。
+`argocd.fickledev.com` を cloudflared トンネル経由で Traefik の IngressRoute
+（`ansible/roles/argocd/templates/argocd-ingressroute.yaml.j2`）が受け、認証は Kanidm への OIDC
+直結、認可は `argocd-rbac-cm` の `policy.csv` によるグループ→ロールの写像
+（`argocd_admins` → `role:admin`、`argocd_viewers` → `role:readonly`、`policy.default` は空）。
+UI と CLI（`argocd login --sso`）は単一の公開クライアントを共有する。
 
 ```bash
 kubectl get nodes

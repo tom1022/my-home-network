@@ -2,8 +2,17 @@
 
 ## Organization Philosophy
 
-レイヤー分離型。トップレベルでツール（`terraform/` / `ansible/` / `gitops/`）ごとにディレクトリを分け、
-各ツール内はさらに責務単位（module / role / playbook）で分割する。
+レイヤー分離型。トップレベルは管理対象と適用手段ごとにディレクトリを分け、各ディレクトリ内はさらに
+責務単位（module / role / playbook）で分割する。
+
+- `terraform/` — Proxmox / Cloudflare のリソース。HCP Terraform ワークスペース `my-home-network`。
+- `terraform-kanidm/` — Kanidm のグループ・OAuth2 クライアント・アカウントポリシー・LDAP
+  アプリケーション。変更頻度と関心事が異なるため独立したルートモジュールとし、state も別
+  ワークスペース `kanidm-identity` に置く。
+- `ansible/` — 各ホストの OS / ミドルウェア構成。
+- `gitops/` — ArgoCD ApplicationSet の初期投入定義。
+- `scripts/` — 宣言と実機の乖離を検出する Python チェッカー（`check_*_drift.py` 等）と、その
+  pytest。CI（`.github/workflows/ci.yml`）が ruff / pytest と併せて実行する。
 
 ## Directory Patterns
 
@@ -37,10 +46,8 @@
 **Location**: `ansible/inventory/`
 **Purpose**: `inventory.yml` にホスト/グループ定義、`group_vars/<group>/`・`host_vars/<host>/` に
 変数を分離。秘匿値は一般名の変数から `lookup('env', 'VAR_NAME')` で参照し、Infisical が
-`infisical run` 経由で供給する環境変数を解決先とする。同階層の `vault.yml.example` は移行前の
-変数名一覧として残置しているのみで、供給経路としては使わない（ファイル自体のヘッダーコメントは
-Ansible Vault への複製・暗号化手順を示しており、実態と食い違っている。運用者判断が必要な残課題）。
-作業ツリーに暗号化済み `vault.yml` は存在しない。
+`infisical run` 経由で供給する環境変数を解決先とする。同階層の `vault.yml.example` は Infisical に
+登録すべき変数名の一覧であり、値の供給経路ではない。作業ツリーに暗号化済み `vault.yml` は存在しない。
 **Example**: `group_vars/all/main.yml` の `proxmox_api_token_secret: "{{ lookup('env', 'PROXMOX_API_TOKEN_SECRET') }}"`。
 
 ### GitOps Bootstrap

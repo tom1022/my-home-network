@@ -1,6 +1,11 @@
 ---
-# Copy this file to vault.yml and encrypt it:
-# ansible-vault encrypt inventory/group_vars/all/vault.yml
+# This file is a NAME LIST, not a supply path. Do not copy it to vault.yml and do
+# not run ansible-vault on it: no `vault.yml` is read by this inventory, and the
+# roles resolve these values from environment variables supplied by `infisical run`
+# (see group_vars/all/main.yml for the `lookup('env', ...)` bindings). What is
+# listed here is which secrets must exist in Infisical `prod`, with placeholder or
+# example values only. The Infisical key for each entry is the variable name with
+# the `vault_` prefix dropped and upper-cased.
 vault_vps_proxy_acme_contact_email: "admin@fickledev.com"
 vault_vps_proxy_acme_cloudflare_api_token: "CHANGEME_CLOUDFLARE_DNS_API_TOKEN"
 
