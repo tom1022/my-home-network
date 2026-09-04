@@ -102,7 +102,6 @@
    ```
 
 2. `mail.dns.txt` の内容 (`v=DKIM1; k=rsa; p=...` 形式) を、DNS 側の TXT レコード (`mail._domainkey.fickledev.com`、`terraform/cloudflare_dns.tf` で管理) の値として反映し、`terraform apply` する。
-   - 2026-09 時点で `terraform/cloudflare_dns.tf` には DKIM の TXT レコードはまだ存在しない (タスク 7.1 が MX/SPF/DKIM/DMARC の DNS レコード一式を新設する担当であり、本タスク完了後に着手する)。レコードが存在する場合はその値を更新し、存在しない場合はタスク 7.1 と同じ場所に新設する。
 3. DNS の反映を外部から確認する (`dig TXT mail._domainkey.fickledev.com` が新しい公開鍵を返すこと)。TTL 分は必ず待つ。
 4. 反映を確認した後、秘密鍵 (`mail.private` の内容) を Infisical の `MAIL_DKIM_PRIVATE_KEY` (prod) へ登録し、ローカルの一時ファイルは `shred` 等で確実に削除する。
 5. VPS へ反映する。
@@ -116,7 +115,7 @@
 
 ### 2.2 Kanidm 上のメール用定義の再作成
 
-`terraform-kanidm/mail.tf` が宣言する 4 リソースのうち、**Terraform の宣言から再作成できる部分**と、**サーバが生成するため再作成のたびに値が変わる部分**を分けて扱う。
+`terraform-kanidm/mail.tf` が宣言する 5 リソースのうち、**Terraform の宣言から再作成できる部分**と、**サーバが生成するため再作成のたびに値が変わる部分**を分けて扱う。
 
 | リソース | 再作成方法 | 再作成後に変わるもの |
 |---|---|---|
@@ -125,6 +124,8 @@
 | `kanidm_application.mail` | 同上 (`terraform apply`) | **UUID が変わる。既存のアプリケーションパスワードは全て無効化される** (`ScimApplicationPasswordCreate` はアプリケーションの UUID に紐づく)。この 1 点が理由で、`mail` アプリケーション定義そのものが壊れていない限り `terraform taint` 等で意図的に再作成すべきではない |
 | `kanidm_service_account.mail_ldap_search` | 同上 (`terraform apply`)。ただし `api_token` は `generate_api_token = true` 時にサーバが生成する computed 値であり、**任意の値を指定する経路がない**。既存のトークンを失った場合、`terraform taint kanidm_service_account.mail_ldap_search && terraform apply` のようにリソースの再作成を強制しない限り新しい値は発行されない | 2.3 を参照 |
 | `kanidm_group_members.idm_mail_servers` | 同上 (`terraform apply`)。`mail_ldap_search` を再作成した場合はメンバー参照 (名前ベース) も自動的に追随する | なし |
+
+Kanidm サーバそのものを再作成した場合は、上記に加えて `ldap_allow_unix_pw_bind` の無効化を再実施する。ドメインの状態としてのみ保持され Terraform の宣言に現れないため、`terraform apply` では戻らない。手順と確認方法は `.kiro/specs/mail-platform/manual-operations.md` の該当節を参照。
 
 ### 2.3 サービスアカウントの LDAP 資格情報 (`mail-ldap-search`) の再発行
 

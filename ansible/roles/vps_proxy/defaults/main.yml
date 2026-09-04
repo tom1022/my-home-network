@@ -53,9 +53,8 @@ vps_proxy_filter_allow_udp_ports:
 
 # tailscale0 stays allowed unconditionally (see the -i tailscale0 rule in
 # the templates) regardless of this flag. false = sshd is reachable only
-# over the tailnet; task 12.5 stage D confirmed a reboot-surviving tailnet
-# SSH path before flipping this from true, so re-flipping to true is the
-# rollback if tailnet access is ever lost.
+# over the tailnet; re-flipping to true is the rollback if tailnet access is
+# ever lost.
 vps_proxy_filter_ssh_public_allowed: false
 
 # vps_proxy_filter_allow_udp_ports above only helps if tailscaled is actually
@@ -121,15 +120,15 @@ vps_proxy_mydns_ddns_user: trvlr
 # `ps` while the request is in flight; a netrc file is not).
 vps_proxy_mydns_ddns_netrc_path: /home/trvlr/.mydns_netrc
 
-# --- LDAPS 到達性のための静的ホスト解決 (要件 26.37, task 26.13) ---
+# --- LDAPS 到達性のための静的ホスト解決 ---
 #
-# Tailscale の DNS プロキシ (100.100.100.100 / quad100) は DNS リバインディング対策として、
-# 公開ホスト名が private (RFC1918) アドレスへ解決する応答を drop する。この VPS では
-# tailscale0 の DNS ルートがカタッチオール (systemd-resolved 上で `~.`) として登録されて
-# おり、既定のリゾルバがそれを経由するため、通常の DNS 解決では
-# ldaps.kanidm.fickledev.com が NODATA になる (`dig @1.1.1.1` は正しく応答する一方、
-# `getent hosts`/`resolvectl query` は失敗することを実測済み)。/etc/hosts に静的登録し、
-# システムの DNS 解決自体を経路から外す。
+# ldaps.kanidm.fickledev.com の解決は OPNSense の host override だけが持つ (公開 DNS には
+# 置かない)。この VPS の既定のリゾルバは tailscale0 の catch-all ルート
+# (systemd-resolved 上で `~.`) 経由で quad100 へ向き、tailnet の既定リゾルバが OPNSense で
+# あるため解決自体は成立する。/etc/hosts へ静的に登録するのは、ホストの LDAPS 到達を
+# tailnet の DNS 経路の生死から切り離すためである。
+# override が失われると Unbound のリバインディング対策が RFC1918 の応答を除去し、この名前は
+# NXDOMAIN ではなく NODATA として返る。
 #
 # k3s ノードは NodePort (30636) で LDAPS を待ち受けている。Service の
 # externalTrafficPolicy が Local (gitops-apps/apps/kanidm/service.yaml) のため、
@@ -143,13 +142,13 @@ vps_proxy_static_dns_overrides:
     ips:
       - 192.168.1.151
 
-# --- エッジホストの衛生 (EdgeHostAlignment, 要件 16.7-16.10) ---
+# --- エッジホストの衛生 (EdgeHostAlignment) ---
 
 # node_exporter は apt の未管理パッケージとして実機に存在し (vps_proxy_required_packages
 # に含まれない)、既定でワイルドカードにバインドする。ホストファイアウォールは既に
-# 9100/tcp を許可集合から除外しているが、待受アドレス自体を公開アドレスに残さない
-# (要件 16.7 はフィルタでなく待受そのものを対象とする)。ansible_host はこのインベント
-# リ上では tailnet アドレスそのものなので、専用変数を増やさずそのまま再利用する。
+# 9100/tcp を許可集合から除外しているが、是正の対象はフィルタでなく待受そのものであり、
+# 待受アドレス自体を公開アドレスに残さない。ansible_host はこのインベントリ上では
+# tailnet アドレスそのものなので、専用変数を増やさずそのまま再利用する。
 vps_proxy_node_exporter_port: 9100
 vps_proxy_node_exporter_listen_addresses:
   - "127.0.0.1:{{ vps_proxy_node_exporter_port }}"

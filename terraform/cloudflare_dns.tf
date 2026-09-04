@@ -68,16 +68,15 @@ locals {
   tunnel_cnames = {
     console = { name = "console.${var.managed_domain}", tunnel = "guacamole" }
     crafty  = { name = "crafty.${var.managed_domain}", tunnel = "kubernetes" }
-    # 認証基盤 (Kanidm) の新規公開ホスト名 (task 26.1)。DNS レコードと
+    # 認証基盤 (Kanidm) の公開ホスト名。DNS レコードと
     # トンネルの ingress 経路 (cloudflare_zero_trust.tf) をあわせて Terraform 管理下に置く。
     kanidm = { name = "kanidm.${var.managed_domain}", tunnel = "kubernetes" }
-    # ArgoCD (task 26.6)。IngressRoute は ansible/roles/argocd が既に生成済みで
-    # 内部到達は成立している。欠けていたのはこの DNS レコードのみ。
+    # ArgoCD。内部到達に必要な IngressRoute は ansible/roles/argocd が生成する。
     argocd = { name = "argocd.${var.managed_domain}", tunnel = "kubernetes" }
-    # Gitea (task 26.6)。LXC ホスト (192.168.1.200:3000) への直接ルートは
+    # Gitea。LXC ホスト (192.168.1.200:3000) への直接ルートは
     # cloudflare_zero_trust.tf 側で定義。
     gitea = { name = "gitea.${var.managed_domain}", tunnel = "kubernetes" }
-    # oauth2-proxy / forward auth (task 26.35)。保護対象 (ha/garage) の認証後
+    # oauth2-proxy / forward auth。保護対象 (ha/garage) の認証後
     # 戻り先である redirect_uri のホスト名を外部から解決・到達可能にする。
     forwardauth = { name = "forwardauth.${var.managed_domain}", tunnel = "kubernetes" }
   }
@@ -92,26 +91,11 @@ locals {
     }
   }
 
-  # 要件 26.37 / task 26.13: LDAPS の到達手段 (k3s ノードへの NodePort 直指定) と
-  # 証明書の対象名を一致させる。kanidm.fickledev.com は Cloudflare Tunnel 経由の HTTPS
-  # 専用のホスト名であり同じ名前は使えない (Tunnel の ingress が上書きする) ため、別名を
-  # 割り当てて公開 DNS の役割を分離する。Let's Encrypt は private/RFC1918 の IP アドレスに
-  # 証明書を発行できない (http-01/tls-alpn-01 のみで DNS-01 不可、かつ検証サーバが
-  # 192.168.0.0/16 へ到達できない) ため、IP SAN 方式ではなくホスト名を割り当てる方式を採る。
-  # NodePort は kube-proxy が全ノードへ転送するため、この A レコードは特定の「待受ノード」
-  # ではなく全 k3s ノードを指す (単一障害点にしない)。ノード入れ替えは local.vms の
-  # 該当エントリを更新するだけで反映される。
-  kanidm_ldaps_hostname = "ldaps.kanidm.${var.managed_domain}"
-
-  kanidm_ldaps_a_records = {
-    for key, vm in local.vms : "kanidm_ldaps_a_${key}" => {
-      name    = local.kanidm_ldaps_hostname
-      type    = "A"
-      content = vm.ip0
-      proxied = false
-      ttl     = 1
-    } if startswith(key, "k3s-")
-  }
+  # ldaps.kanidm.fickledev.com はこのゾーンで宣言しない。宛先が RFC1918 のアドレスであり、
+  # 公開 DNS に置いても内部の構成を晒すだけで、利用者はいずれも tailnet の内側にいる。
+  # 名前解決は OPNSense の host override が担う (コード管理外。
+  # .kiro/specs/mail-platform/manual-operations.md を参照)。
+  # kanidm.fickledev.com 側は Cloudflare Tunnel 経由の HTTPS 専用として cname_records に残る。
 
   other_dns_records = {
     mx_mail = {
@@ -130,7 +114,7 @@ locals {
       ttl     = 3600
     }
 
-    # SPF (要件6.2)。送信元を VPS の送出アドレスのみに限定する。docker-mailserver の
+    # SPF。送信元を VPS の送出アドレスのみに限定する。docker-mailserver の
     # コンテナは IPv6 を持たない bridge ネットワーク (EnableIPv6=false) で動作しており、
     # 外部への送出は host の IPv4 (var.vps_ipv4) へ NAT された後にしか行われないことを
     # 実機で確認済み (コンテナ内から https://api.ipify.org へ到達した送出元が
@@ -145,7 +129,7 @@ locals {
       ttl     = 1
     }
 
-    # DKIM 公開鍵 (要件6.3)。セレクタは ansible/roles/mailserver/defaults/main.yml の
+    # DKIM 公開鍵。セレクタは ansible/roles/mailserver/defaults/main.yml の
     # mailserver_dkim_selector (mail) と一致させる。値は稼働中の秘密鍵
     # (Infisical MAIL_DKIM_PRIVATE_KEY) から `openssl rsa -pubout` で導出した公開鍵のみで
     # あり、秘密鍵はこの記録に一切現れない。RSA 2048bit の公開鍵は 255 文字の DNS
@@ -159,7 +143,7 @@ locals {
       ttl     = 1
     }
 
-    # DMARC (要件6.4)。認証 (SPF/DKIM) に失敗したメールの扱いを宣言する。導入直後は
+    # DMARC。認証 (SPF/DKIM) に失敗したメールの扱いを宣言する。導入直後は
     # SPF/DKIM とも初適用であり、アライメントの見落としで正当なメールを失う (p=quarantine
     # /reject) リスクを避けるため p=none (監視のみ、配送には影響しない) から開始する。
     # rua で集計レポートを postmaster (受信可能な既存メールボックス) 宛に送らせ、実際の
@@ -173,7 +157,7 @@ locals {
     }
   }
 
-  dns_records = merge(local.vps_a_records, local.vps_aaaa_records, local.cname_records, local.other_dns_records, local.kanidm_ldaps_a_records)
+  dns_records = merge(local.vps_a_records, local.vps_aaaa_records, local.cname_records, local.other_dns_records)
 }
 
 resource "cloudflare_dns_record" "this" {

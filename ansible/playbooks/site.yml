@@ -22,6 +22,10 @@
 - name: Configure VPS reverse proxy
   import_playbook: vps.yml
 
+# vps_proxy がポートの通過と中継を構成した後に適用する。
+- name: Configure mail platform on the VPS
+  import_playbook: mailserver.yml
+
 - name: Run Proxmox backup schedule reconciliation
   import_playbook: proxmox_backup.yml
 
