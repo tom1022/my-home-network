@@ -59,15 +59,7 @@ jobs:
             uv run --project .. ansible-playbook --syntax-check "$playbook"
           done
 
-      # Pre-existing violations (fqcn/var-naming/name/key-order/schema, ~23
-      # findings across nfs_client / proxmox_backup / storage_disk /
-      # vps_proxy / a couple of playbooks and role meta files) predate this
-      # spec and aren't in scope for any of its tasks; renaming role-internal
-      # variables carries real behavior risk and isn't verification-automation
-      # work. Non-blocking until a dedicated task clears them (Requirement
-      # 12.9: don't gate on a check that fails before remediation reaches a
-      # passing state) — kept running, not disabled, so findings stay visible.
-      - name: ansible-lint (non-blocking, see step note)
+      - name: ansible-lint
         env:
           # ansible-lint is invoked from the repo root so .ansible-lint's
           # exclude_paths (repo-root-relative) match; ANSIBLE_CONFIG points it
@@ -75,14 +67,17 @@ jobs:
           # syntax-check step gets from its cwd.
           ANSIBLE_CONFIG: ansible/ansible.cfg
         run: uv run ansible-lint
-        continue-on-error: true
 
   terraform:
-    name: Terraform validate
+    name: Terraform validate (${{ matrix.dir }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [terraform, terraform-kanidm]
     defaults:
       run:
-        working-directory: terraform
+        working-directory: ${{ matrix.dir }}
     steps:
       - uses: actions/checkout@v4
 

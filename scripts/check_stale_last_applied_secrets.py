@@ -67,7 +67,9 @@ def main() -> int:
         print("OK: 全名前空間の Secret に last-applied-configuration の残存なし")
         return 0
 
-    print(f"検出: last-applied-configuration を保持する Secret が {len(findings)} 件 (内容は非表示)")
+    print(
+        f"検出: last-applied-configuration を保持する Secret が {len(findings)} 件 (内容は非表示)"
+    )
     for f in findings:
         print(f"  {f.namespace}/{f.name}: {f.byte_length} bytes")
     return 1
