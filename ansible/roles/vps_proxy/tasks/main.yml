@@ -335,7 +335,7 @@
 # (xrayvpn's VPN egress was the one thing on this host that ever needed it,
 # see the *nat comment in iptables_rules.v4.j2, and it is suspended:
 # vps_proxy_xray_sni: []). That assumption no longer holds: the mailserver
-# role (task 6.1) added a docker-mailserver container on this same host, and
+# role runs a docker-mailserver container on this same host, and
 # any docker container's egress beyond the host (its DNS queries, its LDAPS
 # connection to the mailbox backend's NodePort) is routed through the
 # kernel's FORWARD chain via Docker's bridge NAT, which requires
@@ -366,6 +366,28 @@
   environment:
     DEBIAN_FRONTEND: noninteractive
 
+# netfilter-persistent restores with a bare `iptables-restore`, which flushes
+# every table and takes dockerd's runtime chains with it, so the restore path
+# is replaced by this script (see iptables_rules.v4.j2 for what --noflush
+# demands of the rules files).
+- name: Deploy host firewall apply script
+  ansible.builtin.template:
+    src: vps-proxy-iptables-apply.j2
+    dest: /usr/local/sbin/vps-proxy-iptables-apply
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Apply host firewall rules
+
+- name: Deploy host firewall apply unit
+  ansible.builtin.template:
+    src: vps-proxy-iptables.service.j2
+    dest: /etc/systemd/system/vps-proxy-iptables.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Apply host firewall rules
+
 - name: Deploy iptables persistent rules file (IPv4)
   ansible.builtin.template:
     src: iptables_rules.v4.j2
@@ -373,7 +395,8 @@
     owner: root
     group: root
     mode: '0644'
-  notify: Restart netfilter-persistent
+    validate: iptables-restore --test --noflush %s
+  notify: Apply host firewall rules
 
 # This host has a public IPv6 address (eth0 inet6, ConoHa-assigned /64);
 # sshd and nginx/haproxy all listen on both families. rules.v4 alone leaves
@@ -386,13 +409,54 @@
     owner: root
     group: root
     mode: '0644'
-  notify: Restart netfilter-persistent
+    validate: ip6tables-restore --test --noflush %s
+  notify: Apply host firewall rules
 
-- name: Ensure netfilter-persistent service is enabled and started
+# Masked rather than merely disabled: apt restarts it on any
+# iptables-persistent upgrade, and that restart alone is enough to wipe
+# dockerd's chains again.
+- name: Ensure netfilter-persistent never restores rules with a flush
   ansible.builtin.systemd:
     name: netfilter-persistent
+    enabled: false
+    state: stopped
+    masked: true
+
+- name: Ensure host firewall apply unit is enabled and started
+  ansible.builtin.systemd:
+    name: vps-proxy-iptables
     enabled: true
     state: started
+    daemon_reload: true
+
+- name: Flush handlers to apply host firewall rules before verifying them
+  ansible.builtin.meta: flush_handlers
+
+- name: Check whether dockerd owns runtime firewall rules on this host
+  ansible.builtin.stat:
+    path: /var/run/docker.sock
+  register: vps_proxy_docker_socket
+
+- name: Read the live nat table after applying host firewall rules
+  ansible.builtin.command: iptables -t nat -S
+  register: vps_proxy_nat_rules
+  changed_when: false
+  when: vps_proxy_docker_socket.stat.exists
+
+# Losing these is invisible from the outside for as long as nobody sends mail:
+# containers stay "Up (healthy)" because their healthchecks only exercise their
+# own loopback, while every published port and all egress (DNS included) is
+# dead. Failing the play is the only signal there is.
+- name: Ensure dockerd's DNAT and MASQUERADE rules survived the firewall apply
+  ansible.builtin.assert:
+    that:
+      - "'-j DNAT' in vps_proxy_nat_rules.stdout"
+      - "'-j MASQUERADE' in vps_proxy_nat_rules.stdout"
+    fail_msg: >-
+      Applying the host firewall erased dockerd's nat rules; container egress
+      and published ports are down. Recover with `systemctl restart docker`,
+      then check that the rules are restored with --noflush.
+  when: vps_proxy_docker_socket.stat.exists
 
 - name: Ensure static DNS overrides are present in /etc/hosts (Tailscale DNS rebinding protection workaround)
   ansible.builtin.blockinfile:
@@ -406,7 +470,7 @@
       {% endfor %}
   when: vps_proxy_static_dns_overrides | length > 0
 
-# --- エッジホストの衛生 (EdgeHostAlignment, 要件 16.7-16.10) ---
+# --- エッジホストの衛生 (EdgeHostAlignment) ---
 
 - name: Gather installed package facts for edge host hygiene checks
   ansible.builtin.package_facts:

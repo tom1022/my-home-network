@@ -15,10 +15,11 @@
     name: "{{ vps_proxy_haproxy_service_name }}"
     state: restarted
 
-- name: Restart netfilter-persistent
+- name: Apply host firewall rules
   ansible.builtin.systemd:
-    name: netfilter-persistent
+    name: vps-proxy-iptables
     state: restarted
+    daemon_reload: true
 
 # Restarting tailscaled tears down and rebuilds tailscale0, which cuts the
 # SSH connection this very task runs over (management access to this host is

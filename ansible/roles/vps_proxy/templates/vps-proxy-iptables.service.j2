@@ -1,0 +1,23 @@
+[Unit]
+Description=Apply vps_proxy host firewall rules
+# Ordered like the netfilter-persistent unit this replaces: the rules must land
+# before network-pre.target so dockerd and tailscaled append their runtime
+# chains on top of them. DefaultDependencies=no is what makes that possible --
+# the implicit After=basic.target it would otherwise carry closes an ordering
+# cycle with network-pre.target, which systemd resolves at boot by dropping
+# unrelated jobs (paths.target, socket units, cloud-init) and which
+# `systemd-analyze verify` does not detect. Losing the default dependencies
+# also loses the shutdown ordering, hence spelling it out below.
+DefaultDependencies=no
+Wants=network-pre.target systemd-modules-load.service local-fs.target
+After=systemd-modules-load.service local-fs.target
+Before=network-pre.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/vps-proxy-iptables-apply
+
+[Install]
+WantedBy=multi-user.target

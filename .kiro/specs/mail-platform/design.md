@@ -293,7 +293,8 @@ flowchart TB
 | 4.7 | メール用ホスト名の証明書 | EdgeMailServer, MailboxBackend | 証明書の供給 | — |
 | 4.10 | 認証局証明書の信頼 | EdgeMailServer | LDAPS の接続契約 | 送信と取得の認証 |
 | 4.11 | 待受ポートの通過許可 | EdgeMailServer | ネットワークフィルタの定義 | — |
-| 4.12 | 証明書更新の反映 | EdgeMailServer | 証明書の供給 | — |
+| 4.12 | 終端ポートと中継ポートの区別 | EdgeMailServer, MailboxBackend | 経路透過の公開 | — |
+| 4.13 | 証明書更新の反映 | EdgeMailServer | 証明書の供給 | — |
 | 5.1-5.3 | メールボックスの位置とアクセス | MailboxBackend | LMTP と IMAPS の待受 | 受信と配送 |
 | 5.4 | 到達不能時のメール保全 | EdgeMailServer | 配送の再試行契約 | 受信と配送 |
 | 5.5 | 直接アクセスと単一書き込み | MailboxBackend | 永続ボリュームの定義 | — |
@@ -320,7 +321,7 @@ flowchart TB
 | FeasibilityProof | 検証 | 依存する機構の成立と環境側の前提を着手前に確認する | 1.1-1.12, 11.6 | Kanidm イメージ (P0), DMS イメージ (P0), VPS (P0) | Batch |
 | MailAuthProvisioning | 認証基盤 | メール認証に必要な定義を認証基盤上に宣言から作る | 2.1-2.3, 2.6, 2.8-2.10 | Kanidm (P0), 宣言的適用手段 (P0) | State |
 | LdapExposure | ネットワーク | 認証基盤の LDAPS を tailnet から到達可能にする | 3.1-3.2, 3.6-3.7 | k3s (P0), cert-manager (P0), tailnet (P0) | State |
-| EdgeMailServer | VPS | 外部との送受信、submission の認証、および衛星サービスを担う | 2.4, 2.5, 2.7, 3.3-3.5, 3.8, 4.1-4.3, 4.5, 4.7-4.12, 5.4, 6.8, 11.1-11.10 | DMS (P0), Kanidm (P0), MailboxBackend (P0) | Service, State |
+| EdgeMailServer | VPS | 外部との送受信、submission の認証、および衛星サービスを担う | 2.4, 2.5, 2.7, 3.3-3.5, 3.8, 4.1-4.3, 4.5, 4.7-4.13, 5.4, 6.8, 11.1-11.10 | DMS (P0), Kanidm (P0), MailboxBackend (P0) | Service, State |
 | MailboxBackend | k3s | メールを保持し、配送を受け、取得を終端する | 2.4, 4.4, 4.6-4.7, 5.1-5.7 | k3s (P0), Kanidm (P0), cert-manager (P1) | Service, State |
 | MailDeliverability | DNS | 送信元の識別に関する記録を定義する | 6.1-6.7, 6.9 | Terraform (P0), Cloudflare (P0), VPS 提供元 (P1) | State |
 | MailSecretSupply | シークレット | メール基盤の認証情報を単一の情報源から供給する | 7.1-7.6 | Infisical (P0), Infisical Operator (P0) | State |
@@ -458,7 +459,7 @@ flowchart TB
 | Field | Detail |
 |-------|--------|
 | Intent | 外部との送受信と submission の認証を担う |
-| Requirements | 2.4, 2.5, 2.7, 3.3-3.5, 3.8, 4.1-4.3, 4.5, 4.7-4.12, 5.4, 6.8, 11.1-11.10 |
+| Requirements | 2.4, 2.5, 2.7, 3.3-3.5, 3.8, 4.1-4.3, 4.5, 4.7-4.13, 5.4, 6.8, 11.1-11.10 |
 
 **Responsibilities & Constraints**
 

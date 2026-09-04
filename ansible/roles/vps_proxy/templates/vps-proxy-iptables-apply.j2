@@ -1,0 +1,36 @@
+#!/bin/sh
+# {{ ansible_managed }}
+set -eu
+
+CHAIN='{{ vps_proxy_filter_chain }}'
+
+apply() {
+    ipt="$1"
+    rules="$2"
+    [ -f "$rules" ] || return 0
+
+    # Dry-run before touching anything live: from here on the chain is empty
+    # for a moment, and a restore that aborts halfway would leave INPUT DROP
+    # with no allow rules at all. This host has no reachable console, so the
+    # tailnet is the only way back in.
+    if "${ipt}-restore" --test --noflush "$rules"; then
+        "$ipt" -F "$CHAIN" 2>/dev/null || "$ipt" -N "$CHAIN"
+        # The rules file appends the jump; drop any existing one first so
+        # re-application replaces it instead of stacking copies.
+        while "$ipt" -C INPUT -j "$CHAIN" 2>/dev/null; do
+            "$ipt" -D INPUT -j "$CHAIN"
+        done
+
+        "${ipt}-restore" --noflush "$rules" && return 0
+    fi
+
+    "$ipt" -I INPUT 1 -i tailscale0 -j ACCEPT || :
+    return 1
+}
+
+# Both families must be attempted even if one fails: bailing out on v4 used to
+# leave v6 with its default ACCEPT policy, i.e. silently wide open.
+rc=0
+apply iptables /etc/iptables/rules.v4 || rc=1
+apply ip6tables /etc/iptables/rules.v6 || rc=1
+exit "$rc"

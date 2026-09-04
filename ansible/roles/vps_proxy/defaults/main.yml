@@ -35,7 +35,13 @@ vps_proxy_required_packages:
 # ufw is not used here: `apt-cache show ufw` on this host lists
 # `Breaks: iptables-persistent, netfilter-persistent`, and this role already
 # depends on the latter for /etc/iptables/rules.v4 and rules.v6 below.
-# 143 (plaintext IMAP) and 9100 (node_exporter) are deliberately excluded.
+# 143 (plaintext IMAP), 4190 (ManageSieve) and 9100 (node_exporter) are
+# deliberately excluded: the mailserver role neither terminates nor relays them.
+# The role's whole allow-list lives in this chain, jumped to from INPUT, so
+# that re-applying it replaces one chain instead of flushing tables dockerd
+# also writes to.
+vps_proxy_filter_chain: VPS-PROXY-INPUT
+
 vps_proxy_filter_allow_tcp_ports:
   - 25
   - 80
@@ -43,7 +49,6 @@ vps_proxy_filter_allow_tcp_ports:
   - 465
   - 587
   - 993
-  - 4190
 
 vps_proxy_filter_allow_udp_ports:
   - 19132  # Minecraft Bedrock passthrough (nginx stream)

@@ -1,41 +1,45 @@
-*nat
-:PREROUTING ACCEPT [0:0]
-:INPUT ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
-:POSTROUTING ACCEPT [0:0]
-COMMIT
-
-# nginx/haproxy proxy every connection in userspace (SNI/TCP passthrough is
-# an application-layer proxy, not kernel routing) and need neither NAT nor
-# forwarding, so this table defines no MASQUERADE rule and INPUT denies by
-# default. xrayvpn's VPN egress is the one thing that ever forwarded
-# through this host (POSTROUTING -o {{ vps_external_interface | default('eth0') }} -j MASQUERADE, plus
-# net.ipv4.ip_forward=1 in tasks/main.yml): restore both together if
-# xrayvpn (vps_proxy_xray_sni) is revived, or clients get no route out.
+# Every rule this role owns lives in {{ vps_proxy_filter_chain }}, and nothing else does,
+# because this file is restored with `iptables-restore --noflush`: a plain
+# restore flushes every table, which erases the chains dockerd builds at
+# runtime (nat DOCKER/DNAT/MASQUERADE, filter DOCKER-*). Losing those kills
+# container egress and every published port while the container itself stays
+# "Up (healthy)", so the breakage is invisible to healthchecks.
+# --noflush also means nothing here may be appended to a chain shared with
+# dockerd or tailscaled: the apply script empties {{ vps_proxy_filter_chain }} and
+# re-adds the INPUT jump exactly once, which is what keeps re-application from
+# stacking duplicates.
+# No *nat table on purpose: nginx/haproxy proxy every connection in userspace
+# and need no NAT of their own, so dockerd is the sole owner of that table.
+# xrayvpn's VPN egress was the one thing here that ever needed a static
+# MASQUERADE (POSTROUTING -o {{ vps_external_interface | default('eth0') }} -j MASQUERADE); reinstating it
+# means adding it back together with net.ipv4.ip_forward=1, or clients get no
+# route out.
+# FORWARD and OUTPUT policies are left undeclared for the same reason: dockerd
+# sets FORWARD itself, and this role has no opinion to enforce there.
 *filter
 :INPUT DROP [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
--A INPUT -i lo -j ACCEPT
+:{{ vps_proxy_filter_chain }} - [0:0]
+-A {{ vps_proxy_filter_chain }} -i lo -j ACCEPT
 # Covers ntpd's udp/123 replies too: conntrack tracks UDP request/reply as a
 # pseudo-connection, so a dedicated --dport 123 rule would be redundant.
--A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+-A {{ vps_proxy_filter_chain }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 # tailnet membership (Tailscale ACL / node auth) is the access control here;
 # once on tailscale0 a peer is trusted for every port. Written explicitly
 # rather than relying on tailscaled's self-inserted `ts-input -i tailscale0
 # -j ACCEPT`, so INPUT is still correct for the window before tailscaled
 # (re)inserts its chain, e.g. early at boot.
--A INPUT -i tailscale0 -j ACCEPT
+-A {{ vps_proxy_filter_chain }} -i tailscale0 -j ACCEPT
 # A blanket ICMP block silently turns into TCP stalls on paths with a
 # smaller MTU than this host's (PMTUD depends on ICMP getting through).
--A INPUT -p icmp -j ACCEPT
+-A {{ vps_proxy_filter_chain }} -p icmp -j ACCEPT
 {% if vps_proxy_filter_ssh_public_allowed %}
--A INPUT -p tcp --dport 22 -j ACCEPT
+-A {{ vps_proxy_filter_chain }} -p tcp --dport 22 -j ACCEPT
 {% endif %}
 {% for port in vps_proxy_filter_allow_tcp_ports %}
--A INPUT -p tcp --dport {{ port }} -j ACCEPT
+-A {{ vps_proxy_filter_chain }} -p tcp --dport {{ port }} -j ACCEPT
 {% endfor %}
 {% for port in vps_proxy_filter_allow_udp_ports %}
--A INPUT -p udp --dport {{ port }} -j ACCEPT
+-A {{ vps_proxy_filter_chain }} -p udp --dport {{ port }} -j ACCEPT
 {% endfor %}
+-A INPUT -j {{ vps_proxy_filter_chain }}
 COMMIT

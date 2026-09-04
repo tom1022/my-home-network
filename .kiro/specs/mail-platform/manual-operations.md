@@ -145,9 +145,14 @@ docker exec mailserver postmap -q <アドレス> ldap:/etc/postfix/ldap-users.cf
 
 値が返らない場合、`mail` が未設定であるか、`mail-ldap-search` が `mail` を読めていない
 (`idm_mail_servers` への所属が失われている) かのいずれかである。Kanidm は読み取り許可が欠けている
-場合もエラーではなく 0 件を返すため、LDAP の応答だけでは両者を区別できない。区別するには
-`kanidm person get <名前>` で属性の有無を、`kanidm group list-members idm_mail_servers` で所属を
-それぞれ確認する。
+場合もエラーではなく 0 件を返すため、値が空であること自体は両者を区別しない。
+
+区別は LDAP の経路だけで付く。`/etc/postfix/ldap-users.cf` を雛形にして
+`query_filter = (&(class=group)(name=idm_mail_servers))`、`result_attribute = member` とした
+一時ファイルをコンテナ内に作り、`postmap -v -q x ldap:<一時ファイル>` を引く。
+`spn=mail-ldap-search@...` が返れば委譲は実在するので、原因は `mail` 属性の未設定に絞られる。
+
+是正 (`kanidm person update`) だけが対話ログインを要する。切り分けには要らない。
 
 所属していないアカウントでは、アプリケーションパスワードの発行そのものが成立しない。ドメインの
 既定のアカウントポリシーがパスワード単体の資格情報を許容せず、これを緩めるポリシーは
