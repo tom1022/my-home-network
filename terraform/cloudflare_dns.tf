@@ -79,6 +79,10 @@ locals {
     # oauth2-proxy / forward auth。保護対象 (ha/garage) の認証後
     # 戻り先である redirect_uri のホスト名を外部から解決・到達可能にする。
     forwardauth = { name = "forwardauth.${var.managed_domain}", tunnel = "kubernetes" }
+    # devplatform ワークスペース。ブランチごとのホスト名 (単一ラベル、
+    # cloudflare_zero_trust.tf のワイルドカード ingress が受ける) を都度 DNS へ
+    # 追加せずに済むよう、レコード自体もワイルドカードで 1 つに固定する。
+    workspaces = { name = "*.${var.managed_domain}", tunnel = "kubernetes" }
   }
 
   cname_records = {

@@ -62,6 +62,25 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "kubernetes" {
         }
       },
       {
+        # devplatform ワークスペース (gitops-apps の autonomous-parallel-dev-platform)。
+        # ブランチごとの IngressRoute はクラスタ側 (Workspace Controller) が動的に
+        # 生成・削除するため、ここは一括のワイルドカードルートで固定し、ワークスペースの
+        # 払い出し・破棄のたびにこのトンネル設定を変更しなくて済むようにする。origin_server_name
+        # は個々のワークスペースホスト名と一致させる必要はなく、tls-fickledev-com
+        # (*.fickledev.com) の SAN を満たす任意の 1 ラベルであればよい -- Traefik 側の
+        # 実際のルーティングは TLS 終端後の HTTP Host ヘッダで決まる。
+        #
+        # 個別列挙されたホスト名 (上記) 以外の *.fickledev.com 宛はすべてここへ落ち、
+        # 遮断点は Cloudflare エッジからクラスタ内の forward-auth-chain (argocd namespace)
+        # へ移る -- forward auth を経由しないルーティング設定を Traefik 側に作らない限り、
+        # 到達自体は許可されても認証されていないリクエストは forward-auth-chain が拒否する。
+        hostname = "*.${var.managed_domain}"
+        service  = "https://traefik.kube-system.svc.cluster.local:443"
+        origin_request = {
+          origin_server_name = "devplatform.${var.managed_domain}"
+        }
+      },
+      {
         service = "http_status:404"
       },
     ]
