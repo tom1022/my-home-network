@@ -317,7 +317,7 @@ flowchart TB
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1, 1.3, 1.4 | 到達手段と公開対象の列挙 | `console_proxy` | `console_proxy_targets` | 到達の 2 経路 |
+| 1.1, 1.3, 1.4 | 到達手段と公開対象の列挙 | `console_proxy` | `console_proxy_targets`, `web_terminal_targets` | 到達の 2 経路 |
 | 1.2 | セグメント全体を広告しない | `tailscale_node` | `tailscale serve` の適用 | 到達の 2 経路 |
 | 1.5 | 認証を要求する | `console_proxy`, Cloudflare Access | `basic_auth`, Access policy | 到達の 2 経路 |
 | 1.6 | 停止時の第 2 経路 | `tailscale_node`, `cloudflared_tunnel` | 2 系統の独立 | 到達の 2 経路 |
@@ -443,7 +443,7 @@ console_proxy_targets:
 
 **転送先をホスト名で指定しない。**DNS フィルタはルータと同じ機体で動いており、その管理画面の名前解決は、まさにその画面が管理する DNS の機構に依存する。**この機構が壊れたときに、直すための画面へ到達できなくなる。**転送先は名前ではなくアドレスで宣言する。
 - **Postconditions**: 宣言した対象のみが応答し、それ以外は拒否される
-- **Invariants**: `caddy_port` と `service_name` がそれぞれ重複しない。`description` の無いエントリを置かない
+- **Invariants**: `caddy_port` と `service_name` がそれぞれ重複しない。`web_terminal_targets` の同名の値とも重複しない。`description` の無いエントリを置かない
 
 ##### State Management
 
@@ -453,6 +453,7 @@ console_proxy_targets:
 
 **Implementation Notes**
 
+- Integration: **Caddyfile を `console_proxy_targets` と `web_terminal_targets` の双方から生成する。**端末も管理画面と同じ形で公開の対象であり (要件 1.9)、**端末だけが公開の宣言から漏れる状態を作らない。**端末の転送先は `web_terminal_targets` の `listen_port` から導き、ポート番号を 2 つの宣言に重ねて書かない
 - Integration: 経路 1 と 2 の双方が同一の待受へ向かうため、**Caddy が停止すると両経路が同時に失われる**。最後の砦は tailnet 経由の SSH であり、これは Caddy を経由しない (要件 1.6)
 - Validation: 一覧に無い宛先への要求が拒否されることを実測する
 - Validation: `ss -ltnp` で Caddy が `127.0.0.1` 以外に bind していないことを確認する
@@ -550,19 +551,25 @@ console_inbound_allow:
 
 ```yaml
 web_terminal_targets:
-  - name: opnsense
-    listen_port: 7681
+  - name: opnsense-terminal
+    listen_port: 7681             # ttyd 自身が 127.0.0.1 で待ち受けるポート
+    caddy_port: 8085              # Caddy が 127.0.0.1 で待ち受けるポート
+    service_name: opnsense-terminal
+    public_hostname: opnsense-terminal
     ssh_target: "192.168.10.1:2222"
     description: "ルータの端末。SSH の待受は 22 ではなく 2222"
-  - name: console-pi
+  - name: console-pi-terminal
     listen_port: 7682
+    caddy_port: 8086
+    service_name: console-pi-terminal
+    public_hostname: console-pi-terminal
     ssh_target: "localhost"
     description: "Console の足自身の端末。ここから他ホストへ辿れる"
 ```
 
 - **Preconditions**: 対象への SSH の資格情報が `console-pi` 上に用意されていること
 - **Postconditions**: Caddy の認証を経た要求のみが端末に到達する
-- **Invariants**: `listen_port` が重複しない。全エントリが `description` を持つ
+- **Invariants**: `listen_port` が重複しない。`caddy_port` と `service_name` と `public_hostname` が `console_proxy_targets` の同名の値と重複しない。全エントリが `description` を持つ
 
 **Implementation Notes**
 
@@ -828,7 +835,7 @@ beszel_alerts:
 **Implementation Notes**
 
 - Integration: トンネルは `config_src = "cloudflare"` で作成し、ingress を Terraform に宣言する。**`config_src = "local"` と `cloudflare_zero_trust_tunnel_cloudflared_config` は排他であるため、両方を指定しない**
-- Integration: ingress は `console_proxy_targets` の各エントリについて 1 行を持ち、`public_hostname` を `http://127.0.0.1:<caddy_port>` へ向ける。末尾に catch-all を置く
+- Integration: ingress は `console_proxy_targets` と `web_terminal_targets` の各エントリについて 1 行を持ち、`public_hostname` を `http://127.0.0.1:<caddy_port>` へ向ける。末尾に catch-all を置く。**端末を含めない ingress を作らない** (要件 1.9)
 - Integration: **既存の `guacamole` トンネルは破棄も置換もしない。**新規のトンネルを追加する
 - Integration: token を `EnvironmentFile` (0600, root 所有) から供給する。旧環境は `ExecStart=` に平文で持っていた (要件 2.6)
 - Validation: `ps aux` と `~/.bash_history` に token が現れないことを確認する
@@ -844,7 +851,7 @@ beszel_alerts:
 **Responsibilities & Constraints**
 
 - セグメント全体を広告しない。**subnet router として動作させない** (要件 1.2)
-- **Tailscale Services を対象ごとに 1 つ用意する。**`console_proxy_targets` の各エントリについて `tailscale serve --service=svc:<service_name> --https=443 127.0.0.1:<caddy_port>` を適用する。**`--set-path` も非標準ポートも使わない**
+- **Tailscale Services を対象ごとに 1 つ用意する。**`console_proxy_targets` と `web_terminal_targets` の各エントリについて `tailscale serve --service=svc:<service_name> --https=443 127.0.0.1:<caddy_port>` を適用する。**`--set-path` も非標準ポートも使わない**
 - **タグを事前付与した auth key でノードを参加させる。**これにより node key の期限が既定で無効化される (要件 4.7)
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [x]
@@ -973,9 +980,9 @@ beszel_alerts:
 
 | 一覧 | 保持場所 | 満たす要件 | 不変条件 |
 |------|----------|-----------|----------|
-| `console_proxy_targets` | `group_vars/console/main.yml` | 1.3, 1.4 | `caddy_port` と `service_name` が重複しない。全エントリが `description` を持つ |
+| `console_proxy_targets` | `group_vars/console/main.yml` | 1.3, 1.4 | `caddy_port` と `service_name` が重複しない。`web_terminal_targets` の同名の値とも重複しない。全エントリが `description` を持つ |
 | `console_inbound_allow` | `group_vars/console/main.yml` | 1.7 | 全エントリが `reason` を持つ。tailnet 側の待受は Services の仮想 IP のため列挙しない |
-| `web_terminal_targets` | `group_vars/console/main.yml` | 1.9 | `listen_port` が重複しない |
+| `web_terminal_targets` | `group_vars/console/main.yml` | 1.9 | `listen_port` が重複しない。`caddy_port` と `service_name` と `public_hostname` が `console_proxy_targets` の同名の値と重複しない |
 | `gatus_endpoints` | `group_vars/console/main.yml` | 3.5, 3.17 | 通知の要否がエントリから読み取れる。**`beszel_systems` に列挙したホストの死活を含まない。**Beszel の hub のエンドポイントを含む |
 | `beszel_systems` | `group_vars/console/main.yml` | 3.14 | `name` が重複せず、個人を識別する語を含まない。列挙したホストが `gatus_endpoints` の死活の対象と重複しない |
 | `beszel_alerts` | `group_vars/console/main.yml` | 3.5, 3.11, 3.12 | 閾値と継続分数がエントリから読み取れる。**`ContainerHealth` を含まない** |
