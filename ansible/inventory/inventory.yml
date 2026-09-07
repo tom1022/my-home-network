@@ -31,6 +31,12 @@ target_hosts:
     vps:
       ansible_host: 100.109.6.7
       ansible_user: trvlr
+    console-pi:
+      # Tailscale MagicDNS name, reachable only over the tailnet (matches
+      # vps). Operator provisioned root login directly (task 1.1); no
+      # become/sudo layer here, matching n100/hp-z440/gitea/pbs.
+      ansible_host: console-pi
+      ansible_user: root
 
 proxmox_nodes:
   hosts:
@@ -67,3 +73,8 @@ k3s:
   children:
     k3s_master: {}
     k3s_agent: {}
+
+# Console セグメントの足。admin-plane-rebuild が新設する。
+console:
+  hosts:
+    console-pi: {}

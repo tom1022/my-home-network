@@ -26,6 +26,15 @@
       failed_when:
         - scanned_host_key.rc != 0
         - scanned_host_key.stdout | length == 0
+      # With `serial: 1`, a task failure on one host aborts every remaining
+      # batch (and any play or import_playbook after this one) regardless of
+      # max_fail_percentage, because delegate_to: localhost failures still
+      # count against the batch. ignore_errors keeps a single unreachable
+      # host (e.g. console-pi before it's provisioned) from blocking known_hosts
+      # refresh -- and therefore every playbook that imports this one -- for
+      # every other host. The `when` guard below already skips the update for
+      # a host whose scan failed.
+      ignore_errors: true
       delegate_to: localhost
       become: false
 

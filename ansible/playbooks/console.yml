@@ -1,0 +1,12 @@
+---
+# Console セグメントの足 (console-pi) への適用のエントリポイント。
+# 監視・端末を追加する役割は admin-plane-rebuild の後続タスクがここへ足していく。
+# site.yml への組み込みはタスク 6.2 で行う (既存ホストへの適用が終わった後に挿す)。
+- name: Refresh SSH known_hosts entries
+  import_playbook: refresh_known_hosts.yml
+
+- name: Ensure the managed connecting key is authorized on console-pi
+  hosts: console
+  gather_facts: false
+  roles:
+    - ssh_authorized_keys
