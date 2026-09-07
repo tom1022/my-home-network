@@ -1,0 +1,143 @@
+---
+# tailnet への参加、tailscaled の待受ポート/FLAGS の宣言的収束、および
+# (console_proxy_targets が定義されたホストに限り) tailscale serve の適用を扱う。
+
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: tailscale_node role supports Debian family hosts only.
+
+# pkgs.tailscale.com namespaces repos by distro (ubuntu vs debian), not just
+# by codename: Debian family covers both, and reusing the same codename
+# under the wrong distro path 404s (e.g. Ubuntu noble is not Debian noble).
+- name: Ensure Tailscale apt signing key is present
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/{{ ansible_distribution | lower }}/{{ ansible_distribution_release }}.noarmor.gpg"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    mode: '0644'
+
+- name: Ensure Tailscale apt repository is configured
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/tailscale.list
+    content: |
+      deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} main
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure the tailscale package is installed
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+
+- name: Ensure tailscaled service is enabled and started
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+# vps_proxy's firewall allow-list reads tailscale_node_tailscaled_port too,
+# so the two never drift apart into independently pinned port values.
+- name: Ensure tailscaled listens on the declared port with the declared flags
+  ansible.builtin.template:
+    src: tailscaled-default.j2
+    dest: /etc/default/tailscaled
+    owner: root
+    group: root
+    mode: '0444'
+  notify:
+    - Restart tailscaled service
+    - Wait for tailnet SSH to come back after tailscaled restart
+
+# Restarting tailscaled tears down and rebuilds tailscale0, which would cut
+# an ongoing tailnet-only SSH connection (true for vps); flush now so the
+# reconnect-wait handler completes before any later task depends on the
+# connection.
+- name: Flush handlers to reconnect over the tailnet before continuing
+  ansible.builtin.meta: flush_handlers
+
+- name: Query current tailscale backend status
+  ansible.builtin.command: tailscale status --json
+  register: tailscale_node_status
+  changed_when: false
+
+- name: Query current tailscale preferences
+  ansible.builtin.command: tailscale debug prefs
+  register: tailscale_node_prefs
+  changed_when: false
+
+# Only reached on a node that has never authenticated yet. An already-joined
+# node (this is true for console-pi today, joined by hand outside of Ansible)
+# never hits this branch, so the auth key is never re-presented to an
+# already-live connection, and is never required to be supplied either (a
+# spent single-use auth key is never stored anywhere after the join it
+# performed).
+- name: Fail fast if the tailnet auth key is not supplied for a first-time join
+  ansible.builtin.assert:
+    that:
+      - tailscale_authkey | default('') | trim | length > 0
+    fail_msg: >-
+      tailscale_authkey is empty. Supply it via Infisical
+      (CONSOLE_TAILSCALE_AUTHKEY) and run this playbook through `infisical run`.
+  when: (tailscale_node_status.stdout | from_json).BackendState != 'Running'
+
+- name: Ensure node is joined to the tailnet with the declared tagged auth key
+  ansible.builtin.command:
+    argv:
+      - tailscale
+      - up
+      - "--authkey={{ tailscale_authkey }}"
+      - --ssh=false
+      - --advertise-routes=
+  when: (tailscale_node_status.stdout | from_json).BackendState != 'Running'
+  changed_when: true
+  no_log: true
+
+# Covers drift on an already-joined node (e.g. someone flipped --ssh by hand)
+# without ever needing the auth key again. `tailscale set` only adjusts
+# preferences on the live connection; it does not restart tailscaled and does
+# not touch the interface the way vps_proxy's tailscaled restart does.
+- name: Ensure tailnet preferences match the declared state (no SSH, no advertised routes)
+  ansible.builtin.command:
+    argv:
+      - tailscale
+      - set
+      - --ssh=false
+      - --advertise-routes=
+  when: >-
+    (tailscale_node_prefs.stdout | from_json).RunSSH
+    or ((tailscale_node_prefs.stdout | from_json).AdvertiseRoutes | default([], true) | length > 0)
+  changed_when: true
+
+- name: Query tailscale backend status after convergence
+  ansible.builtin.command: tailscale status --json
+  register: tailscale_node_status_after
+  changed_when: false
+
+- name: Query tailscale preferences after convergence
+  ansible.builtin.command: tailscale debug prefs
+  register: tailscale_node_prefs_after
+  changed_when: false
+
+# KeyExpiry is absent from Self once a tagged auth key put the node on the
+# tag's (default: disabled) expiry policy; a still-expiring node key would
+# show an RFC3339 timestamp here instead.
+- name: Ensure the node is not advertising routes, has Tailscale SSH disabled, and has key expiry disabled
+  ansible.builtin.assert:
+    that:
+      - not (tailscale_node_prefs_after.stdout | from_json).RunSSH
+      - (tailscale_node_prefs_after.stdout | from_json).AdvertiseRoutes | default([], true) | length == 0
+      - (tailscale_node_status_after.stdout | from_json).Self.KeyExpiry | default('') | length == 0
+    fail_msg: >-
+      Node is not in the declared tailnet state: it must not advertise routes,
+      must not run Tailscale SSH, and must have key expiry disabled (requires
+      a tagged auth key).
+
+# console_proxy_targets / web_terminal_targets only exist in
+# group_vars/console (console-pi); vps has neither, so the whole file is
+# skipped there without ever templating either variable.
+- name: Apply tailscale serve configuration for declared Console targets
+  ansible.builtin.include_tasks: serve.yml
+  when: console_proxy_targets is defined

@@ -10,3 +10,8 @@
   gather_facts: false
   roles:
     - ssh_authorized_keys
+
+- name: Ensure console-pi is joined to the tailnet
+  hosts: console
+  roles:
+    - tailscale_node

@@ -1,0 +1,6 @@
+---
+# tailscale_node_tailscaled_port / tailscale_node_tailscaled_flags are
+# defined in group_vars/all/main.yml, not here: this role and vps_proxy run
+# in separate plays (different hosts: blocks) in playbooks/vps.yml, and role
+# defaults do not carry over across plays. group_vars is the single source
+# of truth both plays can read.

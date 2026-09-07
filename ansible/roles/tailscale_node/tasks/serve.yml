@@ -1,0 +1,59 @@
+---
+# console_proxy_targets が定義されたホスト (console-pi) からのみ main.yml
+# 経由で include される。
+
+- name: Combine console_proxy_targets and web_terminal_targets into the declared Tailscale Services set
+  ansible.builtin.set_fact:
+    tailscale_node_serve_targets: "{{ console_proxy_targets + (web_terminal_targets | default([])) }}"
+
+# Tailscale Services はテナントあたり最大 10 件 (2026-02-19 GA、追加課金無し)。
+- name: Ensure the declared Tailscale Services set fits within the tailnet limit
+  ansible.builtin.assert:
+    that:
+      - tailscale_node_serve_targets | length <= 10
+    fail_msg: >-
+      {{ tailscale_node_serve_targets | length }} Tailscale Services declared
+      (console_proxy_targets + web_terminal_targets), exceeding the tailnet
+      limit of 10.
+
+- name: Ensure service_name is unique across the declared Tailscale Services set
+  ansible.builtin.assert:
+    that:
+      - tailscale_node_serve_targets | map(attribute='service_name') | list | unique | length == tailscale_node_serve_targets | length
+    fail_msg: >-
+      service_name must be unique across console_proxy_targets and
+      web_terminal_targets combined (group_vars/console/main.yml).
+
+- name: Query current tailscale serve configuration
+  ansible.builtin.command: tailscale serve status --json
+  register: tailscale_node_serve_status
+  changed_when: false
+
+# `tailscale serve status --json` の Services 配下は
+# {"svc:<name>": {"TCP": {"443": {"HTTPS": true}},
+#                 "Web": {"<service-magicdns-host>:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:<port>"}}}}}}
+# という形で 1 サービスにつき Web エントリを 1 つ返す。ホスト名部分はサービス
+# ごとの MagicDNS 名で毎回変わるためキー名では引けず、values() の先頭を見る。
+# この構造は公式リファレンスに明記が無く実機観測に基づく推定であり、将来
+# 変わった場合はこの判定が常に不一致になるだけ (実害無く、毎回 apply され
+# 冪等性だけが崩れる)。
+- name: Ensure each declared Tailscale Service is configured as declared
+  ansible.builtin.command:
+    argv:
+      - tailscale
+      - serve
+      - "--service=svc:{{ item.service_name }}"
+      - --https=443
+      - "127.0.0.1:{{ item.caddy_port }}"
+  loop: "{{ tailscale_node_serve_targets }}"
+  loop_control:
+    label: "{{ item.service_name }}"
+  vars:
+    tailscale_node_serve_current_service: "{{ ((tailscale_node_serve_status.stdout | from_json).Services | default({})).get('svc:' + item.service_name, {}) }}"
+    tailscale_node_serve_current_https: "{{ (tailscale_node_serve_current_service.get('TCP', {}).get('443', {}) | default({})).get('HTTPS', false) }}"
+    tailscale_node_serve_current_web: "{{ ((tailscale_node_serve_current_service.get('Web', {}) | default({})).values() | list) + [{}] }}"
+    tailscale_node_serve_current_proxy: "{{ ((tailscale_node_serve_current_web | first).get('Handlers', {}) | default({})).get('/', {}).get('Proxy', '') }}"
+  when: >-
+    not tailscale_node_serve_current_https
+    or tailscale_node_serve_current_proxy != ('http://127.0.0.1:' ~ item.caddy_port)
+  changed_when: true

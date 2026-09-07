@@ -1,0 +1,17 @@
+---
+# Restarting tailscaled tears down and rebuilds tailscale0, which cuts the
+# SSH connection this very task runs over on a tailnet-only-managed host
+# (true for vps; console-pi is reachable this way too). async+poll:0 lets
+# the restart be submitted before the connection drops instead of waiting
+# on a response that will never arrive.
+- name: Restart tailscaled service
+  ansible.builtin.systemd:
+    name: tailscaled
+    state: restarted
+  async: 30
+  poll: 0
+
+- name: Wait for tailnet SSH to come back after tailscaled restart
+  ansible.builtin.wait_for_connection:
+    delay: 5
+    timeout: 90
