@@ -1,0 +1,185 @@
+---
+# Caddy 自体の導入とリバースプロキシ設定のみを扱う (1 role = 1 component)。
+# ファイアウォール (console_inbound_allow の適用)・ttyd・Homer は別 role の責務。
+
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: console_proxy role supports Debian family hosts only.
+
+- name: Ensure at least one reverse proxy target is declared
+  ansible.builtin.assert:
+    that:
+      - console_proxy_targets | length > 0
+    fail_msg: console_proxy_targets must declare at least one reverse proxy target.
+
+- name: Ensure at least one web terminal target is declared
+  ansible.builtin.assert:
+    that:
+      - web_terminal_targets | default([]) | length > 0
+    fail_msg: >-
+      web_terminal_targets must declare at least one target
+      (group_vars/console/main.yml). console_proxy exposes it alongside
+      console_proxy_targets.
+
+# design.md の不変条件: console_proxy_targets と web_terminal_targets を合わせた
+# 集合の中で caddy_port/service_name/public_hostname が重複しないこと
+# (Host ヘッダを見ないため、重複するとどちらか一方が到達不能になる)。
+# landing_page_caddy_port もこの Caddy インスタンスの待受を 1 つ使うため、同じ
+# 集合と衝突しないことをあわせて検査する。
+- name: Combine console_proxy_targets and web_terminal_targets for the duplicate check
+  ansible.builtin.set_fact:
+    console_proxy_all_targets: "{{ console_proxy_targets + web_terminal_targets }}"
+
+- name: Ensure caddy_port / service_name / public_hostname are unique across console_proxy_targets and web_terminal_targets
+  ansible.builtin.assert:
+    that:
+      - console_proxy_all_targets | map(attribute='caddy_port') | list | unique | length == console_proxy_all_targets | length
+      - console_proxy_all_targets | map(attribute='service_name') | list | unique | length == console_proxy_all_targets | length
+      - console_proxy_all_targets | map(attribute='public_hostname') | list | unique | length == console_proxy_all_targets | length
+      - landing_page_caddy_port not in (console_proxy_all_targets | map(attribute='caddy_port') | list)
+    fail_msg: >-
+      console_proxy_targets and web_terminal_targets must not share
+      caddy_port, service_name, or public_hostname values with each other or
+      with landing_page_caddy_port (group_vars/console/main.yml).
+
+- name: Ensure basic auth credentials are provided
+  ansible.builtin.assert:
+    that:
+      - console_proxy_basic_auth_user | default('') | length > 0
+      - console_proxy_basic_auth_password | default('') | length > 0
+    fail_msg: >-
+      console_proxy_basic_auth_user / console_proxy_basic_auth_password are
+      required. Supply them via Infisical (CONSOLE_PROXY_BASIC_AUTH_USER /
+      CONSOLE_PROXY_BASIC_AUTH_PASSWORD).
+
+- name: Ensure gnupg is installed for apt key handling
+  ansible.builtin.apt:
+    name: gnupg
+    state: present
+    update_cache: true
+
+# Cloudsmith distributes the Caddy signing key ASCII-armored; apt needs the
+# binary form under /usr/share/keyrings (dearmor is a separate step, unlike
+# tailscale's already-binary .noarmor.gpg key).
+- name: Fetch Caddy apt signing key (ASCII-armored)
+  ansible.builtin.get_url:
+    url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+    dest: /etc/apt/caddy-stable-archive-key.asc
+    mode: '0644'
+
+- name: Ensure Caddy apt signing key is dearmored
+  ansible.builtin.command:
+    cmd: >-
+      gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+      /etc/apt/caddy-stable-archive-key.asc
+    creates: /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+
+- name: Ensure Caddy apt repository is configured
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/caddy-stable.list
+    content: |
+      deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure Caddy package is installed
+  ansible.builtin.apt:
+    name: caddy
+    state: present
+    update_cache: true
+
+# `caddy hash-password` has no --salt flag (checked: v2.11.4), so it re-salts
+# on every call and a naive "hash every run" approach would never converge
+# (the Caddyfile, and thus the reload handler, would fire on every apply).
+# python3-bcrypt lets us reuse the already-deployed hash whenever it still
+# matches the current password, so only an actual password change changes
+# anything.
+- name: Ensure python3-bcrypt is installed for idempotent hash reuse
+  ansible.builtin.apt:
+    name: python3-bcrypt
+    state: present
+    update_cache: true
+
+- name: Check whether a Caddyfile is already deployed
+  ansible.builtin.stat:
+    path: /etc/caddy/Caddyfile
+  register: console_proxy_caddyfile_stat
+
+- name: Slurp the currently deployed Caddyfile, if any
+  ansible.builtin.slurp:
+    src: /etc/caddy/Caddyfile
+  register: console_proxy_caddyfile_current
+  when: console_proxy_caddyfile_stat.stat.exists
+
+# All site blocks share the same global basic_auth user/hash, so the first
+# bcrypt-shaped hash found in the file is the one to check.
+- name: Determine the currently deployed basic auth hash, if any
+  ansible.builtin.set_fact:
+    console_proxy_current_hash: >-
+      {{ (console_proxy_caddyfile_current.content | b64decode
+          | regex_search('\$2[abxy]\$[0-9]{2}\$[A-Za-z0-9./]{53}'))
+         if console_proxy_caddyfile_stat.stat.exists
+         else '' }}
+
+# ponytail: bcrypt.checkpw is a straight library call, not exposed by any
+# `caddy` subcommand, so this stays a python3 one-liner rather than pulling
+# in a collection for one comparison.
+- name: Verify whether the currently deployed hash still matches the current password
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import bcrypt, sys
+        sys.exit(0 if bcrypt.checkpw(sys.argv[1].encode(), sys.argv[2].encode()) else 1)
+      - "{{ console_proxy_basic_auth_password }}"
+      - "{{ console_proxy_current_hash }}"
+  register: console_proxy_hash_still_valid
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: console_proxy_current_hash | length > 0
+
+# no_log on the whole task, not just the register: the plaintext password is
+# also present in argv, which Ansible would otherwise echo in the task result.
+- name: Generate a bcrypt hash for the basic auth password (only when it changed)
+  ansible.builtin.command:
+    argv:
+      - caddy
+      - hash-password
+      - --plaintext
+      - "{{ console_proxy_basic_auth_password }}"
+  register: console_proxy_basic_auth_hash
+  changed_when: false
+  no_log: true
+  when: console_proxy_current_hash | length == 0 or console_proxy_hash_still_valid.rc | default(1) != 0
+
+- name: Determine the basic auth hash to deploy (freshly generated, or the still-valid existing one)
+  ansible.builtin.set_fact:
+    console_proxy_final_hash: >-
+      {{ console_proxy_basic_auth_hash.stdout | trim
+         if (console_proxy_current_hash | length == 0 or console_proxy_hash_still_valid.rc | default(1) != 0)
+         else console_proxy_current_hash }}
+  no_log: true
+
+# validate substitutes %s with the rendered temp file's path and runs it
+# before the file is copied to dest, so a broken Caddyfile never reaches
+# /etc/caddy/Caddyfile (Console has no firewall fallback yet for this task).
+- name: Deploy the Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: root
+    mode: '0644'
+    validate: 'caddy validate --config %s --adapter caddyfile'
+  notify: Reload caddy
+
+- name: Ensure caddy service is enabled and started
+  ansible.builtin.systemd:
+    name: caddy
+    enabled: true
+    state: started

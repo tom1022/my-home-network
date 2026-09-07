@@ -1,0 +1,33 @@
+---
+# console_proxy role (console-pi 上の Caddy) が消費する転送先の宣言。
+# upstream は実測済みの確定値であり、ホスト名ではなく IP アドレスで指定する
+# (AdGuard は DNS フィルタ自体であり、名前解決に依存すると壊れたときに直せなくなるため)。
+console_proxy_targets:
+  - name: opnsense
+    caddy_port: 8081
+    service_name: opnsense
+    public_hostname: opnsense
+    upstream: "https://192.168.10.1:443"
+    tls_insecure: true
+    description: "ルータの管理画面。自己署名証明書のため tls_insecure が要る"
+  - name: adguard
+    caddy_port: 8082
+    service_name: adguard
+    public_hostname: adguard
+    upstream: "http://192.168.10.1:3000"
+    tls_insecure: false
+    description: "DNS フィルタの管理画面。ルータと同じ機体で動く"
+  - name: status
+    caddy_port: 8083
+    service_name: status
+    public_hostname: status
+    upstream: "http://127.0.0.1:8080"
+    tls_insecure: false
+    description: "Gatus の状態一覧 (別タスクで構築予定)"
+  - name: beszel
+    caddy_port: 8084
+    service_name: beszel
+    public_hostname: beszel
+    upstream: "http://127.0.0.1:8090"
+    tls_insecure: false
+    description: "Beszel の hub。各ホストの資源の状態を示す (別タスクで構築予定)"

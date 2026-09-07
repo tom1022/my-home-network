@@ -1,0 +1,49 @@
+{# Host ヘッダは一切見ない: エントリごとに専用ポートで 127.0.0.1 のみへ bind し、
+   ポート番号だけで転送先を決める (0.0.0.0 や外部インタフェースへは bind しない)。
+   注意: サイトアドレスの host 部分 (127.0.0.1) は Caddy 内部では Host ヘッダの
+   マッチャーとして使われるだけで、リスナーの bind 先を制限しない (指定が無ければ
+   ワイルドカードで listen する)。実際に 127.0.0.1 だけへ bind させるには `bind`
+   ディレクティブが必須。 #}
+{% for target in console_proxy_targets %}
+http://127.0.0.1:{{ target.caddy_port }} {
+	bind 127.0.0.1
+
+	basic_auth {
+		{{ console_proxy_basic_auth_user }} {{ console_proxy_final_hash }}
+	}
+
+	reverse_proxy {{ target.upstream }} {
+{% if target.tls_insecure %}
+		transport http {
+			tls_insecure_skip_verify
+		}
+{% endif %}
+	}
+}
+{% endfor %}
+{# web_terminal_targets の各エントリも同じ形のサイトブロックで公開する。ttyd は
+   WebSocket 経由で入出力するが、Caddy の reverse_proxy は Upgrade ヘッダのある
+   要求を自動で透過するため、ここに追加の設定は要らない (実機で確認済み)。 #}
+{% for target in web_terminal_targets %}
+http://127.0.0.1:{{ target.caddy_port }} {
+	bind 127.0.0.1
+
+	basic_auth {
+		{{ console_proxy_basic_auth_user }} {{ console_proxy_final_hash }}
+	}
+
+	reverse_proxy http://127.0.0.1:{{ target.listen_port }}
+}
+{% endfor %}
+{# 起点のリンク集 (landing_page role が配置する Homer の静的ファイル) の配信。
+   常駐プロセスを持たないため upstream ではなく file_server で直接配る。 #}
+http://127.0.0.1:{{ landing_page_caddy_port }} {
+	bind 127.0.0.1
+
+	basic_auth {
+		{{ console_proxy_basic_auth_user }} {{ console_proxy_final_hash }}
+	}
+
+	root * {{ landing_page_root }}
+	file_server
+}

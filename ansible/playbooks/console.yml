@@ -15,3 +15,8 @@
   hosts: console
   roles:
     - tailscale_node
+
+- name: Ensure the Caddy reverse proxy is configured on console-pi
+  hosts: console
+  roles:
+    - console_proxy

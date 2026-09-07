@@ -1,0 +1,5 @@
+---
+# console_proxy_targets は group_vars/console/main.yml が唯一の正 (この role と
+# ファイアウォール適用側の両方が読む可能性があるため、role defaults には置かない)。
+# console_proxy_basic_auth_user / console_proxy_basic_auth_password は
+# host_vars/console-pi/main.yml が Infisical 経由で供給する。
