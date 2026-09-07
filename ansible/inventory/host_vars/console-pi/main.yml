@@ -1,0 +1,19 @@
+---
+# console-pi 固有の変数。値は右辺のみ infisical run が供給する環境変数を
+# 参照する (inventory/README 相当の既存の間接化層を踏襲)。
+#
+# 消費するロールは admin-plane-rebuild の後続タスク (2章以降) で追加する。
+# ここでは変数の宣言と Infisical 側キー名の確定のみを行う。
+
+# Caddy の基本認証 (console_proxy ロールが消費する想定)
+console_proxy_basic_auth_user: "{{ lookup('env', 'CONSOLE_PROXY_BASIC_AUTH_USER') }}"
+console_proxy_basic_auth_password: "{{ lookup('env', 'CONSOLE_PROXY_BASIC_AUTH_PASSWORD') }}"
+
+# cloudflared のトンネル token (cloudflared_tunnel ロールが消費する想定)
+cloudflared_tunnel_token: "{{ lookup('env', 'CONSOLE_CLOUDFLARED_TUNNEL_TOKEN') }}"
+
+# tailnet 参加用のタグ付き auth key (tailscale_node ロールが消費する想定)
+tailscale_authkey: "{{ lookup('env', 'CONSOLE_TAILSCALE_AUTHKEY') }}"
+
+# ブラウザ端末 (ttyd) が対象ホストへ接続するための秘密鍵 (web_terminal ロールが消費する想定)
+web_terminal_ssh_private_key: "{{ lookup('env', 'CONSOLE_WEB_TERMINAL_SSH_PRIVATE_KEY') }}"

@@ -14,6 +14,10 @@ proxmox_pbs_username: "{{ lookup('env', 'PROXMOX_PBS_USERNAME') }}"
 proxmox_pbs_password: "{{ lookup('env', 'PROXMOX_PBS_PASSWORD') }}"
 proxmox_pbs_fingerprint: "{{ lookup('env', 'PROXMOX_PBS_FINGERPRINT') }}"
 
+# OPNsense REST API (playbooks/wol.yml が消費する想定。admin-plane-rebuild タスク 5.2)
+opnsense_api_key: "{{ lookup('env', 'OPNSENSE_API_KEY') }}"
+opnsense_api_secret: "{{ lookup('env', 'OPNSENSE_API_SECRET') }}"
+
 # k3s node internal IPs (172.16.0.0/16) - used by various roles including vps_proxy
 k3s_internal_ips:
   k3s-server: "172.16.0.150"

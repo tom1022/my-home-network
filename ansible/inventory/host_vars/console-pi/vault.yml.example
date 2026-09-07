@@ -1,0 +1,15 @@
+---
+# Copy this file to vault.yml and encrypt it:
+# ansible-vault encrypt inventory/host_vars/console-pi/vault.yml
+#
+# This file is a NAME LIST, not a supply path (see
+# inventory/group_vars/all/vault.yml.example for the full explanation). The
+# values here resolve from Infisical via `infisical run` at execution time;
+# ansible-vault encryption of a copy is a defense-in-depth measure, not the
+# supply path itself.
+
+vault_console_proxy_basic_auth_user: "CHANGEME_CONSOLE_PROXY_BASIC_AUTH_USER"
+vault_console_proxy_basic_auth_password: "CHANGEME_CONSOLE_PROXY_BASIC_AUTH_PASSWORD"
+vault_console_cloudflared_tunnel_token: "CHANGEME_CONSOLE_CLOUDFLARED_TUNNEL_TOKEN"
+vault_console_tailscale_authkey: "CHANGEME_CONSOLE_TAILSCALE_AUTHKEY"
+vault_console_web_terminal_ssh_private_key: "CHANGEME_CONSOLE_WEB_TERMINAL_SSH_PRIVATE_KEY"

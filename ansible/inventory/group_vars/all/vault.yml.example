@@ -25,3 +25,11 @@ vault_proxmox_api_token_secret: "CHANGEME_PROXMOX_API_TOKEN_SECRET"
 vault_proxmox_pbs_username: "backup@pbs"
 vault_proxmox_pbs_password: "CHANGEME_PBS_STORAGE_PASSWORD"
 vault_proxmox_pbs_fingerprint: "AA:BB:CC:DD:EE:FF:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA"
+
+# OPNsense REST API (playbooks/wol.yml)
+vault_opnsense_api_key: "CHANGEME_OPNSENSE_API_KEY"
+vault_opnsense_api_secret: "CHANGEME_OPNSENSE_API_SECRET"
+
+# 既存の通知先。systemd_failure_notify ロールが参照しているが、これまでどの
+# vault.yml.example にも記載が無かった (admin-plane-rebuild タスク 1.5 で是正)。
+vault_portfolio_discord_webhook_url: "CHANGEME_DISCORD_WEBHOOK_URL"
