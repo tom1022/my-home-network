@@ -23,3 +23,13 @@ k3s_internal_ips:
   k3s-server: "172.16.0.150"
   k3s-agent-minipc: "172.16.0.151"
   k3s-agent-z440: "172.16.0.152"
+
+# tailscaled の UDP 待受ポートと追加 FLAGS の唯一の保持者。
+# tailscale_node role の /etc/default/tailscaled テンプレートと、vps_proxy の
+# ファイアウォール許可集合 (vps_proxy_filter_allow_udp_ports) の両方が参照する。
+# ここに group_vars として置くのは、両ロールが別々の play (異なる hosts:) で
+# 実行されるため、role defaults では play をまたいで値が引き継がれないため。
+tailscale_node_tailscaled_port: 41641
+# --netfilter-mode=off を入れない。vps_proxy の iptables テンプレートは
+# tailscaled が自身の netfilter ルールを管理し続ける前提 (-i tailscale0 ACCEPT) を置いている。
+tailscale_node_tailscaled_flags: ""

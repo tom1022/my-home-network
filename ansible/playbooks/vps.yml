@@ -2,6 +2,16 @@
 - name: Refresh SSH known_hosts entries
   import_playbook: refresh_known_hosts.yml
 
+# tailscale_node_tailscaled_port/_flags (read by this role's
+# /etc/default/tailscaled template and by vps_proxy's firewall allow-list
+# below) live in group_vars/all/main.yml, not in role defaults: role
+# defaults do not carry over across plays, and these two plays are separate.
+- name: Ensure vps is joined to the tailnet
+  hosts: vps
+  become: true
+  roles:
+    - tailscale_node
+
 - name: Configure VPS reverse proxy host
   hosts: vps_proxy
   become: true

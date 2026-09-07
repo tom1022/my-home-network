@@ -54,22 +54,16 @@ vps_proxy_filter_allow_udp_ports:
   - 19132  # Minecraft Bedrock passthrough (nginx stream)
   # tailscaled's direct P2P WireGuard port; without this open on the public
   # interface too, this node falls back to DERP-relayed connectivity only.
-  - 41641
+  # Sourced from tailscale_node (single source of truth for the port
+  # tailscaled actually listens on) rather than pinned here separately;
+  # requires the tailscale_node role to run before vps_proxy for this host.
+  - "{{ tailscale_node_tailscaled_port }}"
 
 # tailscale0 stays allowed unconditionally (see the -i tailscale0 rule in
 # the templates) regardless of this flag. false = sshd is reachable only
 # over the tailnet; re-flipping to true is the rollback if tailnet access is
 # ever lost.
 vps_proxy_filter_ssh_public_allowed: false
-
-# vps_proxy_filter_allow_udp_ports above only helps if tailscaled is actually
-# listening on 41641; nothing else enforces that pairing, so it is pinned
-# here rather than left to whatever port tailscaled happens to pick.
-vps_proxy_tailscaled_port: 41641
-# Passed through verbatim to tailscaled's FLAGS. Never add
-# --netfilter-mode=off here: the -i tailscale0 ACCEPT rules in the iptables
-# templates assume tailscaled keeps managing its own netfilter rules.
-vps_proxy_tailscaled_flags: ""
 
 vps_proxy_domain_main: ""
 vps_proxy_domain_www: ""

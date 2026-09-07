@@ -311,23 +311,10 @@
 - name: Flush handlers to apply config changes immediately
   ansible.builtin.meta: flush_handlers
 
-# vps_proxy_filter_allow_udp_ports (below) allows 41641 through the host
-# firewall on the assumption tailscaled is actually listening there; this
-# keeps that assumption true regardless of what the tailscaled package's own
-# default ships.
-- name: Ensure tailscaled listens on the port the firewall allow-list expects
-  ansible.builtin.template:
-    src: tailscaled-default.j2
-    dest: /etc/default/tailscaled
-    owner: root
-    group: root
-    mode: '0444'
-  notify:
-    - Restart tailscaled service
-    - Wait for tailnet SSH to come back after tailscaled restart
-
-- name: Flush handlers to reconnect over the tailnet before continuing
-  ansible.builtin.meta: flush_handlers
+# tailscaled's own listening port/FLAGS are managed by the tailscale_node
+# role (single source of truth: tailscale_node_tailscaled_port, also read
+# below by vps_proxy_filter_allow_udp_ports); this role only opens the
+# firewall for it.
 
 # nginx/haproxy terminate and re-originate every connection in userspace
 # (SNI/TCP passthrough is an application-layer proxy, not kernel routing), so
