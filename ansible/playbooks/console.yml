@@ -30,3 +30,8 @@
   hosts: console
   roles:
     - web_terminal
+
+- name: Ensure the single-entry-point landing page is configured on console-pi
+  hosts: console
+  roles:
+    - landing_page

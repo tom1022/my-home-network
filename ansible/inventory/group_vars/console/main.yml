@@ -61,3 +61,9 @@ web_terminal_targets:
     public_hostname: console-pi-terminal
     ssh_target: "localhost"
     description: "Console の足自身の端末。ここから他ホストへ辿れる"
+
+# landing_page role (console-pi 上の Homer) が配信する静的ファイルの配置先と、
+# console_proxy がそれを file_server で配信するサイトブロックの待受ポート。
+# 両 role が読むため group_vars に置く (console_proxy_targets と同じ理由)。
+landing_page_root: /srv/landing-page
+landing_page_caddy_port: 8087

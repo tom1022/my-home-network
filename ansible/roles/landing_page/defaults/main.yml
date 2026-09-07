@@ -1,0 +1,15 @@
+---
+# landing_page_root / landing_page_caddy_port は group_vars/console/main.yml が
+# 唯一の正 (console_proxy が同じ値を file_server のサイトブロックに使うため)。
+
+# Cloudflare 経由の公開 URL の組み立てに使うドメイン。console_proxy_targets /
+# web_terminal_targets の public_hostname と組み合わせて
+# https://<public_hostname>.<landing_page_domain>/ を作る。
+landing_page_domain: fickledev.com
+
+# Homer はビルド済みの静的ファイル配布物 (homer.zip) を使う。常駐プロセスを
+# 持たないため、ソースからのビルドは不要。
+landing_page_homer_version: "26.08.3"
+landing_page_homer_url: "https://github.com/bastienwirtz/homer/releases/download/v{{ landing_page_homer_version }}/homer.zip"
+landing_page_homer_checksum: "sha256:c5183d2ca2c596d56a44e98e8068084576b54ee2e7502f553dd52168999bc858"
+landing_page_homer_zip_path: /var/cache/homer.zip
