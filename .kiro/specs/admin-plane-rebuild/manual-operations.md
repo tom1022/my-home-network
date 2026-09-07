@@ -195,3 +195,21 @@ tailnet には `OPNsense` というホスト名の既存デバイス (ルータ�
 ```
 
 **現時点でこの grant 追加は未実施。** これが無い限り、コード側の修正 (名前衝突の解消) を適用しても 6 件とも作業機から到達できない。タスク 3.5 の完了条件 (作業機から全対象へ到達) は、コードの適用と grants の追加の両方が終わるまで満たされない。
+
+### 追記: 実際の原因は grants ではなく VIP Service の未承認だった
+
+上記の grants 理論は誤りだった。実際には tailnet ポリシーに `autoApprovers.services` を設定していても、Tailscale Service (VIP Service) を Define しただけではホスト側の承認 (`approved`) が自動で付かず、承認されるまで対象ノードへの TCP 接続がタイムアウトする。`tailscale_node` ロール (`ansible/roles/tailscale_node/tasks/vip_services.yml`) が Tailscale API 経由で Define と承認の両方を行うよう実装済み。grants の追加は不要だった。
+
+## 5. tailnet 経由で basic_auth がバイパスされる問題 (タスク 3.5、2026-09-07 実施)
+
+作業機から tailnet 経由 (`https://<service>.<tailnet>.ts.net/`) で 6 対象へアクセスすると、認証情報を渡さなくても `basic_auth` が掛からず `200`(空応答)が返っていた。`console-pi` 自身から `curl http://127.0.0.1:<port>/` を叩くと期待通り `401` になるため、原因の切り分けが必要だった。
+
+### 原因
+
+Caddyfile のサイトブロックのアドレスを `http://127.0.0.1:<port>` と書くと、host 部分 (`127.0.0.1`) が Caddy 内部で **Host ヘッダの厳密一致マッチャー**になる (`bind 127.0.0.1` とは無関係で、listen 先の制限にはならない)。`tailscale serve` も `cloudflared` も、クライアントが実際にアクセスした公開ホスト名 (tailnet の FQDN や公開ドメイン) を Host ヘッダに乗せたまま Caddy へ転送するため、その値が `127.0.0.1` と一致せず、`basic_auth` を含むルート全体が「不一致」として素通りする。一致するルートが無いリクエストに対して Caddy は空の `200` を返す。console-pi 自身からの `curl http://127.0.0.1:<port>/` は Host ヘッダが `127.0.0.1:<port>` になるため偶然一致し、`401` が返っていた。
+
+Caddy の実行時設定 (`curl http://127.0.0.1:2019/config/`) を見て `"match": [{"host": ["127.0.0.1"]}]` が各ルートに付いていることを確認し、`curl -H 'Host: 127.0.0.1' http://127.0.0.1:<port>/` は `401`、`curl -H 'Host: <tailnet FQDN>' http://127.0.0.1:<port>/` は `200`(空応答)になることで実測確認した。Tailscale Service の承認前後の過渡状態 (TCP タイムアウト) とは別の問題であり、承認済みの状態でも再現する。
+
+### 対処
+
+`ansible/roles/console_proxy/templates/Caddyfile.j2` の全サイトブロックのアドレスを `http://127.0.0.1:<port>` から `http://:<port>` (host 部分を空) に変更した。Host ヘッダを一切マッチ条件に使わなくなり、listen 先を `127.0.0.1` に限定する役目は従来通り `bind` ディレクティブが担う。`ansible-playbook playbooks/console.yml` を再適用し、6 対象すべてで認証情報無し `401` / 正しい認証情報で到達 (`200`/`302`、バックエンド未構築の 2 件は `502`) を確認した。

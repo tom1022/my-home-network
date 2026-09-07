@@ -1,11 +1,17 @@
 {# Host ヘッダは一切見ない: エントリごとに専用ポートで 127.0.0.1 のみへ bind し、
    ポート番号だけで転送先を決める (0.0.0.0 や外部インタフェースへは bind しない)。
-   注意: サイトアドレスの host 部分 (127.0.0.1) は Caddy 内部では Host ヘッダの
-   マッチャーとして使われるだけで、リスナーの bind 先を制限しない (指定が無ければ
-   ワイルドカードで listen する)。実際に 127.0.0.1 だけへ bind させるには `bind`
-   ディレクティブが必須。 #}
+   注意: サイトアドレスに host 部分 (例: 127.0.0.1) を書くと、それが Caddy 内部で
+   Host ヘッダの厳密一致マッチャーになる。tailscale serve / cloudflared はどちらも
+   クライアントが実際に使った公開ホスト名 (tailnet の FQDN や公開ドメイン) を Host
+   ヘッダのまま転送するため、その値は 127.0.0.1 と一致せず、basic_auth を含む
+   ルート全体が「不一致」として素通りし、認証もアップストリームへの転送も行われない
+   まま Caddy が空の 200 を返す (実機で `curl -H 'Host: 127.0.0.1' ...` は 401、
+   `curl -H 'Host: <tailnet FQDN>' ...` は 200/空 応答になることで確認済み)。
+   そのためサイトアドレスの host 部分は空にし (`:<port>` のみ)、Host ヘッダを
+   一切マッチ条件に使わない。listen 先を 127.0.0.1 に限定するのは `bind`
+   ディレクティブの役目 (指定が無ければワイルドカードで listen する)。 #}
 {% for target in console_proxy_targets %}
-http://127.0.0.1:{{ target.caddy_port }} {
+http://:{{ target.caddy_port }} {
 	bind 127.0.0.1
 
 	basic_auth {
@@ -25,7 +31,7 @@ http://127.0.0.1:{{ target.caddy_port }} {
    WebSocket 経由で入出力するが、Caddy の reverse_proxy は Upgrade ヘッダのある
    要求を自動で透過するため、ここに追加の設定は要らない (実機で確認済み)。 #}
 {% for target in web_terminal_targets %}
-http://127.0.0.1:{{ target.caddy_port }} {
+http://:{{ target.caddy_port }} {
 	bind 127.0.0.1
 
 	basic_auth {
@@ -37,7 +43,7 @@ http://127.0.0.1:{{ target.caddy_port }} {
 {% endfor %}
 {# 起点のリンク集 (landing_page role が配置する Homer の静的ファイル) の配信。
    常駐プロセスを持たないため upstream ではなく file_server で直接配る。 #}
-http://127.0.0.1:{{ landing_page_caddy_port }} {
+http://:{{ landing_page_caddy_port }} {
 	bind 127.0.0.1
 
 	basic_auth {
