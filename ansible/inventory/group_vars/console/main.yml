@@ -39,3 +39,25 @@ console_inbound_allow:
     proto: tcp
     source: tailnet
     reason: "構成管理の適用と、到達手段が壊れたときの復旧"
+
+# web_terminal role (console-pi 上の ttyd) が消費する、ブラウザ端末の宛先の宣言。
+# ssh_target は "host:port" (既定ポート以外を使う場合) または "host" (既定ポート 22)
+# のいずれかで書く。listen_port は ttyd 自身の待受で、role 側が一意性を assert で検査する。
+# caddy_port/service_name/public_hostname は console_proxy_targets と同じ形の値で、
+# console_proxy がこの一覧も読んでサイトブロックを生成する (console_proxy_targets との
+# 重複が無いことも console_proxy 側の assert で検査する)。
+web_terminal_targets:
+  - name: opnsense-terminal
+    listen_port: 7681
+    caddy_port: 8085
+    service_name: opnsense-terminal
+    public_hostname: opnsense-terminal
+    ssh_target: "192.168.10.1:2222"
+    description: "ルータの端末。SSH の待受は 22 ではなく 2222"
+  - name: console-pi-terminal
+    listen_port: 7682
+    caddy_port: 8086
+    service_name: console-pi-terminal
+    public_hostname: console-pi-terminal
+    ssh_target: "localhost"
+    description: "Console の足自身の端末。ここから他ホストへ辿れる"

@@ -1,0 +1,18 @@
+[Unit]
+Description=ttyd web terminal: {{ item.name }} ({{ item.description }})
+After=network.target
+
+[Service]
+Type=simple
+# -i 127.0.0.1: loopback にのみ bind する (実測で他インタフェースへの bind が無いことを
+# 確認済み。console_proxy の Caddy が 127.0.0.1 の各 caddy_port から中継する)。
+# -W: クライアントからの書き込みを許可 (既定は読み取り専用)。
+# -O: WebSocket の Origin 検査を有効にする。
+# ssh_target は "host:port" (例: 192.168.10.1:2222) または "host" (既定ポート 22) の
+# いずれかで宣言される (web_terminal_targets, group_vars/console/main.yml)。
+ExecStart={{ web_terminal_ttyd_binary_path }} -W -O -i 127.0.0.1 -p {{ item.listen_port }} ssh -i {{ web_terminal_ssh_key_path }} -o StrictHostKeyChecking=accept-new -p {{ item.ssh_target.split(':')[1] if ':' in item.ssh_target else '22' }} {{ item.ssh_target.split(':')[0] }}
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

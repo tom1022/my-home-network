@@ -25,3 +25,8 @@
   hosts: console
   roles:
     - console_firewall
+
+- name: Ensure the browser-based web terminal (ttyd) is configured on console-pi
+  hosts: console
+  roles:
+    - web_terminal

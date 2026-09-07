@@ -1,0 +1,25 @@
+---
+# web_terminal_targets は group_vars/console/main.yml が唯一の正 (console_proxy_targets
+# と同じ理由で role defaults には置かない)。
+
+# ttyd は Debian の apt に存在しない (Debian 13 (trixie) / aarch64 の console-pi で
+# 実測確認済み)。GitHub Release の静的バイナリを配置する。
+# ponytail: 対象は console-pi (aarch64) のみのため、アーキテクチャ別の URL マッピングは
+# 持たない。他アーキテクチャの足が増えたら web_terminal_ttyd_url を変数化する。
+web_terminal_ttyd_version: "1.7.7"
+web_terminal_ttyd_url: "https://github.com/tsl0922/ttyd/releases/download/{{ web_terminal_ttyd_version }}/ttyd.aarch64"
+web_terminal_ttyd_checksum: "sha256:b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165"
+web_terminal_ttyd_binary_path: /usr/local/bin/ttyd
+
+# ttyd が対象ホストへ SSH するための専用鍵。秘密鍵の値は host_vars/console-pi の
+# web_terminal_ssh_private_key (Infisical キー CONSOLE_WEB_TERMINAL_SSH_PRIVATE_KEY) が
+# 供給する。公開鍵は秘密ではないためここに直接書く (対応する秘密鍵は登録済み)。
+web_terminal_ssh_key_path: /etc/web-terminal/id_ed25519
+web_terminal_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID2laLwFoBuCWoiXfmrFlf7GTHIsH4gyNBv2S+ndVQeF console-pi-web-terminal"
+
+# unit 名を item.name から生成していた旧実装 (listen_port ベースへ切り替え済み) の
+# 下で実際に配備された unit 名の一覧。一度きりの後始末専用で、対象が両方とも
+# 存在しなくなったらこの変数と後始末タスクごと削除してよい。
+web_terminal_legacy_unit_names:
+  - opnsense
+  - console-pi

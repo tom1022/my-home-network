@@ -1,0 +1,154 @@
+---
+# ttyd の導入 (GitHub Release の静的バイナリ) と、web_terminal_targets
+# (group_vars/console/main.yml が唯一の正) の各エントリに対する systemd ユニット
+# 1本ずつの生成のみを扱う。Caddy 経由の公開・ファイアウォールは別 role の責務
+# (1 role = 1 component)。
+
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: web_terminal role supports Debian family hosts only.
+
+# ponytail: 配布バイナリの選択を console-pi の実測アーキテクチャ (aarch64) に固定する。
+# 他アーキテクチャの足が増えたら web_terminal_ttyd_url を変数化して拡張する。
+- name: Ensure target host architecture matches the pinned ttyd release asset
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture == 'aarch64'
+    fail_msg: >-
+      web_terminal role currently only supports aarch64 (ttyd.aarch64 release
+      asset). Extend web_terminal_ttyd_url/web_terminal_ttyd_checksum if
+      another architecture needs support.
+
+- name: Ensure at least one web terminal target is declared
+  ansible.builtin.assert:
+    that:
+      - web_terminal_targets | length > 0
+    fail_msg: web_terminal_targets must declare at least one target (group_vars/console/main.yml).
+
+- name: Ensure every web terminal target has a description
+  ansible.builtin.assert:
+    that:
+      - item.description | default('') | trim | length > 0
+    fail_msg: "web_terminal_targets entry '{{ item.name }}' is missing a description."
+  loop: "{{ web_terminal_targets }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Ensure web terminal target listen ports are unique
+  ansible.builtin.assert:
+    that:
+      - web_terminal_targets | map(attribute='listen_port') | list | unique | length == web_terminal_targets | length
+    fail_msg: web_terminal_targets declares duplicate listen_port values.
+
+- name: Ensure the outbound SSH private key is supplied
+  ansible.builtin.assert:
+    that:
+      - web_terminal_ssh_private_key | default('') | length > 0
+    fail_msg: >-
+      web_terminal_ssh_private_key is empty. Supply it via Infisical
+      (CONSOLE_WEB_TERMINAL_SSH_PRIVATE_KEY).
+
+- name: Ensure the directory for the outbound SSH private key exists
+  ansible.builtin.file:
+    path: "{{ web_terminal_ssh_key_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+# no_log on the whole task: the plaintext key would otherwise appear in the
+# task result diff output.
+#
+# | trim + explicit \n: the Infisical secret value has been observed without a
+# trailing newline, which OpenSSH's OPENSSH PRIVATE KEY parser rejects
+# ("invalid format" / "error in libcrypto") even though every line is
+# otherwise well-formed. Normalizing here keeps the deployed file parseable
+# regardless of how the secret is stored/rotated.
+- name: Deploy the outbound SSH private key
+  ansible.builtin.copy:
+    content: "{{ (web_terminal_ssh_private_key | trim) + '\n' }}"
+    dest: "{{ web_terminal_ssh_key_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+# console-pi 自身 (localhost) 宛のエントリがある場合のみ、その接続が成立するよう
+# 自分自身の authorized_keys に公開鍵を足す。opnsense 等の他ホスト宛は対象外
+# (このリポジトリの管理対象外であり、手作業になる。manual-operations.md 参照)。
+- name: Authorize the web terminal public key for console-pi's own loopback SSH target
+  ansible.posix.authorized_key:
+    user: root
+    key: "{{ web_terminal_ssh_public_key }}"
+    state: present
+    exclusive: false
+  when: "'localhost' in (web_terminal_targets | map(attribute='ssh_target') | list)"
+
+- name: Download the pinned ttyd release binary
+  ansible.builtin.get_url:
+    url: "{{ web_terminal_ttyd_url }}"
+    dest: "{{ web_terminal_ttyd_binary_path }}"
+    checksum: "{{ web_terminal_ttyd_checksum }}"
+    owner: root
+    group: root
+    mode: '0755'
+
+# unit のファイル名は item.name ではなく item.listen_port から作る: name は
+# 対象を人間が識別するための値で、公開用の service_name/public_hostname と
+# 揃えるために変わることがある (実際に opnsense/console-pi -> opnsense-terminal/
+# console-pi-terminal に変わった)。listen_port は一意性を assert 済みの不変の
+# 識別子なので、name が変わっても unit 名は変わらず、旧 unit の後始末が要らない。
+- name: Deploy a systemd unit per web terminal target
+  ansible.builtin.template:
+    src: web-terminal.service.j2
+    dest: "/etc/systemd/system/web-terminal-{{ item.listen_port }}.service"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ web_terminal_targets }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify:
+    - Reload systemd daemon
+    - Restart web terminal units
+
+- name: Ensure each web terminal unit is enabled and started
+  ansible.builtin.systemd:
+    name: "web-terminal-{{ item.listen_port }}.service"
+    enabled: true
+    state: started
+  loop: "{{ web_terminal_targets }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# 一度きりの後始末: item.name から unit 名を作っていた旧実装のとき生成された
+# unit (opnsense, console-pi) は、上の listen_port ベースの命名に切り替えた後も
+# ディスク上に残り続ける (新しい unit 名の生成では上書きされない)。存在する分だけ
+# 停止・無効化・削除する。対象が両方消えた後はこのタスク自体を削除してよい。
+- name: Check whether legacy (pre-rename) web terminal unit files exist
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/web-terminal-{{ item }}.service"
+  loop: "{{ web_terminal_legacy_unit_names }}"
+  register: web_terminal_legacy_unit_stat
+
+- name: Ensure legacy (pre-rename) web terminal units are stopped and disabled
+  ansible.builtin.systemd:
+    name: "web-terminal-{{ item.item }}.service"
+    state: stopped
+    enabled: false
+  loop: "{{ web_terminal_legacy_unit_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
+
+- name: Remove legacy (pre-rename) web terminal unit files
+  ansible.builtin.file:
+    path: "/etc/systemd/system/web-terminal-{{ item.item }}.service"
+    state: absent
+  loop: "{{ web_terminal_legacy_unit_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
+  notify: Reload systemd daemon

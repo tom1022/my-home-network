@@ -1,0 +1,12 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart web terminal units
+  ansible.builtin.systemd:
+    name: "web-terminal-{{ item.listen_port }}.service"
+    state: restarted
+  loop: "{{ web_terminal_targets }}"
+  loop_control:
+    label: "{{ item.name }}"
