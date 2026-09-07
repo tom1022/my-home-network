@@ -1,0 +1,18 @@
+---
+# console-pi は隔離された Console セグメント内にあり、tailnet 経由以外の到達手段が
+# 無い。適用スクリプト自体に検査とフェイルセーフを持たせてあるが、念のため
+# tailscale_node/handlers/main.yml と同じ async+wait_for_connection パターンで、
+# 接続断からの復帰を待つ (万一 SSH 接続が瞬断しても、応答が返らないまま
+# ハンドラがタイムアウトするのではなく、明示的に復帰を待ってから後続を続ける)。
+- name: Apply host firewall rules
+  ansible.builtin.systemd:
+    name: console-firewall-iptables
+    state: restarted
+    daemon_reload: true
+  async: 30
+  poll: 0
+
+- name: Wait for tailnet SSH to come back after firewall apply
+  ansible.builtin.wait_for_connection:
+    delay: 5
+    timeout: 90

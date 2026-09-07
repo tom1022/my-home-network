@@ -1,0 +1,14 @@
+# IPv6 mirror of iptables_rules.v4.j2 (同じ chain 名を共有し、同じ許可集合を敷く。
+# INPUT のポリシー変更と jump の挿入は v4 側と同様に apply スクリプトへ委ねる)。
+*filter
+:{{ console_firewall_filter_chain }} - [0:0]
+-A {{ console_firewall_filter_chain }} -i lo -j ACCEPT
+-A {{ console_firewall_filter_chain }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+-A {{ console_firewall_filter_chain }} -i tailscale0 -j ACCEPT
+# ICMPv6 は Neighbor Discovery / Router Advertisement が乗るため必須 (v4 の ICMP とは
+# 異なり任意ではない。落とすと IPv6 そのものが壊れる)。
+-A {{ console_firewall_filter_chain }} -p ipv6-icmp -j ACCEPT
+{% for item in console_inbound_allow %}
+-A {{ console_firewall_filter_chain }}{% if item.source == 'tailnet' %} -i tailscale0{% endif %} -p {{ item.proto }} --dport {{ item.port }} -j ACCEPT
+{% endfor %}
+COMMIT

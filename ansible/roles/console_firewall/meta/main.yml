@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  role_name: console_firewall
+  author: tom1022
+  description: Apply an explicit inbound allow-list to console-pi via a dedicated iptables/ip6tables chain
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

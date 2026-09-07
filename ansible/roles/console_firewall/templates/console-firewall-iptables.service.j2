@@ -1,0 +1,17 @@
+[Unit]
+Description=Apply console_firewall host firewall rules
+# vps-proxy-iptables.service と同じ理由: dockerd/tailscaled が network-pre.target
+# 以降に積む runtime chain より先に、この allow-list を敷いておく必要がある。
+DefaultDependencies=no
+Wants=network-pre.target systemd-modules-load.service local-fs.target
+After=systemd-modules-load.service local-fs.target
+Before=network-pre.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/console-firewall-iptables-apply
+
+[Install]
+WantedBy=multi-user.target

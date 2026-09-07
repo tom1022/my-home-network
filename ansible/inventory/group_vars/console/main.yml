@@ -31,3 +31,11 @@ console_proxy_targets:
     upstream: "http://127.0.0.1:8090"
     tls_insecure: false
     description: "Beszel の hub。各ホストの資源の状態を示す (別タスクで構築予定)"
+
+# Console セグメントへ許可すべき着信の宣言。今回は宣言のみで、ファイアウォールへの
+# 適用は別タスクの責務 (このファイルは唯一の正としてそちらが読みに来る)。
+console_inbound_allow:
+  - port: 22
+    proto: tcp
+    source: tailnet
+    reason: "構成管理の適用と、到達手段が壊れたときの復旧"

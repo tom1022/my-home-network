@@ -20,3 +20,8 @@
   hosts: console
   roles:
     - console_proxy
+
+- name: Ensure the host firewall allow-list is applied on console-pi
+  hosts: console
+  roles:
+    - console_firewall

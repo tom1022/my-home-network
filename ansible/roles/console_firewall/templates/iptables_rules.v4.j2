@@ -1,0 +1,24 @@
+# console-pi はネットワーク隔離された Console セグメント内にあり、物理アクセス以外の
+# 復旧手段が無い。この chain の中身だけをここで宣言し、INPUT のデフォルトポリシーと
+# この chain への jump は console-firewall-iptables-apply スクリプト側で、
+# 必須の3本 (loopback / established,related / tailnet全許可) が実際に入ったことを
+# 検査した後にのみ挿す (連鎖を作る → 検査する → 挿す の順序を強制するため、
+# ここでは INPUT に一切触れない)。
+# --noflush 前提: この chain だけを空にして再構築し、INPUT 自体は flush しない
+# (tailscaled が実行時に積む ts-input/ts-forward を巻き込まない)。
+# console-pi には外部公開インタフェースが無く、Console セグメント側の eth0 からの
+# 一般的な接続は許可しない設計のため、tailnet 経由 (tailscale0) 以外の管理経路は無い。
+*filter
+:{{ console_firewall_filter_chain }} - [0:0]
+-A {{ console_firewall_filter_chain }} -i lo -j ACCEPT
+-A {{ console_firewall_filter_chain }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+# tailnet 全許可: tailscaled 起動前 (早期の boot) の窓を埋めるため ts-input に
+# 依存せずここでも明示する (vps_proxy と同じ設計)。
+-A {{ console_firewall_filter_chain }} -i tailscale0 -j ACCEPT
+# PMTUD 用。TCP/UDP は開けないため実害は無い (Console セグメント内からの ping が
+# 通るようになるだけ)。
+-A {{ console_firewall_filter_chain }} -p icmp -j ACCEPT
+{% for item in console_inbound_allow %}
+-A {{ console_firewall_filter_chain }}{% if item.source == 'tailnet' %} -i tailscale0{% endif %} -p {{ item.proto }} --dport {{ item.port }} -j ACCEPT
+{% endfor %}
+COMMIT

@@ -1,0 +1,63 @@
+#!/bin/sh
+# {{ ansible_managed }}
+#
+# 順序を厳守する: 連鎖を作る → 必須の3本 (loopback / established,related /
+# tailnet全許可) が実際に入ったことを検査する → 既定の連鎖 (INPUT) へ挿す。
+# console-pi は隔離された Console セグメント内にあり、この経路を失うと物理的な
+# 作業以外の復旧手段が無いため、どの段階で失敗しても INPUT のポリシーは変更
+# せず (デフォルト ACCEPT のまま) tailnet だけは無条件に開けておくフェイルセーフを敷く。
+set -eu
+
+CHAIN='{{ console_firewall_filter_chain }}'
+
+fail_open() {
+    ipt="$1"
+    "$ipt" -I INPUT 1 -i tailscale0 -j ACCEPT 2>/dev/null || :
+}
+
+apply() {
+    ipt="$1"
+    rules="$2"
+    [ -f "$rules" ] || return 0
+
+    # ドライラン: 構文検査のみ。ここで失敗したら chain には一切触れない。
+    if ! "${ipt}-restore" --test --noflush "$rules"; then
+        fail_open "$ipt"
+        return 1
+    fi
+
+    # 連鎖を作る: 自分の chain だけを空にして再構築する (INPUT 自体は触らない)。
+    "$ipt" -F "$CHAIN" 2>/dev/null || "$ipt" -N "$CHAIN"
+    if ! "${ipt}-restore" --noflush "$rules"; then
+        fail_open "$ipt"
+        return 1
+    fi
+
+    # 必須の3本を検査する。テンプレートが将来壊れて抜けた場合でも、ここを
+    # 通らない限り本番の INPUT には絶対に挿さない。
+    # `iptables -S` はロード後の ctstate の並びを正規化して返す (投入順に
+    # 関わらず RELATED,ESTABLISHED になる) ため、両順序を許容する。
+    dump="$("$ipt" -S "$CHAIN")"
+    if ! printf '%s\n' "$dump" | grep -qE -- '-A '"$CHAIN"' -i lo -j ACCEPT' \
+        || ! printf '%s\n' "$dump" | grep -qE -- '-A '"$CHAIN"' -m conntrack --ctstate (ESTABLISHED,RELATED|RELATED,ESTABLISHED) -j ACCEPT' \
+        || ! printf '%s\n' "$dump" | grep -qE -- '-A '"$CHAIN"' -i tailscale0 -j ACCEPT'; then
+        fail_open "$ipt"
+        return 1
+    fi
+
+    # 既定の連鎖 (INPUT) へ挿す: 再適用のたびに jump が積み重ならないよう、
+    # 既存の jump を先に外してから挿し直す。ポリシーを DROP にするのは jump を
+    # 挿した後の最後の一手にする (途中で落ちても ACCEPT のまま = 安全側)。
+    while "$ipt" -C INPUT -j "$CHAIN" 2>/dev/null; do
+        "$ipt" -D INPUT -j "$CHAIN"
+    done
+    "$ipt" -A INPUT -j "$CHAIN"
+    "$ipt" -P INPUT DROP
+}
+
+# 両ファミリーとも必ず試みる: v4 で止めると v6 が既定ポリシー (ACCEPT) のまま
+# 無防備に残ってしまう。
+rc=0
+apply iptables /etc/iptables/rules.v4 || rc=1
+apply ip6tables /etc/iptables/rules.v6 || rc=1
+exit "$rc"

@@ -1,0 +1,10 @@
+---
+# console_inbound_allow は group_vars/console/main.yml が唯一の正 (console_proxy の
+# 転送先宣言と同じ理由で role defaults には置かない)。この role はそれを読んで
+# 専用 chain へ列挙するだけの責務を持つ。
+
+# vps_proxy_filter_chain (VPS-PROXY-INPUT) と同型の専用 chain 名。INPUT へは
+# ここへの jump を1回だけ挿し、この role が管理する許可集合は全てこの chain に
+# 閉じ込める (再適用のたびに INPUT ごと flush しない = dockerd/tailscaled が
+# 実行時に積む chain を巻き込まない)。
+console_firewall_filter_chain: CONSOLE-FIREWALL-INPUT

@@ -1,0 +1,91 @@
+---
+# console_inbound_allow (group_vars/console/main.yml が唯一の正) を専用 chain へ
+# 列挙する。console-pi は隔離された Console セグメント内にあり、適用に失敗して
+# 管理経路を失うと物理的な作業以外の復旧手段が無いため、vps_proxy/tasks/main.yml の
+# host firewall 部分と同じ安全策 (validate によるドライラン、--noflush、
+# netfilter-persistent のマスク) を踏襲する。
+
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: console_firewall role supports Debian family hosts only.
+
+- name: Ensure at least the tailnet SSH entry is declared in the inbound allow-list
+  ansible.builtin.assert:
+    that:
+      - console_inbound_allow | length > 0
+    fail_msg: >-
+      console_inbound_allow must declare at least one entry (group_vars/console/main.yml).
+      An empty allow-list plus INPUT DROP would cut off tailnet SSH, the only
+      way back into this host.
+
+- name: Ensure iptables-persistent is installed
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Deploy host firewall apply script
+  ansible.builtin.template:
+    src: console-firewall-iptables-apply.j2
+    dest: /usr/local/sbin/console-firewall-iptables-apply
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Apply host firewall rules
+
+- name: Deploy host firewall apply unit
+  ansible.builtin.template:
+    src: console-firewall-iptables.service.j2
+    dest: /etc/systemd/system/console-firewall-iptables.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Apply host firewall rules
+
+- name: Deploy iptables persistent rules file (IPv4)
+  ansible.builtin.template:
+    src: iptables_rules.v4.j2
+    dest: /etc/iptables/rules.v4
+    owner: root
+    group: root
+    mode: '0644'
+    validate: iptables-restore --test --noflush %s
+  notify: Apply host firewall rules
+
+- name: Deploy iptables persistent rules file (IPv6)
+  ansible.builtin.template:
+    src: iptables_rules.v6.j2
+    dest: /etc/iptables/rules.v6
+    owner: root
+    group: root
+    mode: '0644'
+    validate: ip6tables-restore --test --noflush %s
+  notify: Apply host firewall rules
+
+# netfilter-persistent の素の restore は全テーブルを flush する。console-pi には
+# dockerd 相当のものはいないが、素の restore に戻す経路自体を残さない (vps_proxy と
+# 同じ理由: apt によるアップグレードが再起動させると素の restore が走ってしまう)。
+- name: Ensure netfilter-persistent never restores rules with a flush
+  ansible.builtin.systemd:
+    name: netfilter-persistent
+    enabled: false
+    state: stopped
+    masked: true
+
+- name: Ensure host firewall apply unit is enabled and started
+  ansible.builtin.systemd:
+    name: console-firewall-iptables
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Flush handlers to apply host firewall rules before verifying them
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify tailnet SSH is still reachable after applying the host firewall
+  ansible.builtin.wait_for_connection:
+    timeout: 30
