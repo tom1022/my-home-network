@@ -62,6 +62,7 @@ locals {
   cloudflare_tunnel_ids = {
     guacamole  = cloudflare_zero_trust_tunnel_cloudflared.guacamole.id
     kubernetes = cloudflare_zero_trust_tunnel_cloudflared.kubernetes.id
+    console    = cloudflare_zero_trust_tunnel_cloudflared.console.id
   }
 
   # CNAMEs routed through Cloudflare Zero Trust tunnels.
@@ -85,8 +86,17 @@ locals {
     workspaces = { name = "*.${var.managed_domain}", tunnel = "kubernetes" }
   }
 
+  # console-pi (admin-plane-rebuild) の到達経路 1。local.console_ingress_targets
+  # (cloudflare_zero_trust.tf) から生成し、対象の一覧をここで再度手で列挙しない。
+  console_tunnel_cnames = {
+    for target in local.console_ingress_targets : "console_${replace(target.public_hostname, "-", "_")}" => {
+      name   = "${target.public_hostname}.${var.managed_domain}"
+      tunnel = "console"
+    }
+  }
+
   cname_records = {
-    for key, cname in local.tunnel_cnames : "${key}_cname" => {
+    for key, cname in merge(local.tunnel_cnames, local.console_tunnel_cnames) : "${key}_cname" => {
       name    = cname.name
       type    = "CNAME"
       content = "${local.cloudflare_tunnel_ids[cname.tunnel]}.cfargotunnel.com"

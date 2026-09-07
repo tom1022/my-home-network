@@ -1,0 +1,16 @@
+[Unit]
+Description=cloudflared tunnel (console segment reachability route 1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# TUNNEL_TOKEN は EnvironmentFile から環境変数として供給する。--token をコマンド引数に
+# 渡すと `ps aux` から token が読める (旧環境 akishima の失敗様式。design.md 要件 2.6)。
+EnvironmentFile={{ cloudflared_tunnel_environment_file }}
+ExecStart=/usr/bin/cloudflared tunnel run
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

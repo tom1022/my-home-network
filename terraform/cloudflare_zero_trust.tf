@@ -184,3 +184,98 @@ resource "cloudflare_zero_trust_access_application" "guacamole" {
     }
   ]
 }
+
+# admin-plane-rebuild: console-pi (Console セグメントの新しい足) 向けの第 2 のトンネル。
+# 既存の guacamole トンネル (akishima 上、config_src = "cloudflare" で import 済み) は
+# 破棄も置換もしない。新規のトンネルとして追加する。
+resource "cloudflare_zero_trust_tunnel_cloudflared" "console" {
+  account_id = var.cloudflare_account_id
+  name       = "console-pi"
+  config_src = "cloudflare"
+}
+
+# console_proxy_targets / web_terminal_targets
+# (ansible/inventory/group_vars/console/main.yml) の public_hostname / caddy_port を
+# 複製したもの。Terraform は Ansible の変数を直接参照できないため、
+# cloudflare_zero_trust_access_identity_provider.kanidm の client_id と
+# terraform-kanidm/oauth2_clients.tf の kanidm_oauth2_basic.guacamole.name の関係
+# (このファイル冒頭付近のコメント) と同じ理由で、手動で同期を保つ。対象を増減した
+# ときは両方のファイルを合わせて更新すること。
+locals {
+  console_ingress_targets = [
+    { public_hostname = "opnsense", caddy_port = 8081 },
+    { public_hostname = "adguard", caddy_port = 8082 },
+    { public_hostname = "status", caddy_port = 8083 },
+    { public_hostname = "beszel", caddy_port = 8084 },
+    { public_hostname = "opnsense-terminal", caddy_port = 8085 },
+    { public_hostname = "console-pi-terminal", caddy_port = 8086 },
+  ]
+}
+
+# config_src = "cloudflare" のトンネルは ingress を Terraform で管理する
+# (cloudflare_zero_trust_tunnel_cloudflared_config)。config_src = "local" とこのリソースは
+# 排他のため、上の console トンネルには config_src = "local" を指定しない。
+resource "cloudflare_zero_trust_tunnel_cloudflared_config" "console" {
+  account_id = var.cloudflare_account_id
+  tunnel_id  = cloudflare_zero_trust_tunnel_cloudflared.console.id
+
+  config = {
+    ingress = concat(
+      [
+        for target in local.console_ingress_targets : {
+          hostname = "${target.public_hostname}.${var.managed_domain}"
+          service  = "http://127.0.0.1:${target.caddy_port}"
+        }
+      ],
+      [
+        { service = "http_status:404" },
+      ]
+    )
+  }
+}
+
+resource "cloudflare_zero_trust_access_policy" "console_kanidm" {
+  account_id       = var.cloudflare_account_id
+  name             = "Kanidm console_access"
+  decision         = "allow"
+  session_duration = "24h"
+
+  include = [
+    {
+      oidc = {
+        identity_provider_id = cloudflare_zero_trust_access_identity_provider.kanidm.id
+        claim_name           = "groups"
+        claim_value          = "console_access@kanidm.${var.managed_domain}"
+      }
+    }
+  ]
+}
+
+# 6 ホスト名を 1 つの self_hosted application にまとめる。identity provider は
+# guacamole と同じ既存の kanidm をそのまま参照し、新しい識別提供者は作らない。
+resource "cloudflare_zero_trust_access_application" "console" {
+  account_id                 = var.cloudflare_account_id
+  name                       = "Console"
+  type                       = "self_hosted"
+  session_duration           = "24h"
+  app_launcher_visible       = true
+  auto_redirect_to_identity  = true
+  allowed_idps               = [cloudflare_zero_trust_access_identity_provider.kanidm.id]
+  enable_binding_cookie      = false
+  http_only_cookie_attribute = false
+  options_preflight_bypass   = false
+
+  destinations = [
+    for target in local.console_ingress_targets : {
+      type = "public"
+      uri  = "${target.public_hostname}.${var.managed_domain}"
+    }
+  ]
+
+  policies = [
+    {
+      id         = cloudflare_zero_trust_access_policy.console_kanidm.id
+      precedence = 1
+    }
+  ]
+}

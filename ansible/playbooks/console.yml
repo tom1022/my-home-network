@@ -35,3 +35,8 @@
   hosts: console
   roles:
     - landing_page
+
+- name: Ensure the Cloudflare tunnel (reachability route 1) is configured on console-pi
+  hosts: console
+  roles:
+    - cloudflared_tunnel

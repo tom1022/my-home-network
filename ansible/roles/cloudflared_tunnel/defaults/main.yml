@@ -1,0 +1,6 @@
+---
+# パッケージのバージョンは pkg.cloudflare.com の apt リポジトリに追随させ、ここでは
+# 固定しない (ttyd/tailscale の GitHub Releases 直接ピン留めとは異なる。cloudflared は
+# ベンダー公式の apt リポジトリを持つため、そちらを使う)。
+
+cloudflared_tunnel_environment_file: /etc/cloudflared/tunnel.env

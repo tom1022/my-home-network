@@ -1,0 +1,79 @@
+---
+# cloudflared パッケージの導入 (公式 apt) と、到達経路 1 (要件 1.1, 1.6) を終端する
+# systemd ユニットの常駐のみを扱う。ingress の定義は Terraform 側
+# (terraform/cloudflare_zero_trust.tf, config_src = "cloudflare") が持ち、この role は
+# 関知しない。既存の `guacamole` トンネル (akishima 上、この repo の管理外) には触れない。
+
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: cloudflared_tunnel role supports Debian family hosts only.
+
+- name: Ensure the Cloudflare apt signing key is present
+  ansible.builtin.get_url:
+    url: https://pkg.cloudflare.com/cloudflare-main.gpg
+    dest: /usr/share/keyrings/cloudflare-main.gpg
+    mode: '0644'
+
+- name: Ensure the Cloudflare apt repository is configured
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/cloudflared.list
+    content: |
+      deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure the cloudflared package is installed
+  ansible.builtin.apt:
+    name: cloudflared
+    state: present
+    update_cache: true
+
+- name: Fail fast if the tunnel token is not supplied
+  ansible.builtin.assert:
+    that:
+      - cloudflared_tunnel_token | default('') | trim | length > 0
+    fail_msg: >-
+      cloudflared_tunnel_token is empty. Supply it via Infisical
+      (CONSOLE_CLOUDFLARED_TUNNEL_TOKEN) and run this playbook through `infisical run`.
+
+- name: Ensure the directory for the tunnel EnvironmentFile exists
+  ansible.builtin.file:
+    path: "{{ cloudflared_tunnel_environment_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+# no_log on the whole task: the plaintext token would otherwise appear in the
+# task result diff output. Kept out of ExecStart= entirely (systemd unit below
+# reads it as an environment variable via EnvironmentFile=), so it never
+# appears in `ps aux` either (requirement 2.6).
+- name: Deploy the tunnel token as an EnvironmentFile
+  ansible.builtin.copy:
+    content: "TUNNEL_TOKEN={{ cloudflared_tunnel_token }}\n"
+    dest: "{{ cloudflared_tunnel_environment_file }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  notify: Restart cloudflared tunnel service
+
+- name: Deploy the cloudflared tunnel systemd unit
+  ansible.builtin.template:
+    src: cloudflared-tunnel.service.j2
+    dest: /etc/systemd/system/cloudflared-tunnel.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart cloudflared tunnel service
+
+- name: Ensure the cloudflared tunnel service is enabled and started
+  ansible.builtin.systemd:
+    name: cloudflared-tunnel.service
+    enabled: true
+    state: started

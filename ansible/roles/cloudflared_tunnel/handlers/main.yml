@@ -1,0 +1,9 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart cloudflared tunnel service
+  ansible.builtin.systemd:
+    name: cloudflared-tunnel.service
+    state: restarted
