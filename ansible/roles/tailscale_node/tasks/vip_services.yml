@@ -1,0 +1,136 @@
+---
+# console_proxy_targets が定義されたホスト (console-pi) からのみ main.yml
+# 経由で include される。tailscale_node_serve_targets は serve.yml が
+# set_fact 済み (このファイルは main.yml から serve.yml の後に include される)。
+#
+# `tailscale serve --service=svc:<name>` はこのノードを Service のホストとして
+# advertise するだけで、tailnet 側で Service 自体が Define (登録) されていない
+# 限り、他のノードの netmap には一切配信されない (Tailscale 管理コンソールの
+# Services ページで "Define your first Service" と表示され続ける)。Define は
+# Tailscale API (POST /oauth/token → PUT /tailnet/-/services/svc:<name>) でのみ
+# 行える。
+
+- name: Fail fast if the Tailscale API OAuth credential is not supplied
+  ansible.builtin.assert:
+    that:
+      - tailscale_api_client_id | default('') | trim | length > 0
+      - tailscale_api_client_secret | default('') | trim | length > 0
+    fail_msg: >-
+      tailscale_api_client_id / tailscale_api_client_secret is empty. Supply
+      them via Infisical (CONSOLE_TAILSCALE_API_CLIENT_ID /
+      CONSOLE_TAILSCALE_API_CLIENT_SECRET) and run this playbook through
+      `infisical run`.
+
+- name: Determine this node's own stable device ID
+  ansible.builtin.set_fact:
+    tailscale_node_vip_self_id: "{{ (tailscale_node_status_after.stdout | from_json).Self.ID }}"
+
+- name: Obtain a Tailscale API access token
+  ansible.builtin.uri:
+    url: https://api.tailscale.com/api/v2/oauth/token
+    method: POST
+    body_format: form-urlencoded
+    body:
+      client_id: "{{ tailscale_api_client_id }}"
+      client_secret: "{{ tailscale_api_client_secret }}"
+      grant_type: client_credentials
+    status_code: 200
+  register: tailscale_node_vip_token
+  no_log: true
+  changed_when: false
+
+- name: Query the Tailscale Services (VIP Services) currently defined on the tailnet
+  ansible.builtin.uri:
+    url: https://api.tailscale.com/api/v2/tailnet/-/services
+    method: GET
+    headers:
+      Authorization: "Bearer {{ tailscale_node_vip_token.json.access_token }}"
+    status_code: 200
+  register: tailscale_node_vip_current
+  no_log: true
+  changed_when: false
+
+# tags は body に含めない: この credential (OAuth client) はどの tag も
+# 所有しておらず、tags を指定すると 400 "requested tags [...] are invalid or
+# not permitted" で拒否される (実機で確認済み)。tag:console-pi によるホストの
+# 自動承認を狙って tailnet ポリシーに autoApprovers.services を設定済みだが、
+# 実機では効かず (下の承認タスク参照)、Service リソース自身の tags も不要
+# だった。
+#
+# 既存 Service の更新では addrs (IPv4+IPv6 の 2 件) を body に含めないと
+# 400 "when updating a service, addrs must contain 2 elements" で拒否される
+# (実機で確認済み。新規作成時は省略でよく、Tailscale 側が払い出す)。
+- name: Ensure each declared Tailscale Service (VIP Service) is defined on the tailnet
+  ansible.builtin.uri:
+    url: "https://api.tailscale.com/api/v2/tailnet/-/services/svc:{{ item.service_name }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ tailscale_node_vip_token.json.access_token }}"
+    body_format: json
+    body: >-
+      {{
+        {'name': 'svc:' + item.service_name, 'comment': item.description, 'ports': tailscale_node_vip_service_ports}
+        | combine({'addrs': tailscale_node_vip_existing.addrs} if tailscale_node_vip_existing else {})
+      }}
+    status_code: 200
+  loop: "{{ tailscale_node_serve_targets }}"
+  loop_control:
+    label: "{{ item.service_name }}"
+  vars:
+    tailscale_node_vip_existing: >-
+      {{
+        tailscale_node_vip_current.json.vipServices
+        | default([])
+        | selectattr('name', 'equalto', 'svc:' + item.service_name)
+        | list | first | default({})
+      }}
+  when: >-
+    tailscale_node_vip_existing == {}
+    or (tailscale_node_vip_existing.ports | default([]) | sort) != (tailscale_node_vip_service_ports | sort)
+    or (tailscale_node_vip_existing.comment | default('')) != item.description
+  changed_when: true
+  no_log: true
+
+# tailnet ポリシーの autoApprovers.services (svc:<name>: [tag:console-pi]) を
+# 設定済みにもかかわらず、実機では Define 直後のホスト承認が自動で付かない
+# (承認状態を照会すると approved: false, autoApproved: false のまま) ことを
+# 確認した。Define されただけの Service は MagicDNS 解決はできても実際の
+# 接続は確立しない (TCP 接続がタイムアウトする) ため、この role 自身が承認を
+# 明示的に行う。Policy File の Read/Write 権限はこの credential に無く原因の
+# 特定はできていない (manual-operations.md 参照)。
+- name: Query the hosting approval status of this node for each declared Tailscale Service (VIP Service)
+  ansible.builtin.uri:
+    url: "https://api.tailscale.com/api/v2/tailnet/-/services/svc:{{ item.service_name }}/device/{{ tailscale_node_vip_self_id }}/approved"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ tailscale_node_vip_token.json.access_token }}"
+    status_code: 200
+  loop: "{{ tailscale_node_serve_targets }}"
+  loop_control:
+    label: "{{ item.service_name }}"
+  register: tailscale_node_vip_approval
+  no_log: true
+  changed_when: false
+
+- name: Ensure this node is approved to host each declared Tailscale Service (VIP Service)
+  ansible.builtin.uri:
+    url: "https://api.tailscale.com/api/v2/tailnet/-/services/svc:{{ item.item.service_name }}/device/{{ tailscale_node_vip_self_id }}/approved"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ tailscale_node_vip_token.json.access_token }}"
+    body_format: json
+    body:
+      approved: true
+    status_code: 200
+  loop: "{{ tailscale_node_vip_approval.results }}"
+  loop_control:
+    label: "{{ item.item.service_name }}"
+  when: not (item.json.approved | default(false))
+  changed_when: true
+  no_log: true
+
+# 宣言に無くなった Service の自動削除はしない: tags を持たせられない
+# (上記の理由) ため、Service リソース側に「この role が Define した」ことを
+# 示す機械可読な印が無く、誤って無関係の Service を消す経路を安全に作れない。
+# 対象を宣言から外した場合の Service 削除は手作業とし、必要になったら
+# manual-operations.md に記録する。

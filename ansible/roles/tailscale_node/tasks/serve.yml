@@ -57,3 +57,23 @@
     not tailscale_node_serve_current_https
     or tailscale_node_serve_current_proxy != ('http://127.0.0.1:' ~ item.caddy_port)
   changed_when: true
+
+# 宣言 (console_proxy_targets/web_terminal_targets) が唯一の正: 過去に
+# service_name を変更・削除した際のローカル残骸 (例: opnsense -> opnsense-admin
+# へのリネーム後に残った svc:opnsense) を消す。
+- name: Ensure no undeclared local tailscale serve configuration remains
+  ansible.builtin.command:
+    argv:
+      - tailscale
+      - serve
+      - clear
+      - "{{ item }}"
+  loop: >-
+    {{
+      ((tailscale_node_serve_status.stdout | from_json).Services | default({}) | list)
+      | map('regex_replace', '^svc:', '')
+      | reject('in', tailscale_node_serve_targets | map(attribute='service_name') | list)
+      | map('regex_replace', '^', 'svc:')
+      | list
+    }}
+  changed_when: true

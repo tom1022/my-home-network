@@ -15,5 +15,10 @@ cloudflared_tunnel_token: "{{ lookup('env', 'CONSOLE_CLOUDFLARED_TUNNEL_TOKEN') 
 # tailnet 参加用のタグ付き auth key (tailscale_node ロールが消費する想定)
 tailscale_authkey: "{{ lookup('env', 'CONSOLE_TAILSCALE_AUTHKEY') }}"
 
+# Tailscale Service (VIP Service) を Define する Tailscale API の OAuth
+# client (Services の Read/Write, tag 制限なし。tailscale_node ロールが消費)
+tailscale_api_client_id: "{{ lookup('env', 'CONSOLE_TAILSCALE_API_CLIENT_ID') }}"
+tailscale_api_client_secret: "{{ lookup('env', 'CONSOLE_TAILSCALE_API_CLIENT_SECRET') }}"
+
 # ブラウザ端末 (ttyd) が対象ホストへ接続するための秘密鍵 (web_terminal ロールが消費する想定)
 web_terminal_ssh_private_key: "{{ lookup('env', 'CONSOLE_WEB_TERMINAL_SSH_PRIVATE_KEY') }}"
