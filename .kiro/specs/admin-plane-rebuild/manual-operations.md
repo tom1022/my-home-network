@@ -169,3 +169,29 @@ design.md の「旧環境から引き継ぐもの」表に対する実機確認�
 **表に無い追加の発見**: `avahi-daemon` / `bluetooth` / `ofono` / `dundee` / `fwupd` / `thermald` / `upower` / `rtkit-daemon` が稼働しているが、いずれも LXQt デスクトップ環境に付随する汎用デーモンであり、独立した「機能」として移設や代替の判断を要するものではない。デスクトップ環境自体を再現しない決定 (上表) に含まれる。
 
 **保護されない秘匿値**: cloudflared のトンネル token が `ExecStart=` に平文で存在することを確認した (design.md の既知の指摘と一致)。他に同様の平文秘匿値は `trvlr` 権限で確認できた範囲では見つからなかった (root 権限を要する箇所は未確認)。
+
+## 4. Tailscale Services の名前衝突と ACL grants (タスク 3.5、2026-09-07 実施)
+
+### 名前衝突
+
+tailnet には `OPNsense` というホスト名の既存デバイス (ルータ自身が持つ tailscale クライアント、`tom1022@` 所有、タグ無し) が別途参加しており、その MagicDNS 名 (`opnsense.<tailnet>.ts.net`、ホスト名の小文字化) が、`console_proxy_targets` の `service_name: opnsense` から生成される Tailscale Service (`svc:opnsense`) の MagicDNS 名と衝突していた。名前解決は既存デバイス側が勝ち、作業機から `opnsense.<tailnet>.ts.net` へアクセスしても `svc:opnsense` (console-pi 経由の Caddy) には到達しない。
+
+`service_name` を `opnsense-admin` に変更して衝突を解消した (`console_proxy_targets` の `name`/`service_name`、`public_hostname` は Cloudflare 経路用のラベルで衝突と無関係のため変更なし)。**この変更は宣言 (コード) のみ反映済みで、`console-pi` への適用 (`ansible-playbook playbooks/console.yml`) は未実施。**適用には Infisical 経由の `ssh_authorized_keys_public_key` 等の供給 (`infisical run -- ansible-playbook ...`) が要るため、運用者が実行する。
+
+### 残り 5 件 (`adguard`, `status`, `beszel`, `opnsense-terminal`, `console-pi-terminal`) が解決しない原因
+
+`console-pi` 側の `tailscale serve status --json` では 6 件全てが正しく登録されている一方、作業機の `tailscale status --json` には `Services` フィールド自体が一切現れない (デバイス一覧のみ)。Tailscale Services は tailnet ポリシーファイルの **grants で明示的に許可した宛先でなければ、DNS 解決の対象にすら現れない** (Tailscale 公式ドキュメント: サービスへの到達には `dst: ["svc:<name>"]` 形式の grant が必須で、grant が無いノードの netmap にはサービス自体が配信されない)。本 tailnet のポリシーファイルには現時点で `svc:` 宛の grant が無いと見られる。
+
+**必要な手作業**: Tailscale 管理コンソールでポリシーファイルへ以下のような grant を追加する (対象は 6 件のサービス名。`opnsense` は上記の通り `opnsense-admin` に変更済み)。
+
+```json
+"grants": [
+  {
+    "src": ["autogroup:member"],
+    "dst": ["svc:opnsense-admin", "svc:adguard", "svc:status", "svc:beszel", "svc:opnsense-terminal", "svc:console-pi-terminal"],
+    "ip": ["443"]
+  }
+]
+```
+
+**現時点でこの grant 追加は未実施。** これが無い限り、コード側の修正 (名前衝突の解消) を適用しても 6 件とも作業機から到達できない。タスク 3.5 の完了条件 (作業機から全対象へ到達) は、コードの適用と grants の追加の両方が終わるまで満たされない。

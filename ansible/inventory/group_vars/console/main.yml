@@ -3,9 +3,14 @@
 # upstream は実測済みの確定値であり、ホスト名ではなく IP アドレスで指定する
 # (AdGuard は DNS フィルタ自体であり、名前解決に依存すると壊れたときに直せなくなるため)。
 console_proxy_targets:
-  - name: opnsense
+  - name: opnsense-admin
     caddy_port: 8081
-    service_name: opnsense
+    # tailnet に "OPNsense" というホスト名の既存デバイス (ルータ自身の tailscale
+    # クライアント) が別に参加しており、MagicDNS 名 opnsense.<tailnet>.ts.net は
+    # そちらの機体名が既に占有している。Tailscale Service の名前を service_name
+    # と同じにすると同名になり、Service 側の名前解決が既存デバイスに負けて
+    # 到達できなくなるため、service_name はデバイス名と衝突しない値にする。
+    service_name: opnsense-admin
     public_hostname: opnsense
     upstream: "https://192.168.10.1:443"
     tls_insecure: true
