@@ -1,0 +1,46 @@
+# {{ ansible_managed }}
+# gatus_endpoints (group_vars/console/main.yml) が唯一の正。
+web:
+  address: "{{ gatus_web_listen_address }}"
+  port: {{ gatus_web_listen_port }}
+
+storage:
+  # 履歴を永続化しない (要件 3.4)。プロセス再起動で消える。
+  type: memory
+
+alerting:
+  custom:
+    url: "{{ gatus_discord_webhook_url }}"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    # 本文はエンドポイント名と遷移状態のみ。応答本文や接続先の詳細を混入させない (要件 3.10)。
+    body: |
+      {"content": "[ALERT_TRIGGERED_OR_RESOLVED] [ENDPOINT_NAME]"}
+    default-alert:
+      enabled: true
+      failure-threshold: {{ gatus_failure_threshold }}
+      success-threshold: {{ gatus_success_threshold }}
+      send-on-resolved: true
+
+endpoints:
+{% for endpoint in gatus_endpoints %}
+  - name: "{{ endpoint.name }}"
+    url: "{{ endpoint.url }}"
+    interval: {{ gatus_interval }}
+{% if endpoint.dns is defined %}
+    dns:
+      query-name: "{{ endpoint.dns['query-name'] }}"
+      query-type: "{{ endpoint.dns['query-type'] }}"
+{% endif %}
+{% if endpoint.client is defined %}
+    client:
+      insecure: {{ endpoint.client.insecure | default(false) | lower }}
+{% endif %}
+    conditions:
+{% for condition in endpoint.conditions %}
+      - "{{ condition }}"
+{% endfor %}
+    alerts:
+      - type: custom
+{% endfor %}

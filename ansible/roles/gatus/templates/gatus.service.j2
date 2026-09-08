@@ -1,0 +1,16 @@
+[Unit]
+Description=Gatus (external liveness monitoring and status page)
+After=network.target
+
+[Service]
+Type=simple
+Environment=GATUS_CONFIG_PATH={{ gatus_config_dir }}/config.yaml
+ExecStart={{ gatus_binary_path }}
+Restart=always
+RestartSec=2s
+# Gatus 自身の停止の独立した検知は systemd_failure_notify が OnFailure で担う
+# (design.md: Gatus と hub が同時に停止した場合の最後の砦)。
+OnFailure=notify-failure@%n.service
+
+[Install]
+WantedBy=multi-user.target

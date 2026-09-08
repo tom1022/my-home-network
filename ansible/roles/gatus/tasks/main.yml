@@ -1,0 +1,157 @@
+---
+# Gatus の導入 (公式 Docker イメージから抽出した arm64 バイナリ) と、gatus_endpoints
+# (group_vars/console/main.yml が唯一の正) からの config.yaml 生成のみを扱う。
+# Caddy 経由の公開・ファイアウォールは別 role の責務 (1 role = 1 component)。
+
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: gatus role supports Debian family hosts only.
+
+- name: Ensure target host architecture matches the extracted gatus binary
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture == 'aarch64'
+    fail_msg: >-
+      gatus role currently only supports aarch64. Extend the local-cache
+      extraction (delegate_to localhost) for another architecture if needed.
+
+- name: Ensure at least one endpoint is declared
+  ansible.builtin.assert:
+    that:
+      - gatus_endpoints | length > 0
+    fail_msg: gatus_endpoints must declare at least one endpoint (group_vars/console/main.yml).
+
+- name: Ensure every gatus_endpoints entry has a name, url, and at least one condition
+  ansible.builtin.assert:
+    that:
+      - item.name | default('') | trim | length > 0
+      - item.url | default('') | trim | length > 0
+      - item.conditions | default([]) | length > 0
+    fail_msg: "gatus_endpoints entry '{{ item.name | default('(unnamed)') }}' is missing name, url, or conditions."
+  loop: "{{ gatus_endpoints }}"
+  loop_control:
+    label: "{{ item.name | default('(unnamed)') }}"
+
+- name: Ensure gatus_endpoints names are unique
+  ansible.builtin.assert:
+    that:
+      - gatus_endpoints | map(attribute='name') | list | unique | length == gatus_endpoints | length
+    fail_msg: gatus_endpoints declares duplicate name values.
+
+# design.md の Invariant: agent を導入したホスト (beszel_systems) の到達不能は
+# Beszel の Status アラートが唯一の担い手であり、Gatus 側で重複して見ない。
+- name: Ensure gatus_endpoints does not duplicate beszel_systems (agent-covered hosts)
+  ansible.builtin.assert:
+    that:
+      - (gatus_endpoints | map(attribute='name') | list | intersect(beszel_systems | map(attribute='name') | list)) | length == 0
+    fail_msg: >-
+      gatus_endpoints overlaps with beszel_systems by name. The Beszel Status
+      alert is the sole owner of agent-covered host liveness (design.md).
+
+- name: Ensure the Discord webhook URL is supplied
+  ansible.builtin.assert:
+    that:
+      - gatus_discord_webhook_url | default('') | length > 0
+    fail_msg: >-
+      gatus_discord_webhook_url is empty. Supply it via Infisical
+      (PORTFOLIO_DISCORD_WEBHOOK_URL) and run this playbook through
+      `infisical run --env=prod -- ansible-playbook ...`.
+
+# ponytail: GitHub Releases にビルド済みバイナリが無いための代替経路。
+# コントロールマシンの docker CLI で公式イメージから抽出し、sha256 で内容を固定する
+# (get_url の checksum と同じ役目)。ローカルキャッシュがあり sha256 が一致すれば
+# 再抽出しない。
+- name: Check whether a cached gatus binary already exists locally
+  delegate_to: localhost
+  become: false
+  run_once: true
+  ansible.builtin.stat:
+    path: "{{ gatus_local_cache_path }}"
+    checksum_algorithm: sha256
+  register: gatus_local_cache_stat
+
+- name: Extract the pinned gatus binary from the official Docker image (localhost)
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: not gatus_local_cache_stat.stat.exists or gatus_local_cache_stat.stat.checksum != gatus_binary_sha256
+  block:
+    - name: Ensure the local cache directory exists
+      ansible.builtin.file:
+        path: "{{ gatus_local_cache_path | dirname }}"
+        state: directory
+        mode: '0755'
+
+    - name: Pull the pinned gatus image (arm64)
+      ansible.builtin.command:
+        cmd: "docker pull --platform linux/arm64 {{ gatus_image }}"
+      changed_when: true
+
+    - name: Create a (non-started) container from the image
+      ansible.builtin.command:
+        cmd: "docker create --platform linux/arm64 {{ gatus_image }}"
+      register: gatus_extract_container
+      changed_when: true
+
+    - name: Copy the gatus binary out of the container
+      ansible.builtin.command:
+        cmd: "docker cp {{ gatus_extract_container.stdout | trim }}:/gatus {{ gatus_local_cache_path }}"
+      changed_when: true
+
+    - name: Remove the extraction container
+      ansible.builtin.command:
+        cmd: "docker rm {{ gatus_extract_container.stdout | trim }}"
+      changed_when: true
+
+    - name: Verify the extracted binary matches the pinned checksum
+      ansible.builtin.stat:
+        path: "{{ gatus_local_cache_path }}"
+        checksum_algorithm: sha256
+      register: gatus_local_cache_stat_after_extract
+      failed_when: gatus_local_cache_stat_after_extract.stat.checksum != gatus_binary_sha256
+
+- name: Deploy the gatus binary to the target host
+  ansible.builtin.copy:
+    src: "{{ gatus_local_cache_path }}"
+    dest: "{{ gatus_binary_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Restart gatus
+
+- name: Ensure the Gatus config directory exists
+  ansible.builtin.file:
+    path: "{{ gatus_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy config.yaml (gatus_endpoints is the single source of truth)
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ gatus_config_dir }}/config.yaml"
+    owner: root
+    group: root
+    mode: '0644'
+  no_log: true
+  notify: Restart gatus
+
+- name: Deploy the gatus systemd unit
+  ansible.builtin.template:
+    src: gatus.service.j2
+    dest: /etc/systemd/system/gatus.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart gatus
+
+- name: Ensure the gatus service is enabled and started
+  ansible.builtin.systemd:
+    name: gatus
+    enabled: true
+    state: started

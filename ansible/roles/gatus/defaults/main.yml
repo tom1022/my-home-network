@@ -1,0 +1,32 @@
+---
+# Gatus (console-pi 上、外形の死活監視と状態一覧の画面)。
+# gatus_endpoints は group_vars/console/main.yml が唯一の正 (beszel_systems と同じ理由)。
+
+# ponytail: Gatus は GitHub Releases にビルド済みバイナリを配布していない (Docker
+# イメージのみ)。beszel_hub/web_terminal のような get_url + checksum は使えないため、
+# 公式 Docker イメージ (ghcr.io/twin/gatus) から arm64 バイナリを抽出する。抽出は
+# コントロールマシン側で行う (console-pi に Docker を追加しない。要件 3.4 が避ける
+# 「新しい足に用意しないもの」を増やさない)。コントロールマシンに docker CLI が
+# 要る。バイナリは git 管理しない (47MB、GitHub Release が無い代替であって恒久的な
+# 配布経路ではない)。ローカルキャッシュが無ければ毎回 docker pull/create/cp で
+# 再現する。sha256 は抽出結果を固定するための検証用 (get_url の checksum と同じ役目)。
+gatus_version: "5.36.0"
+gatus_image: "ghcr.io/twin/gatus:v{{ gatus_version }}"
+gatus_binary_sha256: "459b021f9c3a340273277a89ace59ccac2e99c398d06388392d10d3a6bfed358"
+gatus_local_cache_path: "/tmp/ansible-build-cache/gatus-{{ gatus_version }}-arm64/gatus"
+
+gatus_binary_path: /usr/local/bin/gatus
+gatus_config_dir: /etc/gatus
+gatus_web_listen_address: 127.0.0.1
+gatus_web_listen_port: 8080
+
+# default-alert (alerting.custom.default-alert) を使い、gatus_endpoints の各エントリに
+# 同じ alerts 設定を書き並べない。1分間隔 x 3回連続失敗 (約3分) で発報、1回の成功で解決。
+gatus_interval: 60s
+gatus_failure_threshold: 3
+gatus_success_threshold: 1
+
+# Discord webhook (既存の systemd_failure_notify / beszel_hub と同じ宛先。
+# design.md: 通知の経路を 1 つに保つ)。他の役割と異なり console-pi 固有の値では
+# ないため、host_vars を経由せず systemd_failure_notify と同じ形で直接 env を読む。
+gatus_discord_webhook_url: "{{ lookup('env', 'PORTFOLIO_DISCORD_WEBHOOK_URL') }}"

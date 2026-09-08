@@ -41,6 +41,11 @@
   roles:
     - cloudflared_tunnel
 
+- name: Ensure Gatus (external liveness monitoring and status page) is configured on console-pi
+  hosts: console
+  roles:
+    - gatus
+
 - name: Ensure the Beszel hub (resource/storage monitoring receiver) is configured on console-pi
   hosts: console
   roles:

@@ -1,0 +1,9 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart gatus
+  ansible.builtin.systemd:
+    name: gatus
+    state: restarted

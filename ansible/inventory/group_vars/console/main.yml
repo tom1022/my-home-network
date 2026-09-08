@@ -131,3 +131,37 @@ beszel_alerts:
     value: 1
     systems: all
     description: "failed ユニットの存在。継続時間の設定を持たない"
+
+# gatus role (console-pi 上、外形の死活監視) が消費する、監視対象事象の宣言。
+# group_vars/console/main.yml が唯一の正 (beszel_systems と同じ理由)。design.md が
+# 定める 4 種のみを持つ。agent を導入した beszel_systems の各ホストの到達不能は
+# ここでは見ない (Beszel の Status アラートが唯一の担い手。同じ事象を二重に通知
+# しないため)。
+gatus_endpoints:
+  - name: console-caddy
+    url: "http://127.0.0.1:{{ landing_page_caddy_port }}/"
+    conditions:
+      - "[STATUS] == 401"
+    description: "Caddy(逆プロキシ)の到達性。全公開サイトが同一プロセスの site block のため、
+      代表して起点画面の1エントリで見る(Caddyが落ちれば経路1・2ともに同時に失われるため個別に見る意味がない)。
+      basic_auth を持たせずに疎通だけ見るため 401 (認証を要求している=生きている) を成功条件にする"
+  - name: kanidm-ldaps-dns
+    url: "192.168.10.1"
+    dns:
+      query-name: "ldaps.kanidm.fickledev.com"
+      query-type: "A"
+    conditions:
+      - "[DNS_RCODE] == NOERROR"
+    description: "OPNsense の host override (手作業設定)。壊れると経路1のKanidm認証が成立しない"
+  - name: opnsense
+    url: "https://192.168.10.1/"
+    client:
+      insecure: true
+    conditions:
+      - "[STATUS] == 200"
+    description: "Beszel の agent を置かない対象 (FreeBSD)。到達不能を見る担い手が他に無い"
+  - name: beszel-hub
+    url: "http://127.0.0.1:8090/"
+    conditions:
+      - "[STATUS] == 200"
+    description: "資源監視の受け自身の外形。Caddyを経由せずloopbackに対して見る(要件3.17: 受けから独立した検知)"
