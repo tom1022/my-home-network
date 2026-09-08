@@ -213,3 +213,103 @@ Caddy の実行時設定 (`curl http://127.0.0.1:2019/config/`) を見て `"matc
 ### 対処
 
 `ansible/roles/console_proxy/templates/Caddyfile.j2` の全サイトブロックのアドレスを `http://127.0.0.1:<port>` から `http://:<port>` (host 部分を空) に変更した。Host ヘッダを一切マッチ条件に使わなくなり、listen 先を `127.0.0.1` に限定する役目は従来通り `bind` ディレクティブが担う。`ansible-playbook playbooks/console.yml` を再適用し、6 対象すべてで認証情報無し `401` / 正しい認証情報で到達 (`200`/`302`、バックエンド未構築の 2 件は `502`) を確認した。
+
+## 6. tailnet 経路の到達性の検証 (タスク 3.6、2026-09-08 実施)
+
+作業機 (`expertbook`, tailnet IP `100.127.244.115`) から実測した。`console-pi` は `100.116.132.42` / `console-pi.tail6c7c64.ts.net`。基本認証の資格情報は Infisical (`CONSOLE_PROXY_BASIC_AUTH_USER` / `_PASSWORD`) から都度取得し、シェル変数以外に残していない。
+
+### 6.1 公開対象・端末の全てへの到達 (要件 1.3, 1.6〜1.11)
+
+`console_proxy_targets` 4 件と `web_terminal_targets` 2 件、計 6 件の Tailscale Service 全てに、非対話の `curl` から到達した。
+
+| service_name | 認証なし | 認証あり | 備考 |
+|---|---|---|---|
+| `opnsense-admin` | 401 | 200 | OPNsense ログイン画面 |
+| `adguard` | 401 | 302 → `/login.html` | AdGuard ログイン画面へのリダイレクト |
+| `status` | 401 | 200 | Gatus の Health Dashboard |
+| `beszel` | 401 | 200 | Beszel の画面本体 |
+| `opnsense-terminal` | 401 | 200 | ttyd (ルータ宛) |
+| `console-pi-terminal` | 401 | 200 | ttyd (console-pi 自身宛) |
+
+認証を経ずには 401 で拒否され、正しい資格情報を渡すと到達する。要件 1.5 (認証必須) と 1.11 (非対話クライアントからの到達) を満たす。
+
+### 6.2 起点の 1 ページからの到達性 — **未達 (設計・実装のギャップ)**
+
+`landing_page` (Homer) は `landing_page_caddy_port` (8087) で Caddy に公開されているが、**`console_proxy_targets` / `web_terminal_targets` に含まれないため、`tailscale_node` の serve 適用対象 (`tailscale_node_serve_targets = console_proxy_targets + web_terminal_targets`) にも Terraform の `console_ingress_targets` (Cloudflare ingress) にも入っていない。**
+
+実測結果:
+
+- `console-pi` の `tailscale serve status --json` には 6 件の `svc:*` のみが登録され、Homer 用のエントリは存在しない
+- 作業機から `https://console-pi.tail6c7c64.ts.net:8087/` および `http://100.116.132.42:8087/` はいずれも `Connection refused` (Caddy が `127.0.0.1` にのみ bind しており、`tailscale serve` によるトンネルも無いため)
+- `console-pi` 自身から `curl -u <user>:<pass> http://127.0.0.1:8087/` は `200` (Caddy 自体は正常に配信している)
+
+**影響**: 要件 1.9「単一の起点から、公開している管理画面と対話的な端末の双方へ到達させる」の起点そのものが、tailnet 経由 (経路 2) では到達できない。利用者は起点ページを経由せず、6 件の Tailscale Service の URL を個別に覚える必要がある状態になっている。design.md の「起点から端末までの流れ」および `landing_page` コンポーネントの意図 (単一の起点となるリンク集) と実装が一致していない。
+
+**対応方針は判断を仰ぐ。**考えられる選択肢 (実装はしていない):
+1. `landing_page_caddy_port` を `tailscale_node_serve_targets` および Cloudflare の `console_ingress_targets` に追加する (7 件目の Tailscale Service。上限 10 に対し余裕はある)
+2. 起点ページを廃し、`gatus` (`status`) など既存エントリの 1 つに埋め込む
+3. 現状を許容し、要件 1.9 の充足範囲を「個別 URL への到達」に限定し直す (要件・設計の修正を要する)
+
+### 6.3 経路の切り替えとクライアント設定の要否 (要件 1.8, 1.10)
+
+6 件の Tailscale Service はいずれも `https://<service_name>.tail6c7c64.ts.net/` の形で、ポートもパスも現れない URL で到達した。作業機に Tailscale クライアント以外の設定 (プロキシ、名前解決の書き換え等) を加えていない。**6.2 のギャップにより「起点ページから経路を切り替えて同じ対象へ到達する」動線自体は検証できていない** (経路 1 の起点ページも 3.8 で別途検証)。個別エントリについては、経路 2 のみで検証済み (経路 1 は 3.8 の対象)。
+
+### 6.4 非対話クライアントからの接続と要求 (要件 1.11)
+
+- 4 件の Web UI: `curl` (非対話) で到達し、上記 6.1 の結果を得た
+- 2 件の端末 (ttyd): `GET /` (HTML 取得)・`GET /token` に加えて、`websockets` ライブラリで `wss://<service>.tail6c7c64.ts.net/ws` へ Basic 認証付きで接続し、`echo TTYD_E2E_OK` を送出して PTY のエコーで折り返しを確認した (`opnsense-terminal` は宛先 `192.168.10.1:2222`、`console-pi-terminal` は `localhost` 向けの SSH セッションが張られることを確認)。**ttyd は `-O` (Origin 検査) を有効にしており、`Origin` ヘッダを送らない/一致しないクライアントは接続直後に切断され、Caddy 側からは `502` に見える。**これはブラウザの通常の挙動 (Origin が自動的にページの origin と一致) では問題にならず、実装上の不備ではない。生の `curl`/`websockets` で検証する際は `Origin` ヘッダの付与が必須である点を記録として残す
+
+### 6.5 宣言に無い宛先の拒否 (要件 1.3)
+
+- 存在しない Tailscale Service 名 (`nonexistent-service.tail6c7c64.ts.net`) は名前解決自体が失敗する (NXDOMAIN)
+- `console-pi` の tailnet アドレス (`100.116.132.42`) に対し、`caddy_port` (8081, 8087 等) や未宣言のポート (9999) へ直接 TCP 接続すると `Connection refused` になる。**Tailscale Service は仮想 IP 経由でのみ到達し、ノード自身のポートを消費しない**という design.md の記述通りの挙動を確認した
+
+### 6.6 `console-pi` 自身の許可集合の実測 (要件 1.7)
+
+`console-pi` 上で `iptables -L CONSOLE-FIREWALL-INPUT -n -v` / `ip6tables` (同内容) を実測した。
+
+| # | in | 内容 | 対応する宣言 |
+|---|----|------|--------------|
+| 1 | `lo` | ACCEPT all | 必須の 3 本 (loopback) |
+| 2 | `*` | ACCEPT ESTABLISHED,RELATED | 必須の 3 本 (確立済み・関連) |
+| 3 | `tailscale0` | ACCEPT all | 必須の 3 本 (tailnet 全許可) |
+| 4 | `*` | ACCEPT icmp | PMTUD 用の固定ルール |
+| 5 | `tailscale0` | ACCEPT tcp dpt:22 | `console_inbound_allow[0]` (port 22, tcp, source tailnet) |
+
+`console_inbound_allow` の宣言 (22/tcp/tailnet の 1 件) と実機の許可集合が完全に一致した。IPv4/IPv6 とも同一。**境界側 (OPNsense のファイアウォール、Console セグメントへの到達制御そのもの) は本 spec の対象外であり、実測していない。**Console セグメント (`192.168.10.0/24`) からのアクセス制御は `console-pi` の `eth0` に対する明示的な許可規則を持たず、到達可否は OPNsense 側の設定に委ねられている (未実測、設計上の Out of Boundary)。
+
+### 6.7 転送先の画面が崩れずに表示されること (要件 1.3, 1.6)
+
+認証を経た応答の Content-Type とタイトル・サイズを実測した。
+
+| 宛先 | Content-Type | 確認内容 |
+|---|---|---|
+| `opnsense-admin` | text/html; charset=UTF-8 | `<title>ログイン \| OPNsense</title>` を含む完全な HTML (2813 bytes) |
+| `adguard` | text/html; charset=utf-8 | `/login.html` への 302 リダイレクト |
+| `status` | text/html | `<title>Health Dashboard \| Gatus</title>` (2097 bytes) |
+| `beszel` | text/html; charset=utf-8 | `<title>Beszel</title>`、アプリシェル (1214 bytes) |
+| `opnsense-terminal` / `console-pi-terminal` | text/html | ttyd のターミナル画面 (729693 bytes、xterm.js 込み)。6.4 のとおり WebSocket 経由の実セッションも成立 |
+
+いずれも応答が破損・空白化せず、絶対パス由来のリソース欠落は確認されなかった。
+
+### 6.8 リバースプロキシ停止時の代替到達経路 (要件 1.6)
+
+1. `console-pi` 上で `systemctl stop caddy` を実行 (`systemctl is-active` で `inactive` を確認)
+2. Caddy 経由の到達 (`https://opnsense-admin.tail6c7c64.ts.net/`) が `502` になることを確認 (`tailscale serve` はトンネル自体を維持するが、バックエンドの Caddy が無いため失敗する)
+3. **その間も tailnet 経由の SSH (`ssh root@console-pi`、`console_inbound_allow` の唯一のエントリ) は成立し続けることを確認した。**Caddy を経由しないこの経路が、要件 1.6 が求める「物理的な接続の変更によらない復旧経路」である
+4. `systemctl start caddy` で原状復帰し、`opnsense-admin` / `status` への到達が `200` に戻ることを確認した
+
+### まとめ
+
+| 検証項目 | 結果 |
+|---|---|
+| 公開対象・端末全てへの到達 (6.1) | ○ |
+| 起点の 1 ページからの到達 | **× (6.2 参照。設計・実装のギャップ。判断待ち)** |
+| 経路切り替え時のクライアント設定不要 (6.3) | ○ (個別エントリのみ。起点ページ経由の切り替えは 6.2 により未検証) |
+| 非対話クライアントからの接続・要求 (6.4) | ○ |
+| 宣言に無い宛先の拒否 (6.5) | ○ |
+| `console-pi` 自身の許可集合の実測 (6.6) | ○ (境界側は対象外、記録のみ) |
+| 転送先画面の非崩壊 (6.7) | ○ |
+| リバースプロキシ停止時の代替経路 (6.8) | ○ (検証後 Caddy は再起動し原状復帰済み) |
+
+**この spec の構成・コードは一切変更していない。**6.2 で見つかったギャップ (起点ページが tailnet 経路で到達不能) は記録に留め、対応方針の判断を仰ぐ。
