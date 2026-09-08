@@ -41,6 +41,11 @@
   roles:
     - cloudflared_tunnel
 
+- name: Ensure the generic systemd failure notification handler is configured on console-pi
+  hosts: console
+  roles:
+    - systemd_failure_notify
+
 - name: Ensure Gatus (external liveness monitoring and status page) is configured on console-pi
   hosts: console
   roles:
