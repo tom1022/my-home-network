@@ -103,6 +103,21 @@ resource "kanidm_account_policy" "guacamole_access" {
   authsession_expiry      = 28800 # 8h
 }
 
+# console-pi (admin-plane-rebuild) の管理画面群は Cloudflare Access の背後にのみ存在する
+# 経路 1 を持ち、その Access Policy (terraform/cloudflare_zero_trust.tf の console_kanidm) が
+# groups claim で本グループを直接参照する。guacamole_access と同じ判断で、admin PC への
+# 到達可否を直接左右するため MFA を必須にする。
+resource "kanidm_group" "console_access" {
+  name        = "console_access"
+  description = "Cloudflare Access 経由で console-pi の管理画面群にログインできる利用者"
+}
+
+resource "kanidm_account_policy" "console_access" {
+  group                   = kanidm_group.console_access.name
+  credential_type_minimum = "mfa"
+  authsession_expiry      = 28800 # 8h
+}
+
 # NAS (192.168.1.201) への POSIX ログインを許可する利用者の集合。
 # kanidm_unixd の pam_allowed_login_groups は POSIX 拡張されたグループしか
 # 受け付けないため posix_enabled を有効にする。gidnumber は明示せず、Kanidm の
