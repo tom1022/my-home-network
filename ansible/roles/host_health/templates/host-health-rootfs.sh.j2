@@ -1,0 +1,21 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# ルートファイルシステムの read-only への転落の検査 (design.md #### host_health)。
+# Beszel の Disk は使用率のみを見るため、使用率が正常のまま書き込み不能に
+# 転落した場合を取りこぼす。標準出力に測定値を出さない。
+set -euo pipefail
+
+opts="$(findmnt -no OPTIONS / 2>/dev/null)" || {
+  echo "host_health: could not read the mount options for /" >&2
+  exit 1
+}
+
+case ",${opts}," in
+  *,ro,*)
+    echo "host_health: root filesystem has fallen back to read-only" >&2
+    exit 1
+    ;;
+esac
+
+exit 0

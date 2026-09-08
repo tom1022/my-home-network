@@ -1,0 +1,27 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Raspberry Pi の under-voltage / throttling フラグの検査 (design.md
+# #### host_health, console-pi 固有)。電源の不足はこの機体に固有の失敗
+# 様式であり、資源の使用率には現れないため Beszel では検知できない。
+# 標準出力に測定値 (raw のビット値) を出さない。
+set -euo pipefail
+
+raw="$(vcgencmd get_throttled 2>/dev/null)" || {
+  echo "host_health: vcgencmd get_throttled failed" >&2
+  exit 1
+}
+
+hex="${raw#throttled=}"
+value=$(( hex ))
+
+# 下位 4 bit (0-3) は「現在」発生している状態のみを見る。上位 (16-19) は
+# 起動後いつか一度でも発生した履歴フラグで、次の再起動まで戻らないため、
+# 時系列を持たないこの検査に載せると一度の発火でユニットが恒久的に failed
+# のままになる。
+if (( value & 0xF )); then
+  echo "host_health: a Raspberry Pi power/throttling flag is currently active" >&2
+  exit 1
+fi
+
+exit 0

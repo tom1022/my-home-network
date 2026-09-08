@@ -1,0 +1,29 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# swap 使用率の検査 (design.md #### host_health)。Beszel は swap の使用量を
+# 表示するがアラートを持たない。標準出力に測定値を出さない。
+set -euo pipefail
+
+max_percent={{ host_health_swap_max_percent }}
+
+total="$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)"
+free="$(awk '/^SwapFree:/ {print $2}' /proc/meminfo)"
+
+if [ -z "${total}" ] || [ -z "${free}" ]; then
+  echo "host_health: could not read swap usage from /proc/meminfo" >&2
+  exit 1
+fi
+
+if [ "${total}" -eq 0 ]; then
+  # swap 未設定のホストは対象外。
+  exit 0
+fi
+
+used_percent=$(( (total - free) * 100 / total ))
+if [ "${used_percent}" -ge "${max_percent}" ]; then
+  echo "host_health: swap usage at or above the threshold" >&2
+  exit 1
+fi
+
+exit 0

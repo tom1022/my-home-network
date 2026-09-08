@@ -1,0 +1,71 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# ZFS の scrub のエラーと最終 scrub からの経過日数の検査 (design.md
+# #### host_health, hp-z440 固有)。プールの health は Beszel が見るが、
+# scrub のエラー数と最終実行日時は表示のみでアラートが無い。zpool status
+# の出力書式に依存するため、パースに失敗した場合を成功として扱わない
+# (design.md Risks)。標準出力に測定値を出さない。
+set -euo pipefail
+
+max_age_days={{ host_health_zfs_scrub_max_age_days }}
+
+pools=(
+{% for p in host_health_zfs_pools %}
+  "{{ p }}"
+{% endfor %}
+)
+
+fail=0
+for pool in "${pools[@]}"; do
+  [ -n "${pool}" ] || continue
+
+  status="$(zpool status "${pool}" 2>/dev/null)" || {
+    echo "host_health: zpool status failed for ${pool}" >&2
+    fail=1
+    continue
+  }
+
+  scan_line="$(echo "${status}" | awk '/scan:/ {sub(/^[ \t]*scan: /, ""); print; exit}')"
+  if [ -z "${scan_line}" ]; then
+    echo "host_health: could not find a scan line for pool ${pool}" >&2
+    fail=1
+    continue
+  fi
+
+  case "${scan_line}" in
+    *"in progress"*)
+      # 進行中の scrub は日付を持たず判定できない。進行中であること自体は
+      # 失敗ではないため、この検査からは除外する。
+      continue
+      ;;
+  esac
+
+  errors="$(echo "${scan_line}" | grep -oP 'with \K[0-9]+(?= errors)' || true)"
+  scan_date="$(echo "${scan_line}" | grep -oP 'on \K.*$' || true)"
+
+  if [ -z "${errors}" ] || [ -z "${scan_date}" ]; then
+    echo "host_health: could not parse the scan line for pool ${pool}" >&2
+    fail=1
+    continue
+  fi
+
+  if [ "${errors}" -gt 0 ]; then
+    echo "host_health: pool ${pool} scrub reported errors" >&2
+    fail=1
+  fi
+
+  scan_epoch="$(date -d "${scan_date}" +%s 2>/dev/null)" || {
+    echo "host_health: could not parse the scan date for pool ${pool}" >&2
+    fail=1
+    continue
+  }
+  now_epoch="$(date +%s)"
+  age_days=$(( (now_epoch - scan_epoch) / 86400 ))
+  if [ "${age_days}" -ge "${max_age_days}" ]; then
+    echo "host_health: pool ${pool} has not been scrubbed recently enough" >&2
+    fail=1
+  fi
+done
+
+exit "${fail}"

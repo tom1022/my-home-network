@@ -1,0 +1,33 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# OOM killer 発動の検査 (design.md #### host_health)。Beszel の Memory は
+# 使用率の閾値のみを見るため、使用率が閾値未満のまま個別プロセスが殺される
+# 場合を取りこぼす。/proc/vmstat の oom_kill は起動時に 0 へ戻るため、前回
+# 値との比較のみここで状態ファイルを 1 つ持つ (host_health の他の検査は
+# 時系列を持たない、design.md 要件 3.4 の唯一の例外)。状態ファイルが失われ
+# た場合は現在値を基準に取り直し、欠落は 1 回に留める。標準出力に測定値を
+# 出さない。
+set -euo pipefail
+
+state_file="{{ host_health_state_dir }}/oom_kill.count"
+
+current="$(awk '/^oom_kill / {print $2}' /proc/vmstat)"
+if [ -z "${current}" ]; then
+  echo "host_health: could not read oom_kill from /proc/vmstat" >&2
+  exit 1
+fi
+
+previous="${current}"
+if [ -f "${state_file}" ]; then
+  previous="$(cat "${state_file}")"
+fi
+
+fail=0
+if [ "${current}" -gt "${previous}" ]; then
+  echo "host_health: the OOM killer has run since the last check" >&2
+  fail=1
+fi
+
+echo "${current}" > "${state_file}"
+exit "${fail}"

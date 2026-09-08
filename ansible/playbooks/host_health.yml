@@ -1,9 +1,24 @@
 ---
 # 資源・記憶装置・記憶領域・failed ユニットの計測 (Beszel agent) と、閾値監視
-# (host_health role、タスク 4.6 以降で追加) を対象ホストへ適用するエントリポイント。
-# 対象は beszel_systems (group_vars/console/main.yml) と同じ target_hosts。
+# (host_health role) を対象ホストへ適用する唯一のエントリポイント。
+# Beszel agent の対象は beszel_systems (group_vars/console/main.yml) と同じ target_hosts。
 - name: Ensure the Beszel agent (resource/storage/systemd measurement) is configured
   hosts: target_hosts
   become: true
   roles:
     - beszel_agent
+
+# host_health (閾値監視) の対象: console-pi (task 4.6) と、仮想化基盤 2 ノード・
+# k3s 各ノード・NAS・PBS・VPS (task 4.7)。beszel_systems から gitea を除いた集合
+# (gitea は beszel_systems 自体に含まれない、既存宣言のまま)。
+# fail2ban (vps)・ZFS scrub (hp-z440)・under-voltage (console-pi) は
+# host_health_check_catalog の active フラグ (host_vars 側) が適用要否を決める。
+# 通知の受け (systemd_failure_notify) を host_health より先に置く (mail_backup.yml
+# と同じ順序: OnFailure が参照するハンドラユニットを先に用意する)。become は
+# console-pi/n100/hp-z440/pbs の root ログインでは実質無効化されるだけで害はない。
+- name: Ensure the threshold checks host_health provides (and their failure notification) are configured
+  hosts: "console:hp-z440:n100:k3s-server:k3s-agent-minipc:k3s-agent-z440:nas:pbs:vps"
+  become: true
+  roles:
+    - systemd_failure_notify
+    - host_health

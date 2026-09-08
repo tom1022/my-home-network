@@ -1,0 +1,40 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# TLS 証明書の残存日数の検査 (design.md #### host_health)。Beszel/Gatus は
+# 証明書の期限切れを事前に知らせる手段を持たないため自前で見る。
+# 標準出力に測定値 (残存日数・期限そのもの) を出さない。
+set -euo pipefail
+
+min_days={{ host_health_cert_min_days }}
+fail=0
+
+check_one() {
+  local name="$1" host="$2" port="$3" enddate end_epoch now_epoch days_left
+
+  enddate="$(echo | openssl s_client -connect "${host}:${port}" -servername "${host}" 2>/dev/null \
+    | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)"
+  if [ -z "${enddate}" ]; then
+    echo "host_health: cert check could not read a certificate for ${name}" >&2
+    return 1
+  fi
+
+  end_epoch="$(date -d "${enddate}" +%s 2>/dev/null)" || {
+    echo "host_health: cert check could not parse the expiry for ${name}" >&2
+    return 1
+  }
+  now_epoch="$(date +%s)"
+  days_left=$(( (end_epoch - now_epoch) / 86400 ))
+
+  if [ "${days_left}" -lt "${min_days}" ]; then
+    echo "host_health: certificate for ${name} is below the minimum remaining days" >&2
+    return 1
+  fi
+  return 0
+}
+
+{% for c in host_health_cert_checks %}
+check_one "{{ c.name }}" "{{ c.host }}" "{{ c.port }}" || fail=1
+{% endfor %}
+
+exit "${fail}"

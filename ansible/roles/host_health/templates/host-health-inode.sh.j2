@@ -1,0 +1,24 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# inode 使用率の検査 (design.md #### host_health)。Beszel の Disk は容量の
+# 使用率のみを見るため、inode を使い切って書き込みが止まる事象を取りこぼす。
+# 標準出力に測定値を出さない。
+set -euo pipefail
+
+max_percent={{ host_health_inode_max_percent }}
+fail=0
+
+# 擬似ファイルシステムを除いた実ファイルシステムのみを見る。IUse% が数値
+# でないエントリ (network fs 等で inode 数を報告しない場合の "-") は読み
+# 飛ばす。
+while read -r pcent target; do
+  [[ "${pcent}" =~ ^[0-9]+%$ ]] || continue
+  pcent="${pcent%\%}"
+  if [ "${pcent}" -ge "${max_percent}" ]; then
+    echo "host_health: inode usage at or above threshold on ${target}" >&2
+    fail=1
+  fi
+done < <(df -iPl -x tmpfs -x devtmpfs -x overlay -x squashfs 2>/dev/null | awk 'NR>1 {print $5, $6}')
+
+exit "${fail}"

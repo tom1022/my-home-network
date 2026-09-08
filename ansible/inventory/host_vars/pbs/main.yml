@@ -1,4 +1,9 @@
 ---
+# host_health role (task 4.7): pbs は非特権 LXC コンテナで実時計をホストと
+# 共有しており独立したドリフトを持ち得ず、chronyd 自身も CAP_SYS_TIME 不足で
+# 起動できない (host_health role のコメント参照)。chrony の offset 検査を無効化する。
+host_health_chrony_enabled: false
+
 # PBS backup policy (inventory host: pbs)
 
 pbs_backup_schedule: "30 4 * * *"

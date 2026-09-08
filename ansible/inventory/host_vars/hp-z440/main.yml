@@ -1,0 +1,6 @@
+---
+# host_health role (ZFS scrub 検査、task 4.7) は hp-z440 固有 (単一 vdev の
+# zfs-pool を持つ唯一のホスト)。ここでのみ有効化する。
+host_health_zfs_scrub_enabled: true
+host_health_zfs_pools:
+  - zfs-pool

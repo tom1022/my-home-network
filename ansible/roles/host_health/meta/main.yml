@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: host_health
+  author: tom1022
+  description: >-
+    Periodic threshold checks for conditions Beszel and Gatus do not cover
+    (cert expiry, inodes, time sync, rootfs read-only, OOM killer, swap,
+    Raspberry Pi power flags, fail2ban jail state, ZFS scrub health). Each
+    check fails its own systemd unit; notification is delegated to
+    systemd_failure_notify via OnFailure.
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

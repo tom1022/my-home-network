@@ -195,6 +195,17 @@
       (PORTFOLIO_DISCORD_WEBHOOK_URL) and run this playbook through
       `infisical run --env=prod -- ansible-playbook ...`.
 
+# shoutrrr がここで失敗すると "unknown service: https" のような曖昧なエラーに
+# なる (実機で確認済み)。変換結果の形を先に検証し、原因を分かりやすくする。
+- name: Ensure the Discord webhook URL converts to a valid shoutrrr URL
+  ansible.builtin.assert:
+    that:
+      - beszel_hub_discord_webhook_shoutrrr_url is match('^discord://[^@]+@[0-9]+$')
+    fail_msg: >-
+      beszel_hub_discord_webhook_url does not match the expected
+      https://discord.com/api/webhooks/<id>/<token> shape, so it could not be
+      converted to the discord://<token>@<id> form that shoutrrr requires.
+
 - name: Ensure the app-level user's notification webhook is set
   no_log: true
   block:
@@ -230,7 +241,7 @@
           settings:
             emails: []
             webhooks:
-              - "{{ beszel_hub_discord_webhook_url }}"
+              - "{{ beszel_hub_discord_webhook_shoutrrr_url }}"
         status_code: 200
       when: beszel_hub_notif_settings.json['items'] | length == 0
       changed_when: true
@@ -246,9 +257,9 @@
           settings:
             emails: "{{ beszel_hub_notif_settings.json['items'][0].settings.emails | default([]) }}"
             webhooks:
-              - "{{ beszel_hub_discord_webhook_url }}"
+              - "{{ beszel_hub_discord_webhook_shoutrrr_url }}"
         status_code: 200
       when: >-
         beszel_hub_notif_settings.json['items'] | length > 0 and
-        beszel_hub_notif_settings.json['items'][0].settings.webhooks | default([]) != [beszel_hub_discord_webhook_url]
+        beszel_hub_notif_settings.json['items'][0].settings.webhooks | default([]) != [beszel_hub_discord_webhook_shoutrrr_url]
       changed_when: true

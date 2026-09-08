@@ -165,3 +165,35 @@ gatus_endpoints:
     conditions:
       - "[STATUS] == 200"
     description: "資源監視の受け自身の外形。Caddyを経由せずloopbackに対して見る(要件3.17: 受けから独立した検知)"
+
+# host_health role (console-pi 上、閾値監視) が消費する、TLS 証明書の残存
+# 期間を検査する対象の宣言。group_vars/console/main.yml が唯一の正
+# (console_proxy_targets と同じ理由)。
+#
+# opnsense-admin は console_proxy_targets の upstream 自身: tls_insecure で
+# 検証を飛ばして転送しているため、証明書そのものの期限切れは他のどの機構も
+# 見ていない。残る 6 件は console-pi が Cloudflare トンネル経由で外部公開
+# しているホスト名そのもの (console_ingress_targets, terraform/cloudflare_zero_trust.tf
+# と同じ一覧) で、design.md の「外部公開のホスト名を含む」はこれを指す。
+host_health_cert_checks:
+  - name: opnsense-admin
+    host: 192.168.10.1
+    port: 443
+  - name: opnsense
+    host: opnsense.fickledev.com
+    port: 443
+  - name: adguard
+    host: adguard.fickledev.com
+    port: 443
+  - name: status
+    host: status.fickledev.com
+    port: 443
+  - name: beszel
+    host: beszel.fickledev.com
+    port: 443
+  - name: opnsense-terminal
+    host: opnsense-terminal.fickledev.com
+    port: 443
+  - name: console-pi-terminal
+    host: console-pi-terminal.fickledev.com
+    port: 443

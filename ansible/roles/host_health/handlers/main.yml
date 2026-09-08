@@ -1,0 +1,12 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart host_health timers
+  ansible.builtin.systemd:
+    name: "host-health-{{ item.id }}.timer"
+    state: restarted
+  loop: "{{ host_health_check_catalog | selectattr('active') | list }}"
+  loop_control:
+    label: "{{ item.id }}"

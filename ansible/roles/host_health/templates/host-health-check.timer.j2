@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic host_health check: {{ item.id }}
+
+[Timer]
+OnCalendar={{ item.calendar }}
+RandomizedDelaySec=1m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

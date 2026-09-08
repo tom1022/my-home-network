@@ -26,3 +26,7 @@ web_terminal_ssh_private_key: "{{ lookup('env', 'CONSOLE_WEB_TERMINAL_SSH_PRIVAT
 # Beszel hub の superuser 資格情報 (初回起動時にのみ消費される。beszel_hub ロールが消費)
 beszel_hub_user_email: "{{ lookup('env', 'CONSOLE_BESZEL_HUB_USER_EMAIL') }}"
 beszel_hub_user_password: "{{ lookup('env', 'CONSOLE_BESZEL_HUB_USER_PASSWORD') }}"
+
+# console-pi は Raspberry Pi。host_health ロールの under-voltage / throttling
+# 検査 (vcgencmd get_throttled) をこの機体でのみ有効化する。
+host_health_raspberry_pi: true

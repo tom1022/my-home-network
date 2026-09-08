@@ -1,0 +1,100 @@
+---
+# host_health role: Beszel / Gatus が備えない検査だけを周期実行し、閾値超過時に
+# ユニットを failed にする。通知は自前で送らず systemd_failure_notify
+# (OnFailure=notify-failure@%n.service) に委ねる。時系列を保持せず、都度取得
+# して閾値を判定するのみ (OOM killer の前回値比較を除く)。
+#
+# design.md の「自前で実装する検査とその理由」表がこの role の対象の全てである。
+# 表に無い検査 (記憶領域の使用率・負荷など) をここに足さない。
+
+host_health_state_dir: /var/lib/host_health
+host_health_script_dir: /usr/local/sbin
+
+# --- 全ホスト共通の 6 検査 --------------------------------------------------
+
+# TLS 証明書の残存日数。対象は host_health_cert_checks (name/host/port) で
+# ホストごとに宣言する (group_vars/console/main.yml など)。空なら何も検査しない。
+host_health_cert_min_days: 14
+host_health_cert_checks: []
+
+# inode 使用率 (擬似ファイルシステムを除く実ファイルシステムの最大値)
+host_health_inode_max_percent: 90
+
+# chrony の System time offset (絶対値、秒)
+host_health_chrony_max_offset_seconds: 1.0
+
+# 全ホスト共通の 6 検査のうち chrony のみ、ホストごとに無効化できる (既定 true)。
+# 非特権 LXC コンテナ (pbs) はカーネルの実時計をホストと共有し、chronyd 自身も
+# CAP_SYS_TIME 不足で起動できないため (tasks/main.yml のコメント参照)。
+host_health_chrony_enabled: true
+
+# swap 使用率。SwapTotal が 0 (swap 未設定) のホストは対象外
+host_health_swap_max_percent: 50
+
+# --- ホスト固有の 3 検査 (既定は無効。適用対象ホストの host_vars で有効化する) ---
+
+# console-pi 固有: Raspberry Pi の under-voltage / throttling
+host_health_raspberry_pi: false
+
+# vps 固有 (task 4.7): fail2ban の jail 空検知と特定アドレスの ban 検知
+host_health_fail2ban_enabled: false
+host_health_fail2ban_watch_addresses: []
+
+# hp-z440 固有 (task 4.7): ZFS scrub のエラーと最終実行からの経過日数
+host_health_zfs_scrub_enabled: false
+host_health_zfs_pools: []
+host_health_zfs_scrub_max_age_days: 35
+
+# 検査ごとの systemd OnCalendar。日次で足りる検査 (証明書・scrub) 以外は
+# 15 分おき。宣言のみで時系列は持たない (design.md 要件 3.4)。
+host_health_calendars:
+  cert: daily
+  inode: "*:0/15"
+  chrony: "*:0/15"
+  rootfs: "*:0/15"
+  oom: "*:0/15"
+  swap: "*:0/15"
+  throttled: "*:0/15"
+  fail2ban: "*:0/15"
+  zfs_scrub: daily
+
+# 自前で実装する検査の全量。design.md の表と 1:1 対応する。active はホスト
+# ごとの適用要否 (常時 true の 6 件 + 上記フラグで決まる 3 件)。id は
+# systemd ユニット名 (host-health-<id>.service/.timer) にそのまま使う。
+host_health_check_catalog:
+  - id: cert
+    script: host-health-cert.sh
+    calendar: "{{ host_health_calendars.cert }}"
+    active: true
+  - id: inode
+    script: host-health-inode.sh
+    calendar: "{{ host_health_calendars.inode }}"
+    active: true
+  - id: chrony
+    script: host-health-chrony.sh
+    calendar: "{{ host_health_calendars.chrony }}"
+    active: "{{ host_health_chrony_enabled }}"
+  - id: rootfs
+    script: host-health-rootfs.sh
+    calendar: "{{ host_health_calendars.rootfs }}"
+    active: true
+  - id: oom
+    script: host-health-oom.sh
+    calendar: "{{ host_health_calendars.oom }}"
+    active: true
+  - id: swap
+    script: host-health-swap.sh
+    calendar: "{{ host_health_calendars.swap }}"
+    active: true
+  - id: throttled
+    script: host-health-throttled.sh
+    calendar: "{{ host_health_calendars.throttled }}"
+    active: "{{ host_health_raspberry_pi }}"
+  - id: fail2ban
+    script: host-health-fail2ban.sh
+    calendar: "{{ host_health_calendars.fail2ban }}"
+    active: "{{ host_health_fail2ban_enabled }}"
+  - id: zfs_scrub
+    script: host-health-zfs-scrub.sh
+    calendar: "{{ host_health_calendars.zfs_scrub }}"
+    active: "{{ host_health_zfs_scrub_enabled }}"

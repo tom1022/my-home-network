@@ -1,0 +1,30 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# chrony の System time offset の検査 (design.md #### host_health)。Beszel
+# に時刻同期のアラートは無く、ずれは証明書の検証と認証を静かに壊す。
+# 標準出力に測定値 (offset そのもの) を出さない。
+set -euo pipefail
+
+max_offset={{ host_health_chrony_max_offset_seconds }}
+
+tracking="$(chronyc tracking 2>/dev/null)" || {
+  echo "host_health: chronyc tracking failed" >&2
+  exit 1
+}
+
+# "System time     : 0.000123456 seconds fast of NTP time" の数値部分のみ
+# を取り出す。chronyc は常に非負の大きさ + fast/slow の向きで表示する。
+offset="$(echo "${tracking}" | awk -F': ' '/System time/ {print $2}' | awk '{print $1}')"
+if [ -z "${offset}" ]; then
+  echo "host_health: could not parse the chrony offset" >&2
+  exit 1
+fi
+
+# シェルの整数比較は小数を扱えないため awk で判定する。
+if awk -v o="${offset}" -v m="${max_offset}" 'BEGIN{exit !(o > m)}'; then
+  echo "host_health: chrony offset exceeds the threshold" >&2
+  exit 1
+fi
+
+exit 0

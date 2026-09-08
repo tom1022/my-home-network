@@ -43,3 +43,16 @@ vps_proxy_tcp_listeners:
     listen_port: 993
     bind_address: 0.0.0.0
     upstream: mailbox_imaps_backend
+
+# host_health role (fail2ban 検査、task 4.7) は vps 固有。ここでのみ有効化する。
+# 監視自体は fail2ban-client status をローカルで読むだけで、ネットワーク越しの
+# 接続を発生させない (sshd jail の対象にならない。自身の実行が ban を招かない)。
+# watch_addresses は vps_proxy_fail2ban_sshd_ignoreip (100.64.0.0/10) が本来 ban 対象
+# から除外しているアドレスの実測値: 管理経路として使うこの端末の tailnet アドレスと、
+# 自宅回線の (mydns DDNS で追跡される) グローバルアドレス。どちらかが ban されていたら
+# ignoreip が効かなくなっている、すなわち管理経路そのものを失いかけている状態を示す。
+# 自宅側は DDNS のため IP が変わりうる。乖離したら実測し直して更新する。
+host_health_fail2ban_enabled: true
+host_health_fail2ban_watch_addresses:
+  - "100.127.244.115"
+  - "124.155.16.232"

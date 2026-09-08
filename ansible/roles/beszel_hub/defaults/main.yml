@@ -21,3 +21,14 @@ beszel_hub_http_listen: "127.0.0.1:8090"
 # 通知の経路を1つに保つ)。console-pi 固有の値ではないため host_vars を経由せず
 # 直接 env を読む (gatus_discord_webhook_url と同じ形)。
 beszel_hub_discord_webhook_url: "{{ lookup('env', 'PORTFOLIO_DISCORD_WEBHOOK_URL') }}"
+
+# Beszel の user_settings.webhooks は生の Discord webhook URL
+# (https://discord.com/api/webhooks/<id>/<token>) をそのまま渡しても届かない。
+# 送出は shoutrrr (github.com/nicholas-fedor/shoutrrr) 経由で、URL の scheme を
+# サービス名として解決するため (`url.Parse` の scheme が "https" になり
+# "unknown service: https" で送信自体が失敗する。実機のログ (/api/logs、
+# message="Failed to send shoutrrr alert") で確認済み)。shoutrrr の discord
+# サービスが要求する `discord://<token>@<webhookid>` 形式に変換してから渡す。
+beszel_hub_discord_webhook_shoutrrr_url: >-
+  {{ beszel_hub_discord_webhook_url
+  | regex_replace('^https://discord\.com/api/webhooks/([0-9]+)/(.+)$', 'discord://\2@\1') }}

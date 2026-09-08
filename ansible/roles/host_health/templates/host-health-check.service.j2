@@ -1,0 +1,8 @@
+[Unit]
+Description=host_health check: {{ item.id }}
+# 通知は自前で送らず、既存の汎用ハンドラへ委ねる (mail_backup と同じ形)。
+OnFailure=notify-failure@%n.service
+
+[Service]
+Type=oneshot
+ExecStart={{ host_health_script_dir }}/{{ item.script }}

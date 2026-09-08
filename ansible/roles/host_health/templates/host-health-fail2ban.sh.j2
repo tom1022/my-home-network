@@ -1,0 +1,43 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# fail2ban の jail が空でないこと、および特定のアドレス (tailnet のアドレス
+# と自宅のグローバルアドレス) が ban されたことの検査 (design.md
+# #### host_health, vps 固有)。管理経路の遮断そのものであり、遮断されてから
+# 知る状態を作らない (要件 3.13)。標準出力に測定値 (ban 済みアドレスの
+# 実体等) を出さない。
+set -euo pipefail
+
+watch_addresses=(
+{% for a in host_health_fail2ban_watch_addresses %}
+  "{{ a }}"
+{% endfor %}
+)
+
+jail_list_raw="$(fail2ban-client status 2>/dev/null | awk -F'\t' '/Jail list:/ {print $2}')" || {
+  echo "host_health: fail2ban-client status failed" >&2
+  exit 1
+}
+jail_list_raw="$(echo "${jail_list_raw}" | tr -d ' ')"
+
+if [ -z "${jail_list_raw}" ]; then
+  echo "host_health: fail2ban has no active jails" >&2
+  exit 1
+fi
+
+fail=0
+IFS=',' read -ra jails <<< "${jail_list_raw}"
+for jail in "${jails[@]}"; do
+  [ -n "${jail}" ] || continue
+  banned="$(fail2ban-client status "${jail}" 2>/dev/null | awk -F'\t' '/Banned IP list:/ {print $2}')"
+  for addr in "${watch_addresses[@]}"; do
+    case " ${banned} " in
+      *" ${addr} "*)
+        echo "host_health: a watched address is banned in jail ${jail}" >&2
+        fail=1
+        ;;
+    esac
+  done
+done
+
+exit "${fail}"

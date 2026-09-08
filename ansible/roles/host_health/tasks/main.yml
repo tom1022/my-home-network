@@ -1,0 +1,104 @@
+---
+# host_health role: 検査スクリプトは (将来の他ホスト適用に備えて) 常にすべて
+# 配置するが、systemd タイマー/ユニットは host_health_check_catalog の
+# active な項目にのみ作る。適用対象外のホスト上では inactive な検査は一切
+# 走らない。
+
+# chrony の offset 検査 (design.md #### host_health) の前提。console-pi は
+# 既定で systemd-timesyncd のみを持ち chrony が入っていない。この検査自身
+# の対象を用意する。Debian の chrony パッケージは time-daemon を競合として
+# 持ち、インストール時に systemd-timesyncd を自動的に削除する (実機の
+# --check で確認済み)ため、timesyncd を個別に止める手順は持たない。
+#
+# host_health_chrony_enabled (既定 true) で無効化できる。非特権 LXC コンテナ
+# (pbs) はカーネルの実時計をホストと共有しており、そもそも独立したドリフトを
+# 持ち得ない上に adjtimex が CAP_SYS_TIME 不足で権限エラーになる (実機で
+# 確認済み: `chronyd: adjtimex(0x8001) failed: Operation not permitted`)。
+# 時刻同期のずれの検査対象としては、同じ実時計を共有するホスト側 (hp-z440) の
+# chrony 検査が実質的にカバーする。
+- name: Ensure chrony is installed for the time-sync offset check
+  ansible.builtin.apt:
+    name: chrony
+    state: present
+    update_cache: true
+  when: host_health_chrony_enabled
+
+- name: Ensure chrony is enabled and running
+  ansible.builtin.systemd:
+    name: chrony
+    state: started
+    enabled: true
+  when: host_health_chrony_enabled
+
+# 無効なホストでは、既存の失敗状態を放置しない (SystemdFailed アラートの
+# 誤検知になる)。パッケージ自体は入れっぱなしで構わないので停止/無効化のみ行う。
+- name: Ensure chrony is stopped and disabled where the offset check does not apply
+  ansible.builtin.systemd:
+    name: chrony
+    state: stopped
+    enabled: false
+  when: not host_health_chrony_enabled
+  failed_when: false
+
+# systemd の ActiveState=failed は stop だけでは消えない (unit がそもそも
+# 起動に失敗して failed に入った場合、reset-failed を明示しない限り残り続ける)。
+- name: Ensure chrony's failed state is cleared where the offset check does not apply
+  ansible.builtin.command: systemctl reset-failed chrony.service
+  when: not host_health_chrony_enabled
+  changed_when: false
+  failed_when: false
+
+- name: Ensure the state directory exists (OOM killer previous-value baseline)
+  ansible.builtin.file:
+    path: "{{ host_health_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Ensure every check script is installed
+  ansible.builtin.template:
+    src: "{{ item.script }}.j2"
+    dest: "{{ host_health_script_dir }}/{{ item.script }}"
+    owner: root
+    group: root
+    mode: '0700'
+  loop: "{{ host_health_check_catalog }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: Ensure the systemd service unit is installed for each active check
+  ansible.builtin.template:
+    src: host-health-check.service.j2
+    dest: "/etc/systemd/system/host-health-{{ item.id }}.service"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ host_health_check_catalog | selectattr('active') | list }}"
+  loop_control:
+    label: "{{ item.id }}"
+  notify: Reload systemd daemon
+
+- name: Ensure the systemd timer unit is installed for each active check
+  ansible.builtin.template:
+    src: host-health-check.timer.j2
+    dest: "/etc/systemd/system/host-health-{{ item.id }}.timer"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ host_health_check_catalog | selectattr('active') | list }}"
+  loop_control:
+    label: "{{ item.id }}"
+  notify:
+    - Reload systemd daemon
+    - Restart host_health timers
+
+- name: Ensure the active check timers are enabled and started
+  ansible.builtin.systemd:
+    name: "host-health-{{ item.id }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: "{{ host_health_check_catalog | selectattr('active') | list }}"
+  loop_control:
+    label: "{{ item.id }}"
