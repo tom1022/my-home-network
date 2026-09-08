@@ -1,0 +1,91 @@
+---
+# Beszel agent の導入。beszel_systems (group_vars/console/main.yml が唯一の正) の
+# うち、自ホスト名と一致するエントリの host を LISTEN アドレスに用いる。
+# beszel_systems は console グループの group_vars にしか存在しないため、他ホストの
+# タスクからは hostvars['console-pi'] 経由で読む (group_vars はグループ外へ伝播しない)。
+# hub 側 (config.yml) との接続確立・認証・アラートの適用は beszel_hub role の責務
+# (1 role = 1 component)。SSH pull 接続のため agent から hub への到達性は不要。
+
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: beszel_agent role supports Debian family hosts only.
+
+- name: Ensure target host architecture has a pinned release asset
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture in beszel_agent_release_assets
+    fail_msg: >-
+      beszel_agent role has no release asset pinned for architecture
+      '{{ ansible_architecture }}'. Extend beszel_agent_release_assets.
+
+- name: Resolve beszel_systems (declared once, in console's group_vars, for all target_hosts)
+  ansible.builtin.set_fact:
+    beszel_agent_all_systems: "{{ hostvars['console-pi'].beszel_systems }}"
+
+- name: Find this host's beszel_systems entry
+  ansible.builtin.set_fact:
+    beszel_agent_system: "{{ beszel_agent_all_systems | selectattr('name', 'equalto', inventory_hostname) | list | first }}"
+  when: (beszel_agent_all_systems | selectattr('name', 'equalto', inventory_hostname) | list | length) > 0
+
+- name: Ensure this host is declared in beszel_systems
+  ansible.builtin.assert:
+    that:
+      - beszel_agent_system is defined
+    fail_msg: >-
+      '{{ inventory_hostname }}' has no matching entry in beszel_systems
+      (group_vars/console/main.yml, read via hostvars['console-pi']). Add it
+      before applying beszel_agent.
+
+- name: Compute the LISTEN address (beszel_systems host, default Beszel port)
+  ansible.builtin.set_fact:
+    beszel_agent_listen: "{{ beszel_agent_system.host }}:{{ beszel_agent_default_port }}"
+
+- name: Download the pinned Beszel agent release archive
+  ansible.builtin.get_url:
+    url: "{{ beszel_agent_release_assets[ansible_architecture].url }}"
+    dest: "/usr/local/lib/beszel-agent_{{ beszel_agent_version }}_linux_{{ ansible_architecture }}.tar.gz"
+    checksum: "{{ beszel_agent_release_assets[ansible_architecture].checksum }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: beszel_agent_archive
+
+- name: Extract the beszel-agent binary from the release archive
+  ansible.builtin.unarchive:
+    src: "{{ beszel_agent_archive.dest }}"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - beszel-agent
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Restart beszel agent
+
+- name: Deploy the Beszel agent environment file (LISTEN, hub KEY)
+  ansible.builtin.template:
+    src: agent.env.j2
+    dest: "{{ beszel_agent_env_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart beszel agent
+
+- name: Deploy the beszel-agent systemd unit
+  ansible.builtin.template:
+    src: beszel-agent.service.j2
+    dest: /etc/systemd/system/beszel-agent.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart beszel agent
+
+- name: Ensure the beszel-agent service is enabled and started
+  ansible.builtin.systemd:
+    name: beszel-agent
+    enabled: true
+    state: started

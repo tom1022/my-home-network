@@ -1,0 +1,9 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart beszel agent
+  ansible.builtin.systemd:
+    name: beszel-agent
+    state: restarted

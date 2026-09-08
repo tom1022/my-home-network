@@ -1,0 +1,29 @@
+---
+# Beszel agent (対象ホストの資源・SMART・ZFS プール health・failed ユニットの計測)。
+# beszel_systems (group_vars/console/main.yml) が唯一の正 (beszel_hub と同じ理由)。
+# 対象ホストは名前で beszel_systems の対応エントリを引き、そこに宣言された host
+# (hub からの到達アドレス) で待ち受ける。
+
+beszel_agent_version: "0.19.0"
+
+# amd64/arm64 のみ対応 (この環境のホスト構成に必要な組は Proxmox の 2 ノード /
+# k3s 各ノード / nas / gitea / pbs / vps が x86_64、console-pi が aarch64)。
+beszel_agent_release_assets:
+  x86_64:
+    url: "https://github.com/henrygd/beszel/releases/download/v{{ beszel_agent_version }}/beszel-agent_linux_amd64.tar.gz"
+    checksum: "sha256:0f85891b290146b336f5c813d1e535e992da35ee79de876e920e2ec748ab732c"
+  aarch64:
+    url: "https://github.com/henrygd/beszel/releases/download/v{{ beszel_agent_version }}/beszel-agent_linux_arm64.tar.gz"
+    checksum: "sha256:3a0b0c471506a02d8de79d03f7a45132b54010adc105c6208ffe8b8aedc1da38"
+
+beszel_agent_binary_path: /usr/local/bin/beszel-agent
+beszel_agent_env_path: /etc/beszel-agent.env
+
+# hub の SSH 公開鍵 (superuser でログインし GET /api/beszel/getkey で取得した値。
+# hub からの着信を agent が検証するための鍵であり秘匿値ではない。hub を再構築し
+# 鍵が変わった場合はここを更新する)。
+beszel_agent_hub_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICnezrb5GEHFhPgUJXyMtEftcL3ylo/vptctpzzrnBuA"
+
+# beszel_systems に port が無いエントリは hub 側で 45876 (Beszel の既定値) が
+# 補われる。agent の LISTEN もこれに合わせる。
+beszel_agent_default_port: 45876

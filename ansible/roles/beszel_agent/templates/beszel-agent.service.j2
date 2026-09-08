@@ -1,0 +1,14 @@
+[Unit]
+Description=Beszel agent (resource/storage/systemd measurement)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile={{ beszel_agent_env_path }}
+ExecStart={{ beszel_agent_binary_path }}
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target
