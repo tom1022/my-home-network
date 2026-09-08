@@ -110,3 +110,24 @@ beszel_systems:
   - name: vps
     host: 100.109.6.7
     description: "VPS。tailnet のアドレスで待ち受ける"
+
+# beszel_alerts role (console-pi 上、REST API 経由) が消費する、資源アラートの宣言。
+# group_vars/console/main.yml が唯一の正 (beszel_systems と同じ理由)。config.yml には
+# 持てないため適用は REST API で行う。宣言から消えたアラートは role が削除する。
+# ContainerHealth はここに含めない (通知本文にコンテナのログ抜粋を最大1800文字埋め込み、
+# 内容を制御する手段が無いため。design.md section 4 を参照)。
+beszel_alerts:
+  - name: Status
+    value: 0
+    min: 5
+    systems: all
+    description: "到達不能。agent を置いたホストの死活はここが唯一の担い手"
+  - name: Disk
+    value: 85
+    min: 10
+    systems: all
+    description: "root と追加ディスクと ZFS プールの使用率の最大値に対する単一の閾値"
+  - name: SystemdFailed
+    value: 1
+    systems: all
+    description: "failed ユニットの存在。継続時間の設定を持たない"

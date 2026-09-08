@@ -1,0 +1,174 @@
+---
+# Beszel hub のアラートは config.yml に持てず REST API でのみ適用できるため、
+# beszel_alerts (group_vars/console/main.yml) を唯一の正として都度差分適用する。
+# API は Caddy 経由 (console_proxy_targets の basic_auth) を通さず、console-pi 上の
+# ループバック (beszel_alerts_hub_url) を直接叩く。両方が同じ Authorization ヘッダーを
+# 取り合い衝突するため (Caddy の Basic と Beszel の Bearer)。
+
+- name: Ensure beszel_alerts is declared
+  ansible.builtin.assert:
+    that:
+      - beszel_alerts is defined
+      - beszel_alerts | length > 0
+    fail_msg: beszel_alerts must declare at least one alert (group_vars/console/main.yml).
+
+- name: Ensure every beszel_alerts entry has a name, value, systems, and description
+  ansible.builtin.assert:
+    that:
+      - item.name | default('') | trim | length > 0
+      - item.value is defined
+      - item.systems is defined
+      - item.description | default('') | trim | length > 0
+    fail_msg: "beszel_alerts entry '{{ item.name | default('(unnamed)') }}' is missing name, value, systems, or description."
+  loop: "{{ beszel_alerts }}"
+  loop_control:
+    label: "{{ item.name | default('(unnamed)') }}"
+
+- name: Ensure beszel_alerts names are unique
+  ansible.builtin.assert:
+    that:
+      - beszel_alerts | map(attribute='name') | list | unique | length == beszel_alerts | length
+    fail_msg: beszel_alerts declares duplicate name values.
+
+# ContainerHealth の本文はコンテナのログ抜粋を最大1800文字埋め込み、内容を制御する
+# 手段が無い (design.md)。宣言に紛れ込ませない。
+- name: Ensure ContainerHealth is not declared as a user alert
+  ansible.builtin.assert:
+    that:
+      - "'ContainerHealth' not in (beszel_alerts | map(attribute='name') | list)"
+    fail_msg: >-
+      beszel_alerts must not declare ContainerHealth (its notification body
+      embeds up to 1800 chars of container log output with no way to control
+      the content; see design.md section 4).
+
+- name: Authenticate against the Beszel app-level users collection
+  ansible.builtin.uri:
+    url: "{{ beszel_alerts_hub_url }}/api/collections/users/auth-with-password"
+    method: POST
+    body_format: json
+    body:
+      identity: "{{ beszel_hub_user_email }}"
+      password: "{{ beszel_hub_user_password }}"
+    status_code: 200
+  register: beszel_alerts_auth
+  no_log: true
+
+- name: List Beszel systems (id/name)
+  ansible.builtin.uri:
+    url: "{{ beszel_alerts_hub_url }}/api/collections/systems/records?perPage=200&fields=id,name"
+    method: GET
+    headers:
+      Authorization: "{{ beszel_alerts_auth.json.token }}"
+    status_code: 200
+  register: beszel_alerts_systems
+
+- name: List existing alerts (name/system/value/min)
+  ansible.builtin.uri:
+    url: "{{ beszel_alerts_hub_url }}/api/collections/alerts/records?perPage=200&fields=id,name,system,value,min"
+    method: GET
+    headers:
+      Authorization: "{{ beszel_alerts_auth.json.token }}"
+    status_code: 200
+  register: beszel_alerts_existing
+
+- name: Resolve system name-to-id map and current alert state
+  ansible.builtin.set_fact:
+    beszel_alerts_all_ids: "{{ beszel_alerts_systems.json['items'] | map(attribute='id') | list }}"
+    beszel_alerts_name_to_id: >-
+      {{ dict(beszel_alerts_systems.json['items'] | map(attribute='name') |
+      zip(beszel_alerts_systems.json['items'] | map(attribute='id'))) }}
+    beszel_alerts_existing_items: "{{ beszel_alerts_existing.json['items'] }}"
+
+- name: Ensure every beszel_alerts systems reference resolves to a known system
+  ansible.builtin.assert:
+    that:
+      - item.systems == 'all' or (item.systems | difference(beszel_alerts_name_to_id.keys() | list) | length == 0)
+    fail_msg: "beszel_alerts entry '{{ item.name }}' references a system not present in beszel_systems/hub: {{ item.systems }}"
+  loop: "{{ beszel_alerts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# overwrite:true upsert is safe to repeat (UNIQUE(user, system, name), verified live),
+# but the uri module has no signal to tell a real change from a no-op re-application,
+# so needs_apply/removed_ids are computed here (from the GET above) and drive
+# changed_when explicitly, the same approach roles/gitea/tasks/_oidc_auth_source.yml
+# uses for its create/update split.
+- name: Upsert declared alerts that are missing or drifted
+  ansible.builtin.uri:
+    url: "{{ beszel_alerts_hub_url }}/api/beszel/user-alerts"
+    method: POST
+    headers:
+      Authorization: "{{ beszel_alerts_auth.json.token }}"
+    body_format: json
+    # A YAML mapping of separately-templated "{{ }}" strings loses scalar
+    # native types here (value/min render as JSON strings "0"/"5" instead of
+    # numbers, which PocketBase's alert validation rejects as "Bad data.",
+    # verified live) even with explicit | int casts. Building the whole body
+    # as a single top-level Jinja dict-literal expression evaluates it as one
+    # native Python object instead of rendering each leaf to text, so nested
+    # ints survive. Lists (e.g. beszel_alerts_target_ids referenced bare)
+    # survive either way; only bare scalars need this.
+    body: >-
+      {{ {'name': item.name, 'value': item.value | int, 'min': item.min | default(0) | int,
+      'systems': beszel_alerts_target_ids, 'overwrite': true} }}
+    status_code: 200
+  vars:
+    beszel_alerts_target_ids: "{{ (item.systems == 'all') | ternary(beszel_alerts_all_ids, item.systems | map('extract', beszel_alerts_name_to_id) | list) }}"
+    beszel_alerts_existing_for_name: "{{ beszel_alerts_existing_items | selectattr('name', 'equalto', item.name) | list }}"
+    beszel_alerts_existing_ids_for_name: "{{ beszel_alerts_existing_for_name | map(attribute='system') | list }}"
+    beszel_alerts_matching: >-
+      {{ beszel_alerts_existing_for_name
+      | selectattr('system', 'in', beszel_alerts_target_ids)
+      | selectattr('value', 'equalto', item.value | int)
+      | selectattr('min', 'equalto', item.min | default(0) | int)
+      | map(attribute='system') | list }}
+    beszel_alerts_needs_apply: "{{ (beszel_alerts_target_ids | difference(beszel_alerts_matching) | length) > 0 }}"
+  loop: "{{ beszel_alerts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: beszel_alerts_needs_apply
+  changed_when: true
+
+- name: Remove declared alerts from systems no longer targeted
+  ansible.builtin.uri:
+    url: "{{ beszel_alerts_hub_url }}/api/beszel/user-alerts"
+    method: DELETE
+    headers:
+      Authorization: "{{ beszel_alerts_auth.json.token }}"
+    body_format: json
+    body:
+      name: "{{ item.name }}"
+      systems: "{{ beszel_alerts_removed_ids }}"
+    status_code: [200, 204]
+  vars:
+    beszel_alerts_target_ids: "{{ (item.systems == 'all') | ternary(beszel_alerts_all_ids, item.systems | map('extract', beszel_alerts_name_to_id) | list) }}"
+    beszel_alerts_existing_ids_for_name: "{{ beszel_alerts_existing_items | selectattr('name', 'equalto', item.name) | map(attribute='system') | list }}"
+    beszel_alerts_removed_ids: "{{ beszel_alerts_existing_ids_for_name | difference(beszel_alerts_target_ids) }}"
+  loop: "{{ beszel_alerts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: beszel_alerts_removed_ids | length > 0
+  changed_when: true
+
+# 宣言から名前ごと消えたアラート (ContainerHealth を弾いた後の一覧に無い名前) を削除する。
+- name: Determine alert names no longer declared
+  ansible.builtin.set_fact:
+    beszel_alerts_orphan_names: >-
+      {{ beszel_alerts_existing_items | map(attribute='name') | unique | list
+      | difference(beszel_alerts | map(attribute='name') | list) }}
+
+- name: Delete alerts that are no longer declared at all
+  ansible.builtin.uri:
+    url: "{{ beszel_alerts_hub_url }}/api/beszel/user-alerts"
+    method: DELETE
+    headers:
+      Authorization: "{{ beszel_alerts_auth.json.token }}"
+    body_format: json
+    body:
+      name: "{{ item }}"
+      systems: "{{ beszel_alerts_existing_items | selectattr('name', 'equalto', item) | map(attribute='system') | list }}"
+    status_code: [200, 204]
+  loop: "{{ beszel_alerts_orphan_names }}"
+  loop_control:
+    label: "{{ item }}"
+  changed_when: true

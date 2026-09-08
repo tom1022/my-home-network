@@ -1,0 +1,4 @@
+---
+# Beszel の資源アラート (console-pi 上、beszel_hub と同じホストのループバックを叩く)。
+# beszel_alerts は group_vars/console/main.yml が唯一の正 (beszel_systems と同じ理由)。
+beszel_alerts_hub_url: "http://127.0.0.1:8090"

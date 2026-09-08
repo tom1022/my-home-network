@@ -45,3 +45,8 @@
   hosts: console
   roles:
     - beszel_hub
+
+- name: Ensure the Beszel resource alerts are applied on console-pi
+  hosts: console
+  roles:
+    - beszel_alerts
