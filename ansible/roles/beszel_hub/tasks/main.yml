@@ -1,0 +1,254 @@
+---
+# Beszel hub の導入 (公式バイナリ) と、beszel_systems (group_vars/console/main.yml が
+# 唯一の正) からの config.yml 生成のみを扱う。Caddy 経由の公開・ファイアウォールは
+# 別 role の責務 (1 role = 1 component)。
+
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: beszel_hub role supports Debian family hosts only.
+
+# ponytail: 配布バイナリの選択を console-pi の実測アーキテクチャ (aarch64) に固定する。
+# 他アーキテクチャの足が増えたら web_terminal と同様に beszel_hub_url を変数化する。
+- name: Ensure target host architecture matches the pinned beszel release asset
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture == 'aarch64'
+    fail_msg: >-
+      beszel_hub role currently only supports aarch64 (beszel_linux_arm64.tar.gz
+      release asset). Extend beszel_hub_url/beszel_hub_checksum if another
+      architecture needs support.
+
+- name: Ensure at least one monitored system is declared
+  ansible.builtin.assert:
+    that:
+      - beszel_systems | length > 0
+    fail_msg: beszel_systems must declare at least one system (group_vars/console/main.yml).
+
+- name: Ensure every beszel_systems entry has a name, host, and description
+  ansible.builtin.assert:
+    that:
+      - item.name | default('') | trim | length > 0
+      - item.host | default('') | trim | length > 0
+      - item.description | default('') | trim | length > 0
+    fail_msg: "beszel_systems entry '{{ item.name | default('(unnamed)') }}' is missing name, host, or description."
+  loop: "{{ beszel_systems }}"
+  loop_control:
+    label: "{{ item.name | default('(unnamed)') }}"
+
+- name: Ensure beszel_systems names are unique
+  ansible.builtin.assert:
+    that:
+      - beszel_systems | map(attribute='name') | list | unique | length == beszel_systems | length
+    fail_msg: beszel_systems declares duplicate name values.
+
+- name: Ensure the hub superuser credentials are supplied
+  ansible.builtin.assert:
+    that:
+      - beszel_hub_user_email | default('') | length > 0
+      - beszel_hub_user_password | default('') | length > 0
+    fail_msg: >-
+      beszel_hub_user_email / beszel_hub_user_password are required. Supply
+      them via Infisical (CONSOLE_BESZEL_HUB_USER_EMAIL /
+      CONSOLE_BESZEL_HUB_USER_PASSWORD).
+
+- name: Ensure the Beszel hub data directory exists
+  ansible.builtin.file:
+    path: "{{ beszel_hub_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Download the pinned Beszel hub release archive
+  ansible.builtin.get_url:
+    url: "{{ beszel_hub_url }}"
+    dest: "/usr/local/lib/beszel-hub_{{ beszel_hub_version }}_linux_arm64.tar.gz"
+    checksum: "{{ beszel_hub_checksum }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: beszel_hub_archive
+
+- name: Extract the beszel binary from the release archive
+  ansible.builtin.unarchive:
+    src: "{{ beszel_hub_archive.dest }}"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - beszel
+    owner: root
+    group: root
+    mode: '0755'
+
+# no_log on the whole task: USER_EMAIL/USER_PASSWORD would otherwise appear in
+# the task result diff output.
+- name: Deploy the Beszel hub environment file (superuser credentials)
+  ansible.builtin.template:
+    src: hub.env.j2
+    dest: "{{ beszel_hub_env_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Deploy config.yml (beszel_systems is the single source of truth)
+  ansible.builtin.template:
+    src: config.yml.j2
+    dest: "{{ beszel_hub_data_dir }}/config.yml"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart beszel hub
+
+- name: Deploy the beszel-hub systemd unit
+  ansible.builtin.template:
+    src: beszel-hub.service.j2
+    dest: /etc/systemd/system/beszel-hub.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart beszel hub
+
+- name: Ensure the beszel-hub service is enabled and started
+  ansible.builtin.systemd:
+    name: beszel-hub
+    enabled: true
+    state: started
+
+# `beszel superuser update` (used to rotate beszel_hub_user_password) only
+# touches the PocketBase _superusers record. First boot also seeds a mirror
+# record in the app-level `users` collection with the same credentials, and
+# that record is what /api/collections/users/auth-with-password (the API the
+# frontend and the alert REST endpoints authenticate against) checks. Keep
+# the two in sync on every apply so a superuser-only rotation doesn't leave
+# the users record on the old password.
+- name: Make sure the handler-triggered restart has landed before talking to the API
+  ansible.builtin.meta: flush_handlers
+
+- name: Check whether the app-level users record already matches the superuser password
+  ansible.builtin.uri:
+    url: "http://{{ beszel_hub_http_listen }}/api/collections/users/auth-with-password"
+    method: POST
+    body_format: json
+    body:
+      identity: "{{ beszel_hub_user_email }}"
+      password: "{{ beszel_hub_user_password }}"
+    status_code: [200, 400]
+  register: beszel_hub_users_auth_check
+  no_log: true
+  changed_when: false
+
+- name: Sync the app-level users record password with the superuser password
+  when: beszel_hub_users_auth_check.status != 200
+  no_log: true
+  block:
+    - name: Authenticate as superuser to obtain an admin token
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/_superusers/auth-with-password"
+        method: POST
+        body_format: json
+        body:
+          identity: "{{ beszel_hub_user_email }}"
+          password: "{{ beszel_hub_user_password }}"
+        status_code: 200
+      register: beszel_hub_superuser_token
+
+    - name: List app-level users records
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/users/records?perPage=200&fields=id,email"
+        method: GET
+        headers:
+          Authorization: "{{ beszel_hub_superuser_token.json.token }}"
+        status_code: 200
+      register: beszel_hub_users_lookup
+
+    - name: Update the app-level users record password
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/users/records/{{ item.id }}"
+        method: PATCH
+        headers:
+          Authorization: "{{ beszel_hub_superuser_token.json.token }}"
+        body_format: json
+        body:
+          password: "{{ beszel_hub_user_password }}"
+          passwordConfirm: "{{ beszel_hub_user_password }}"
+        status_code: [200, 204]
+      loop: "{{ beszel_hub_users_lookup.json['items'] | selectattr('email', 'equalto', beszel_hub_user_email) | list }}"
+      loop_control:
+        label: "{{ item.email }}"
+
+# design.md: 通知の宛先を Gatus / systemd_failure_notify と揃える。Beszel は
+# user_settings.settings.webhooks (PocketBase の users レコードに紐づく設定
+# blob) にプレーンな Discord webhook URL を1件持たせるだけで、shoutrrr 経由で
+# 直送する。ContainerHealth は別 (アラート自体を宣言しない、beszel_alerts の
+# 責務) で、ここは宛先を揃えるだけ。
+- name: Ensure the Discord notification webhook URL is supplied
+  ansible.builtin.assert:
+    that:
+      - beszel_hub_discord_webhook_url | trim | length > 0
+    fail_msg: >-
+      beszel_hub_discord_webhook_url is empty. Supply it via Infisical
+      (PORTFOLIO_DISCORD_WEBHOOK_URL) and run this playbook through
+      `infisical run --env=prod -- ansible-playbook ...`.
+
+- name: Ensure the app-level user's notification webhook is set
+  no_log: true
+  block:
+    - name: Authenticate as the app-level user
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/users/auth-with-password"
+        method: POST
+        body_format: json
+        body:
+          identity: "{{ beszel_hub_user_email }}"
+          password: "{{ beszel_hub_user_password }}"
+        status_code: 200
+      register: beszel_hub_notif_auth
+
+    - name: Look up the existing user_settings record
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/user_settings/records?filter=user%3D%27{{ beszel_hub_notif_auth.json.record.id }}%27"
+        method: GET
+        headers:
+          Authorization: "{{ beszel_hub_notif_auth.json.token }}"
+        status_code: 200
+      register: beszel_hub_notif_settings
+
+    - name: Create the user_settings record with the notification webhook
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/user_settings/records"
+        method: POST
+        headers:
+          Authorization: "{{ beszel_hub_notif_auth.json.token }}"
+        body_format: json
+        body:
+          user: "{{ beszel_hub_notif_auth.json.record.id }}"
+          settings:
+            emails: []
+            webhooks:
+              - "{{ beszel_hub_discord_webhook_url }}"
+        status_code: 200
+      when: beszel_hub_notif_settings.json['items'] | length == 0
+      changed_when: true
+
+    - name: Update the user_settings record if the webhook drifted
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/user_settings/records/{{ beszel_hub_notif_settings.json['items'][0].id }}"
+        method: PATCH
+        headers:
+          Authorization: "{{ beszel_hub_notif_auth.json.token }}"
+        body_format: json
+        body:
+          settings:
+            emails: "{{ beszel_hub_notif_settings.json['items'][0].settings.emails | default([]) }}"
+            webhooks:
+              - "{{ beszel_hub_discord_webhook_url }}"
+        status_code: 200
+      when: >-
+        beszel_hub_notif_settings.json['items'] | length > 0 and
+        beszel_hub_notif_settings.json['items'][0].settings.webhooks | default([]) != [beszel_hub_discord_webhook_url]
+      changed_when: true

@@ -22,3 +22,7 @@ tailscale_api_client_secret: "{{ lookup('env', 'CONSOLE_TAILSCALE_API_CLIENT_SEC
 
 # ブラウザ端末 (ttyd) が対象ホストへ接続するための秘密鍵 (web_terminal ロールが消費する想定)
 web_terminal_ssh_private_key: "{{ lookup('env', 'CONSOLE_WEB_TERMINAL_SSH_PRIVATE_KEY') }}"
+
+# Beszel hub の superuser 資格情報 (初回起動時にのみ消費される。beszel_hub ロールが消費)
+beszel_hub_user_email: "{{ lookup('env', 'CONSOLE_BESZEL_HUB_USER_EMAIL') }}"
+beszel_hub_user_password: "{{ lookup('env', 'CONSOLE_BESZEL_HUB_USER_PASSWORD') }}"

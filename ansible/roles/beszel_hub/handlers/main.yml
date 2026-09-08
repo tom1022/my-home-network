@@ -1,0 +1,11 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+# config.yml の同期 (SyncSystems) は hub の起動時にしか走らないため、
+# config.yml の変更は再起動でのみ反映される。
+- name: Restart beszel hub
+  ansible.builtin.systemd:
+    name: beszel-hub
+    state: restarted

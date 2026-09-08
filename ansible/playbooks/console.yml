@@ -40,3 +40,8 @@
   hosts: console
   roles:
     - cloudflared_tunnel
+
+- name: Ensure the Beszel hub (resource/storage monitoring receiver) is configured on console-pi
+  hosts: console
+  roles:
+    - beszel_hub

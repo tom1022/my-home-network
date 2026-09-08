@@ -72,3 +72,41 @@ web_terminal_targets:
 # 両 role が読むため group_vars に置く (console_proxy_targets と同じ理由)。
 landing_page_root: /srv/landing-page
 landing_page_caddy_port: 8087
+
+# beszel_hub role (console-pi 上の Beszel hub) が消費する、監視対象ホストの宣言。
+# group_vars/console/main.yml が唯一の正 (console_proxy_targets と同じ理由)。
+# host は hub から agent への到達アドレス。LAN 上のホストは LAN のアドレス、
+# vps は tailnet のアドレスで待ち受ける (agent 自体の配備は別タスク)。
+# description は Beszel の config.yml のスキーマには無く、agent 未配備の間の
+# 宣言の読みやすさのためだけに持つ (config.yml.j2 では読まない)。
+beszel_systems:
+  - name: hp-z440
+    host: 192.168.1.2
+    description: "Proxmox ホスト。zfs-pool の単一 vdev と SMART の実体を持つ"
+  - name: n100
+    host: 192.168.1.10
+    description: "Proxmox ホスト。SATA SSD 1 本。ZFS プールを持たない"
+  - name: console-pi
+    host: 127.0.0.1
+    description: "Console の足自身。hub と同じホスト"
+  - name: pbs
+    host: 192.168.1.202
+    description: "LXC コンテナ。コンテナ内から見える資源のみ"
+  - name: k3s-server
+    host: 192.168.1.150
+    description: "KVM ゲスト。k3s master"
+  - name: k3s-agent-minipc
+    host: 192.168.1.151
+    description: "KVM ゲスト。k3s agent"
+  - name: k3s-agent-z440
+    host: 192.168.1.152
+    description: "KVM ゲスト。k3s agent"
+  - name: nas
+    host: 192.168.1.201
+    description: "KVM ゲスト。NAS"
+  - name: gitea
+    host: 192.168.1.200
+    description: "LXC コンテナ。Gitea"
+  - name: vps
+    host: 100.109.6.7
+    description: "VPS。tailnet のアドレスで待ち受ける"

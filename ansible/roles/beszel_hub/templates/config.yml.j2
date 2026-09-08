@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# beszel_systems (group_vars/console/main.yml) が唯一の正。ここに無いシステムは
+# hub の起動時に削除される。
+systems:
+{% for system in beszel_systems %}
+  - name: {{ system.name }}
+    host: {{ system.host }}
+{% endfor %}

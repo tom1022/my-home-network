@@ -1,0 +1,15 @@
+[Unit]
+Description=Beszel hub (resource/storage monitoring receiver)
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile={{ beszel_hub_env_path }}
+# --http 127.0.0.1: 待受を loopback に限定する。公開は console_proxy の Caddy が
+# 中継する (console_proxy_targets の "beszel" エントリ)。
+ExecStart={{ beszel_hub_binary_path }} serve --http {{ beszel_hub_http_listen }} --dir {{ beszel_hub_data_dir }}
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+---
+# Beszel hub (console-pi 上、資源・記憶装置の監視の受け)。
+# beszel_systems は group_vars/console/main.yml が唯一の正 (console_proxy_targets と
+# 同じ理由で role defaults には置かない)。
+
+# ponytail: 対象は console-pi (aarch64) のみのため、アーキテクチャ別の URL マッピングは
+# 持たない。他アーキテクチャの足が増えたら web_terminal と同様に変数化する。
+beszel_hub_version: "0.19.0"
+beszel_hub_url: "https://github.com/henrygd/beszel/releases/download/v{{ beszel_hub_version }}/beszel_linux_arm64.tar.gz"
+beszel_hub_checksum: "sha256:303f144f865a24b95b539740222dc65dc376b25526c8430eb5b093f3759e337c"
+beszel_hub_binary_path: /usr/local/bin/beszel
+beszel_hub_data_dir: /var/lib/beszel-hub
+beszel_hub_env_path: /etc/beszel-hub.env
+beszel_hub_http_listen: "127.0.0.1:8090"
+
+# superuser の資格情報 (初回起動時にのみ消費される)。値は host_vars/console-pi の
+# beszel_hub_user_email / beszel_hub_user_password (Infisical キー
+# CONSOLE_BESZEL_HUB_USER_EMAIL / CONSOLE_BESZEL_HUB_USER_PASSWORD) が供給する。
+
+# 通知の宛先 (Gatus / systemd_failure_notify と同じ Discord webhook。design.md:
+# 通知の経路を1つに保つ)。console-pi 固有の値ではないため host_vars を経由せず
+# 直接 env を読む (gatus_discord_webhook_url と同じ形)。
+beszel_hub_discord_webhook_url: "{{ lookup('env', 'PORTFOLIO_DISCORD_WEBHOOK_URL') }}"
