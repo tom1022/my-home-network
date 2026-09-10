@@ -4,11 +4,3 @@
 # in separate plays (different hosts: blocks) in playbooks/vps.yml, and role
 # defaults do not carry over across plays. group_vars is the single source
 # of truth both plays can read.
-
-# vip_services.yml が Define する Tailscale Service (VIP Service) の ports。
-# console_proxy_targets/web_terminal_targets の各エントリはどれも console-pi
-# 経由の到達しか無く、常に 443 単独のため、宣言側 (group_vars/console/main.yml)
-# に新しいフィールドを増やさずここで定数として導出する。書式は Tailscale API
-# の要求通り "tcp:<port>"。
-tailscale_node_vip_service_ports:
-  - "tcp:443"

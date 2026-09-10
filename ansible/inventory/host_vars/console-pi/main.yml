@@ -5,20 +5,16 @@
 # 消費するロールは admin-plane-rebuild の後続タスク (2章以降) で追加する。
 # ここでは変数の宣言と Infisical 側キー名の確定のみを行う。
 
-# Caddy の基本認証 (console_proxy ロールが消費する想定)
-console_proxy_basic_auth_user: "{{ lookup('env', 'CONSOLE_PROXY_BASIC_AUTH_USER') }}"
-console_proxy_basic_auth_password: "{{ lookup('env', 'CONSOLE_PROXY_BASIC_AUTH_PASSWORD') }}"
+# AdGuard 向け代理 Basic 認証 (console_proxy ロールが auth_mode: basic_proxy の
+# 対象にのみ消費する。Caddy 自身は他の対象に認証を追加しない)
+console_proxy_adguard_basic_auth_user: "{{ lookup('env', 'CONSOLE_PROXY_ADGUARD_BASIC_AUTH_USER') }}"
+console_proxy_adguard_basic_auth_password: "{{ lookup('env', 'CONSOLE_PROXY_ADGUARD_BASIC_AUTH_PASSWORD') }}"
 
 # cloudflared のトンネル token (cloudflared_tunnel ロールが消費する想定)
 cloudflared_tunnel_token: "{{ lookup('env', 'CONSOLE_CLOUDFLARED_TUNNEL_TOKEN') }}"
 
 # tailnet 参加用のタグ付き auth key (tailscale_node ロールが消費する想定)
 tailscale_authkey: "{{ lookup('env', 'CONSOLE_TAILSCALE_AUTHKEY') }}"
-
-# Tailscale Service (VIP Service) を Define する Tailscale API の OAuth
-# client (Services の Read/Write, tag 制限なし。tailscale_node ロールが消費)
-tailscale_api_client_id: "{{ lookup('env', 'CONSOLE_TAILSCALE_API_CLIENT_ID') }}"
-tailscale_api_client_secret: "{{ lookup('env', 'CONSOLE_TAILSCALE_API_CLIENT_SECRET') }}"
 
 # ブラウザ端末 (ttyd) が対象ホストへ接続するための秘密鍵 (web_terminal ロールが消費する想定)
 web_terminal_ssh_private_key: "{{ lookup('env', 'CONSOLE_WEB_TERMINAL_SSH_PRIVATE_KEY') }}"

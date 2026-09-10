@@ -11,30 +11,40 @@ console_proxy_targets:
     # と同じにすると同名になり、Service 側の名前解決が既存デバイスに負けて
     # 到達できなくなるため、service_name はデバイス名と衝突しない値にする。
     service_name: opnsense-admin
-    public_hostname: opnsense
+    public_hostname: osr
     upstream: "https://192.168.10.1:443"
     tls_insecure: true
+    # OPNsense の Web UI はセッションベースのフォームログイン専用で
+    # Authorization: Basic を受け付けないため、代理ログインを行わず手動ログインのまま残す。
+    auth_mode: none
     description: "ルータの管理画面。自己署名証明書のため tls_insecure が要る"
   - name: adguard
     caddy_port: 8082
     service_name: adguard
-    public_hostname: adguard
+    public_hostname: adg
     upstream: "http://192.168.10.1:3000"
     tls_insecure: false
+    # Caddy が固定の Basic 認証ヘッダーを自動付与して代理ログインする。
+    auth_mode: basic_proxy
     description: "DNS フィルタの管理画面。ルータと同じ機体で動く"
   - name: status
     caddy_port: 8083
     service_name: status
-    public_hostname: status
+    public_hostname: sts
     upstream: "http://127.0.0.1:8080"
     tls_insecure: false
+    # Gatus は自身の認証機構を持たず、Caddy 側でも追加しない。
+    auth_mode: none
     description: "Gatus の状態一覧 (別タスクで構築予定)"
   - name: beszel
     caddy_port: 8084
     service_name: beszel
-    public_hostname: beszel
+    public_hostname: bsz
     upstream: "http://127.0.0.1:8090"
     tls_insecure: false
+    # Cloudflare Access の認証済みユーザーのメールをヘッダーで転送し、Beszel が
+    # TRUSTED_AUTH_HEADER でそれを信頼する。
+    auth_mode: trusted_header
     description: "Beszel の hub。各ホストの資源の状態を示す (別タスクで構築予定)"
 
 # Console セグメントへ許可すべき着信の宣言。今回は宣言のみで、ファイアウォールへの
@@ -56,14 +66,14 @@ web_terminal_targets:
     listen_port: 7681
     caddy_port: 8085
     service_name: opnsense-terminal
-    public_hostname: opnsense-terminal
+    public_hostname: ost
     ssh_target: "192.168.10.1:2222"
     description: "ルータの端末。SSH の待受は 22 ではなく 2222"
   - name: console-pi-terminal
     listen_port: 7682
     caddy_port: 8086
     service_name: console-pi-terminal
-    public_hostname: console-pi-terminal
+    public_hostname: cpt
     ssh_target: "localhost"
     description: "Console の足自身の端末。ここから他ホストへ辿れる"
 
@@ -72,6 +82,13 @@ web_terminal_targets:
 # 両 role が読むため group_vars に置く (console_proxy_targets と同じ理由)。
 landing_page_root: /srv/landing-page
 landing_page_caddy_port: 8087
+
+# Cloudflare Access (Kanidm OIDC) が Cf-Access-Authenticated-User-Email として渡す
+# メールアドレス。TRUSTED_AUTH_HEADER (console_proxy の auth_mode: trusted_header) は
+# beszel の users コレクションに一致するレコードが存在することを前提とするため
+# (存在しなければ認証はスキップされ通常のログイン画面に落ちる)、beszel_hub role が
+# このメールでレコードを作成・維持する。
+beszel_hub_trusted_user_email: tochi@kanidm.fickledev.com
 
 # beszel_hub role (console-pi 上の Beszel hub) が消費する、監視対象ホストの宣言。
 # group_vars/console/main.yml が唯一の正 (console_proxy_targets と同じ理由)。
@@ -141,10 +158,11 @@ gatus_endpoints:
   - name: console-caddy
     url: "http://127.0.0.1:{{ landing_page_caddy_port }}/"
     conditions:
-      - "[STATUS] == 401"
+      - "[STATUS] == 200"
     description: "Caddy(逆プロキシ)の到達性。全公開サイトが同一プロセスの site block のため、
       代表して起点画面の1エントリで見る(Caddyが落ちれば経路1・2ともに同時に失われるため個別に見る意味がない)。
-      basic_auth を持たせずに疎通だけ見るため 401 (認証を要求している=生きている) を成功条件にする"
+      認証は Cloudflare Access のみに一任し (7章、Caddy 自身は basic_auth を持たない) 起点画面は
+      無認証で file_server が応答するため、疎通確認は 200 を成功条件にする"
   - name: kanidm-ldaps-dns
     url: "192.168.10.1"
     dns:
@@ -180,20 +198,23 @@ host_health_cert_checks:
     host: 192.168.10.1
     port: 443
   - name: opnsense
-    host: opnsense.fickledev.com
+    host: osr.fickledev.com
     port: 443
   - name: adguard
-    host: adguard.fickledev.com
+    host: adg.fickledev.com
     port: 443
   - name: status
-    host: status.fickledev.com
+    host: sts.fickledev.com
     port: 443
   - name: beszel
-    host: beszel.fickledev.com
+    host: bsz.fickledev.com
     port: 443
   - name: opnsense-terminal
-    host: opnsense-terminal.fickledev.com
+    host: ost.fickledev.com
     port: 443
   - name: console-pi-terminal
-    host: console-pi-terminal.fickledev.com
+    host: cpt.fickledev.com
+    port: 443
+  - name: landing_page
+    host: lnd.fickledev.com
     port: 443

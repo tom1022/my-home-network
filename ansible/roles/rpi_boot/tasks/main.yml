@@ -1,0 +1,35 @@
+---
+# boot 区画 (/boot/firmware) を読み取り専用で運用する。design.md `rpi_boot` の
+# 実装。raspi-config の Write-protect Boot Partition と同じ手段 (fstab の ro
+# フラグ) を取り、raspi-firmware パッケージの postinst / カーネル更新フックが
+# 要求する書き込みは APT hook で dpkg 実行の前後に rw へ戻す。
+
+- name: Ensure target host is Debian family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: rpi_boot role supports Debian family hosts only.
+
+- name: Find the boot partition mount options declared in /etc/fstab
+  ansible.builtin.command: findmnt --fstab --noheadings --output OPTIONS /boot/firmware
+  register: rpi_boot_fstab_opts
+  changed_when: false
+
+# APT hook を先に配置する。fstab を ro にする前にこれが無いと、次のパッケージ
+# 操作 (apt update 等、書き込みを伴わないものも含め dpkg lock 経由で走るものは
+# 影響しないが、念のため) の前に書き込み手段が必ず揃っている状態にする。
+- name: Deploy the APT hook that remounts /boot/firmware rw/ro around dpkg runs
+  ansible.builtin.template:
+    src: 50-rpi-boot-rw.j2
+    dest: /etc/apt/apt.conf.d/50-rpi-boot-rw
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure /boot/firmware is mounted read-only
+  ansible.posix.mount:
+    path: /boot/firmware
+    src: "UUID={{ ansible_facts['mounts'] | selectattr('mount', 'equalto', '/boot/firmware') | map(attribute='uuid') | first }}"
+    fstype: vfat
+    opts: "{{ (rpi_boot_fstab_opts.stdout | trim | split(',') | reject('equalto', 'rw') | list + ['ro']) | unique | join(',') }}"
+    state: mounted

@@ -203,12 +203,15 @@ resource "cloudflare_zero_trust_tunnel_cloudflared" "console" {
 # ときは両方のファイルを合わせて更新すること。
 locals {
   console_ingress_targets = [
-    { public_hostname = "opnsense", caddy_port = 8081 },
-    { public_hostname = "adguard", caddy_port = 8082 },
-    { public_hostname = "status", caddy_port = 8083 },
-    { public_hostname = "beszel", caddy_port = 8084 },
-    { public_hostname = "opnsense-terminal", caddy_port = 8085 },
-    { public_hostname = "console-pi-terminal", caddy_port = 8086 },
+    { public_hostname = "osr", caddy_port = 8081 },
+    { public_hostname = "adg", caddy_port = 8082 },
+    { public_hostname = "sts", caddy_port = 8083 },
+    { public_hostname = "bsz", caddy_port = 8084 },
+    { public_hostname = "ost", caddy_port = 8085 },
+    { public_hostname = "cpt", caddy_port = 8086 },
+    # landing_page role (Homer, 起点ページ)。landing_page_caddy_port
+    # (ansible/inventory/group_vars/console/main.yml) と同じ値をここでも手動で同期する。
+    { public_hostname = "lnd", caddy_port = 8087 },
   ]
 }
 

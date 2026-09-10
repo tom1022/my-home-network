@@ -1,7 +1,6 @@
 ---
 # Console セグメントの足 (console-pi) への適用のエントリポイント。
-# 監視・端末を追加する役割は admin-plane-rebuild の後続タスクがここへ足していく。
-# site.yml への組み込みはタスク 6.2 で行う (既存ホストへの適用が終わった後に挿す)。
+# site.yml の末尾 (既存ホストへの適用が全て終わった後) から import される (タスク 6.2)。
 - name: Refresh SSH known_hosts entries
   import_playbook: refresh_known_hosts.yml
 
@@ -60,3 +59,11 @@
   hosts: console
   roles:
     - beszel_alerts
+
+# 全てのパッケージ導入が終わった後の最後に置く (design.md rpi_boot)。先に
+# boot 区画を読み取り専用にすると、以後の導入がカーネル/ファームウェアの
+# 更新を巻き込んだ時点で失敗し、パッケージ管理が壊れた状態で残る。
+- name: Ensure the boot partition is held read-only on console-pi
+  hosts: console
+  roles:
+    - rpi_boot

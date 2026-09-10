@@ -1,5 +1,9 @@
 ---
 # console_proxy_targets は group_vars/console/main.yml が唯一の正 (この role と
 # ファイアウォール適用側の両方が読む可能性があるため、role defaults には置かない)。
-# console_proxy_basic_auth_user / console_proxy_basic_auth_password は
+# console_proxy_adguard_basic_auth_user / console_proxy_adguard_basic_auth_password
+# (AdGuard 向け代理 Basic 認証。auth_mode: basic_proxy の対象のみが消費する) は
 # host_vars/console-pi/main.yml が Infisical 経由で供給する。
+# Caddy 自身は認証機構を持たない。認証の唯一のゲートは Cloudflare Access
+# (Kanidm OIDC) であり、AdGuard の代理ログインと Beszel の trusted_header 転送は
+# その後段の個別対応にすぎない (design.md 参照)。

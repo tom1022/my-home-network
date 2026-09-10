@@ -292,14 +292,14 @@
 
 ## 6. 統合と完走の確認
 
-- [ ] 6.1 起動区画の読み取り専用への切り替え
+- [x] 6.1 起動区画の読み取り専用への切り替え
   - boot 区画を読み取り専用で保持し、カーネルとファームウェアの更新の前後でのみ書き込みを許す手順を宣言に含める
   - **パッケージの導入が全て終わった後に切り替える。**先に切り替えると、以後の導入が更新を巻き込んだ時点で失敗し、パッケージ管理が壊れた状態で残る
   - 完了時、切り替えの後に適用を 2 回続けても 2 回目で変更が生じず、更新の手順が実際に通る
   - _Requirements: 2.7_
   - _Depends: 3.8, 4.9, 5.3_
 
-- [ ] 6.2 宣言の不変条件の検査と日常の適用への組み込み
+- [x] 6.2 宣言の不変条件の検査と日常の適用への組み込み
   - 宣言の一覧が持つ不変条件を適用時に検査する。受け口のポートとサービス名の一意性、理由を持たないエントリの不在、死活監視の対象と計測の agent を導入するホストが重複しないこと
   - Console の足への適用と、検査および計測の適用を、日常の適用のエントリポイントに組み込む。**挿入位置は既存の適用が全て終わった後とする**
   - **Console 関連の秘匿値が未設定でも、既存ホストへの適用が完走することを確認する**
@@ -308,7 +308,7 @@
   - _Requirements: 2.7_
   - _Depends: 6.1_
 
-- [ ] 6.3 完走の確認と記録の整合
+- [x] 6.3 完走の確認と記録の整合
   - 旧環境の機能の一覧について、1 章で決めた再現要否と、実際に再現したものが一致することを確認する。差分があれば理由を記録する
   - 保護されない形で置かれていた秘匿値について、新しい構成で保護された形になったこと、および交換の要否の判断を記録する
   - 旧環境の記憶装置が現存し、消去も再利用もされていないことを確認する
@@ -318,3 +318,46 @@
   - _Requirements: 2.4, 2.6, 2.8, 4.1, 4.2, 4.3, 4.4, 4.5_
   - _Depends: 6.2_
 
+## 7. 到達経路の一本化と認証・命名の是正
+
+3.6/3.8 の実測検証、および完了後のレビューで判明した設計上の課題を解消する。**利用者向けの到達手段は Cloudflare Tunnel (経路 1) の 1 本のみとし、tailnet 経由の個別サービス公開 (経路 2) は撤去する。`console-pi` 自身の tailnet 参加 (2 章) は Ansible 適用の SSH 到達専用として維持する。**`console-pi` へ新規パッケージを追加する作業を含むため、6.1 (起動区画の読み取り専用化) より前に完了させること。
+
+- [x] 7.1 tailnet 経由の個別サービス公開の撤去
+  - 3.5 で `tailscale_node_serve_targets` (`console_proxy_targets` + `web_terminal_targets`) に対して構成した Tailscale Service を撤去する
+  - `console-pi` の tailnet 参加自体 (2 章、鍵認証の SSH 到達) は維持する。撤去対象は「各サービスを個別に tailnet 上へ公開する」機構のみ
+  - **`landing_page` ロール (`ansible/roles/landing_page/templates/config.yml.j2`) が生成する Homer の「tailnet 経由」セクションを削除する。**`landing_page_tailscale_status` (MagicDNS サフィックス取得) に依存するロジックごと除去し、「Cloudflare 経由」セクションのみを残す
+  - 完了時、tailnet 経由では `console_inbound_allow` が許可する SSH のみが到達し、各サービスの Tailscale Service は存在せず、Homer の画面にも tailnet 経由のリンクが現れない
+  - _Requirements: 1.11_
+  - _Depends: 3.5_
+
+- [x] 7.2 Caddy の Basic 認証の撤去と、個別アプリごとの認証統合
+  - **Caddy の Basic 認証を撤去し、追加しない。**`oauth2-proxy` も `caddy-security` も導入しない。Cloudflare Access (Kanidm OIDC、エッジでの認証・ポリシー評価) を唯一の到達ゲートとして信頼する。到達制御は引き続き Caddy の loopback bind + cloudflared トンネル経由限定 (既存の仕組み) で担保する
+  - **Beszel**: Cloudflare Access の保護対象に残しつつ (多層防御)、hub の環境変数 `TRUSTED_AUTH_HEADER` に `Cf-Access-Authenticated-User-Email` を設定し、Cloudflare Access が付与した認証済みユーザーのメールアドレスヘッダーをそのまま信頼させる ([beszel.dev/guide/environment-variables](https://beszel.dev/guide/environment-variables) 参照)。Kanidm 側への OAuth2 クライアント登録も Beszel 側の OIDC プロバイダの手作業登録も不要になる。hub の環境変数 `USER_CREATION=true` で初回アクセス時の自動ユーザー作成を有効にする。**Caddy が Beszel へ転送する前に、クライアント由来の `Cf-Access-Authenticated-User-Email` ヘッダーを `header_up -Cf-Access-Authenticated-User-Email` で一旦除去してから、cloudflared が実際に付与した値のみを転送する**(なりすまし対策の多層防御。`console-pi` の Caddy は loopback bind + cloudflared トンネル経由限定でしか到達できないため実害は薄い)。`DISABLE_PASSWORD_AUTH` は、`TRUSTED_AUTH_HEADER` 有効時のパスワードログインとの共存挙動が未確認のため当面有効化しない
+  - **AdGuard**: Caddy の `reverse_proxy` で固定の Basic 認証ヘッダー (Base64 エンコードした管理者資格情報) を自動付与し、代理ログインを行う。資格情報は Infisical から供給し、Caddyfile に平文で書かない
+  - **OPNsense**: 代理ログインは行わない。手動ログインのまま残す (Web UI がセッションベースのフォームログイン専用で `Authorization: Basic` を受け付けないため。REST API のみ Basic 認証に対応する)
+  - **ttyd (opnsense-terminal, console-pi-terminal)**: 既に SSH 鍵認証で自動ログインが成立している (3.8 で実測確認済み)。対応不要
+  - 完了時、AdGuard と Beszel は Cloudflare Access の Kanidm 認証のみで追加の資格情報入力を経ずに到達する。OPNsense は引き続き自身のログイン画面が現れる
+  - _Requirements: 1.5_
+  - _Depends: 7.1_
+
+- [x] 7.3 公開対象の命名の是正
+  - 現行のホスト名 (`opnsense.fickledev.com` 等、対象の種類がそのまま読み取れる) を、対象の種類や内容を推測させない識別子に変更する。公開対象ごとにドメインが異なることは許容する
+  - **意味を持たないランダムトークンではなく、対象の名称を運用者本人が判別できる範囲で極限まで短縮した略語とする** (例: `opnsense` → `osr`、`adguard` → `adg`)。design.md「公開対象の識別子の命名規則」を参照
+  - IP アドレスの直接指定によらず到達できることを維持する
+  - 完了時、公開対象の識別子から対象の種類が推測できない
+  - _Requirements: 1.12, 1.13_
+  - _Depends: 7.2_
+
+- [x] 7.4 起点ページ (Homer) の Cloudflare ingress への追加
+  - `landing_page_caddy_port` が Terraform の `console_ingress_targets` (Cloudflare ingress、`terraform/cloudflare_zero_trust.tf`) に含まれておらず、経路 1 からも起点ページへ到達できない状態を是正する。対象に追加する
+  - Homer の画面自体 (config.yml.j2 のテンプレート) は 7.1 で「Cloudflare 経由」の 1 セクションのみに整理済みであることを前提とする
+  - 完了時、起点ページが Cloudflare 経由で到達し、そこから公開対象・端末の全てへ辿れる
+  - _Requirements: 1.9_
+  - _Depends: 7.1, 7.2, 7.3_
+
+- [x] 7.5 是正後の到達性の再検証
+  - 3.8 (`manual-operations.md` セクション 7) で確認した 6 件 + 起点ページの到達性検証を、認証統合・命名是正・経路一本化後の構成で再実施する
+  - tailnet 経由では SSH 以外の到達手段が存在しないことをあわせて確認する
+  - 完了時、Caddy の Basic 認証 (旧設計) が撤去されていること、AdGuard と Beszel は Cloudflare Access の Kanidm 認証のみで追加の資格情報入力を経ずに到達すること、OPNsense は引き続き自身のログイン画面が現れることを実測で確認し、記録を更新する
+  - _Requirements: 1.1, 1.5, 1.9, 1.11, 1.12, 1.13_
+  - _Depends: 7.1, 7.2, 7.3, 7.4_

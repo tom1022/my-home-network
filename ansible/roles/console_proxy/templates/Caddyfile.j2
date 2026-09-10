@@ -3,22 +3,36 @@
    注意: サイトアドレスに host 部分 (例: 127.0.0.1) を書くと、それが Caddy 内部で
    Host ヘッダの厳密一致マッチャーになる。tailscale serve / cloudflared はどちらも
    クライアントが実際に使った公開ホスト名 (tailnet の FQDN や公開ドメイン) を Host
-   ヘッダのまま転送するため、その値は 127.0.0.1 と一致せず、basic_auth を含む
-   ルート全体が「不一致」として素通りし、認証もアップストリームへの転送も行われない
-   まま Caddy が空の 200 を返す (実機で `curl -H 'Host: 127.0.0.1' ...` は 401、
-   `curl -H 'Host: <tailnet FQDN>' ...` は 200/空 応答になることで確認済み)。
-   そのためサイトアドレスの host 部分は空にし (`:<port>` のみ)、Host ヘッダを
-   一切マッチ条件に使わない。listen 先を 127.0.0.1 に限定するのは `bind`
-   ディレクティブの役目 (指定が無ければワイルドカードで listen する)。 #}
+   ヘッダのまま転送するため、その値は 127.0.0.1 と一致せず、ルート全体が「不一致」
+   として素通りしてしまう (実機で確認済み)。そのためサイトアドレスの host 部分は
+   空にし (`:<port>` のみ)、Host ヘッダを一切マッチ条件に使わない。listen 先を
+   127.0.0.1 に限定するのは `bind` ディレクティブの役目 (指定が無ければワイルド
+   カードで listen する)。
+   認証は Cloudflare Access (Kanidm OIDC) がトンネル手前のエッジで完結させる唯一の
+   ゲートであり、Caddy 自身は basic_auth を含む追加の認証機構を持たない (design.md
+   「公開対象の識別子の命名規則」直前のセクション参照)。auth_mode ごとに reverse_proxy
+   の中身だけが変わる。 #}
 {% for target in console_proxy_targets %}
 http://:{{ target.caddy_port }} {
 	bind 127.0.0.1
 
-	basic_auth {
-		{{ console_proxy_basic_auth_user }} {{ console_proxy_final_hash }}
-	}
-
 	reverse_proxy {{ target.upstream }} {
+{% if target.auth_mode == 'trusted_header' %}
+		# Cf-Access-Authenticated-User-Email は Cloudflare Access がオリジンへの
+		# 転送時に付与する値で、クライアント (ブラウザ) 側から偽装できない。
+		# header_up -Field によるクライアント由来ヘッダーの除去は、当初「なりすまし
+		# 対策の多層防御」を意図したが、除去のみで再セットしないため Cloudflare が
+		# 付与した正当な値まで一緒に消えてしまい、この経路が機能しなかった (実機で
+		# 確認済み、henrygd/beszel authorizeRequestWithEmail が空ヘッダーで
+		# FindAuthRecordByEmail に失敗し通常ログインへ落ちる)。到達制御は既に
+		# loopback bind + cloudflared トンネル経由限定で成立しているため、素通しで
+		# よい。
+{% elif target.auth_mode == 'basic_proxy' %}
+		# 固定の Basic 認証ヘッダーを自動付与して代理ログインする。値は Caddy
+		# プロセスの環境変数 (EnvironmentFile 経由) から展開し、Caddyfile 自体には
+		# 平文で書かない。
+		header_up Authorization "Basic {$ADGUARD_BASIC_AUTH}"
+{% endif %}
 {% if target.tls_insecure %}
 		transport http {
 			tls_insecure_skip_verify
@@ -27,28 +41,22 @@ http://:{{ target.caddy_port }} {
 	}
 }
 {% endfor %}
-{# web_terminal_targets の各エントリも同じ形のサイトブロックで公開する。ttyd は
+{# web_terminal_targets の各エントリも同じ形のサイトブロックで公開する。認証は
+   ttyd 自身の SSH 鍵認証による自動ログインに任せ、Caddy 側では追加しない。ttyd は
    WebSocket 経由で入出力するが、Caddy の reverse_proxy は Upgrade ヘッダのある
    要求を自動で透過するため、ここに追加の設定は要らない (実機で確認済み)。 #}
 {% for target in web_terminal_targets %}
 http://:{{ target.caddy_port }} {
 	bind 127.0.0.1
 
-	basic_auth {
-		{{ console_proxy_basic_auth_user }} {{ console_proxy_final_hash }}
-	}
-
 	reverse_proxy http://127.0.0.1:{{ target.listen_port }}
 }
 {% endfor %}
 {# 起点のリンク集 (landing_page role が配置する Homer の静的ファイル) の配信。
-   常駐プロセスを持たないため upstream ではなく file_server で直接配る。 #}
+   常駐プロセスを持たないため upstream ではなく file_server で直接配る。認証は
+   Cloudflare Access のみに任せる。 #}
 http://:{{ landing_page_caddy_port }} {
 	bind 127.0.0.1
-
-	basic_auth {
-		{{ console_proxy_basic_auth_user }} {{ console_proxy_final_hash }}
-	}
 
 	root * {{ landing_page_root }}
 	file_server

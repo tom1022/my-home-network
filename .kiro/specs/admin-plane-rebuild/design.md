@@ -12,7 +12,7 @@
 
 - Console セグメントの足を宣言から再現できる状態にする
 - 単一の起点から、Console セグメントの Web の管理画面と対話的な端末の双方へ到達させる
-- 到達手段を 2 系統持ち、いずれか一方の障害で管理面を失わない
+- Cloudflare Tunnel 経由の 1 経路に到達手段を一本化し、Kanidm との OIDC 連携のみで認証を完結させる
 - 作業機に固有の設定を要求せず、非対話のクライアントからも到達できるようにする
 - 中央に時系列データベースを持たない監視と、単一の通知経路を確立する
 - 記憶装置の不良と記憶領域の劣化を、顕在化する前に検知する
@@ -20,7 +20,7 @@
 
 ### Non-Goals
 
-- **管理経路の認証の依存の解消。**認証は既存の Kanidm をそのまま用いる。循環は残ったままであり、`admin-plane-cutover` が扱う
+- **管理経路の認証の依存の解消。**認証は既存の Kanidm をそのまま用いる。識別提供者そのものは変更しない。**この Non-Goal は要件 1.5 が求める OIDC 連携への一本化と別軸である。**1.5 が扱うのは認証の方式 (Caddy が基本認証を重ね掛けするか、Cloudflare Access の Kanidm OIDC のみで完結させるか) であり、Non-Goal が指すのは認証の依存の向き (Kanidm が停止すると経路そのものが成立しない循環) である。本 spec は前者を解消し後者は解消しない。循環は残ったままであり、`admin-plane-cutover` が扱う
 - **`akishima` の転用・撤去・そこにある資産の引き継ぎ。**本 spec の完了時点でも稼働したままとする
 - **ネットワーク分離の回復とファイアウォール規則の宣言化。**OPNsense の設定の適用は運用者の手作業であり、本 spec は必要な内容の記録に留まる
 - 画面転送の回復。RDP と VNC は提供しない。端末とブラウザで到達できる Web UI に限る
@@ -52,8 +52,9 @@
 ### Allowed Dependencies
 
 - Infisical — 全ての秘匿値の単一の正
-- Cloudflare (DNS / Tunnel / Access) — 到達経路 1 の基盤。認証は既存の Kanidm の識別提供者を用いる
-- Tailscale — 到達経路 2 の基盤
+- Cloudflare (DNS / Tunnel / Access) — 利用者向けの到達手段の唯一の基盤。認証は既存の Kanidm の識別提供者を用いる
+- Kanidm (OIDC) — Cloudflare Access が認証・認可判定のために直接参照する。Beszel は Cloudflare Access が付与した認証済みユーザーのヘッダーを信頼するのみで、Kanidm を直接参照しない
+- Tailscale — `console-pi` への Ansible 適用の SSH 到達専用。利用者向けの到達手段には数えない
 - OPNsense の REST API — 遠隔起動の送出のみ
 - 既存の `ssh_authorized_keys` / `systemd_failure_notify` role
 
@@ -77,29 +78,30 @@
 
 ### Architecture Pattern & Boundary Map
 
-**選定したパターン**: 到達手段の集約点を 1 つ置き、外部からの 2 経路をそこへ合流させる。公開対象の列挙は集約点の設定 1 箇所に持つ。
+**選定したパターン**: 到達手段の集約点を 1 つ置き、Cloudflare Tunnel 経由の単一経路をそこへ合流させる。公開対象の列挙は集約点の設定 1 箇所に持つ。**認証は Cloudflare Access (Kanidm OIDC) がトンネル手前のエッジで完結させる唯一のゲートとし、Caddy 側には認証機構を追加しない。**oauth2-proxy も caddy-security も導入しない。到達制御は Caddy の `127.0.0.1` bind と cloudflared トンネル経由限定という既存の仕組みで担保する。Beszel のみ、Cloudflare Access が付与する認証済みユーザーのメールアドレスをヘッダー (`Cf-Access-Authenticated-User-Email`) 経由で受け取り、Beszel 自身の `TRUSTED_AUTH_HEADER` 設定でそれを信頼してログイン扱いにする (Kanidm への OIDC クライアント登録は不要)。AdGuard は Caddy が固定の Basic 認証ヘッダーを自動付与して代理ログインする。OPNsense は代理ログインを行わず手動ログインのまま残す。**tailnet は `console-pi` への Ansible 適用用の SSH 到達のみに用途を絞り、利用者向けの到達手段には数えない。**
 
 ```mermaid
 graph TB
     subgraph External
         Browser[Operator browser]
-        CFEdge[Cloudflare edge with Kanidm]
+        NonInteractive[Non interactive client]
+        CFEdge[Cloudflare edge with Kanidm OIDC]
     end
     subgraph Tailnet
-        Workstation[Workstation and non interactive client]
+        Workstation[Workstation for Ansible SSH only]
     end
     subgraph ConsoleSegment[Console segment]
         subgraph ConsolePi[console-pi]
             Cloudflared[cloudflared]
-            Tailscaled[tailscaled with services]
-            Caddy[Caddy]
+            Tailscaled[tailscaled SSH only]
+            Caddy[Caddy no added auth]
             Homer[Homer static page]
             Gatus[Gatus]
-            BeszelHub[Beszel hub]
+            BeszelHub[Beszel hub trusting Cf-Access header]
             Ttyd[ttyd terminals]
         end
-        OpnUI[OPNsense web UI]
-        AdGuardUI[AdGuard web UI]
+        OpnUI[OPNsense web UI manual login]
+        AdGuardUI[AdGuard web UI proxy basic auth]
         Akishima[akishima still running]
     end
     subgraph DMZ
@@ -110,16 +112,16 @@ graph TB
     end
 
     Browser --> CFEdge
+    NonInteractive --> CFEdge
     CFEdge --> Cloudflared
     Cloudflared --> Caddy
     Workstation --> Tailscaled
-    Tailscaled --> Caddy
     Caddy --> Homer
     Caddy --> OpnUI
     Caddy --> AdGuardUI
+    Caddy --> Ttyd
     Caddy --> Gatus
     Caddy --> BeszelHub
-    Caddy --> Ttyd
     Ttyd --> OpnUI
     Gatus --> OpnUI
     Gatus --> BeszelHub
@@ -130,8 +132,8 @@ graph TB
 
 **Architecture Integration**
 
-- **選定パターン**: 単一の集約点 (Caddy) に到達手段を合流させ、公開対象の列挙をそこに一元化する。**両経路ともホスト名で対象が分かれ、Caddy はポートで受ける。**素の `tailscale serve` はノードの MagicDNS 名 1 つしか持てないが、Tailscale Services が対象ごとに独立した名前を生やすことでこの制約が外れる。
-- **責務の分離**: 到達 (cloudflared / tailscaled)、振り分け (Caddy)、外形の監視 (Gatus)、資源と記憶装置の監視 (Beszel の hub)、端末 (ttyd) を別のプロセスに分ける。到達手段の一方が停止しても他方は Caddy 経由で成立する。
+- **選定パターン**: 単一の集約点 (Caddy) に Cloudflare Tunnel 経由の 1 経路を合流させ、公開対象の列挙をそこに一元化する (要件 1.11)。**Cloudflare Access (Kanidm OIDC) がトンネル手前のエッジで認証・ポリシー評価を完結させる唯一のゲートであり (認証 NG なら origin である `console-pi` までリクエストが届かない)、Caddy 側に oauth2-proxy や caddy-security といった追加の認証機構を導入しない。**その上で対象の性質に応じて 3 通りに分岐する。**Beszel** は Cloudflare Access が付与する認証済みユーザーのメールアドレスをヘッダーで受け取り、自身の `TRUSTED_AUTH_HEADER` 設定でそれを信頼する (Kanidm への直接の OIDC 連携は持たない)。**AdGuard** は Caddy の `reverse_proxy` が固定の Basic 認証ヘッダーを自動付与して代理ログインする (運用者からは見えない自動付与であり、追加の資格情報入力を要求しない)。**OPNsense** は Web UI がセッションベースのフォームログイン専用で `Authorization: Basic` を受け付けないため代理ログインを行わず、手動ログインのまま残す。**ttyd** は SSH 鍵認証で自動ログインが成立しており対応不要。いずれの方式でも Cloudflare Access の認証プロンプトに加えて運用者へ追加の資格情報入力を要求しない (要件 1.5)。
+- **責務の分離**: 到達 (cloudflared)、振り分けと代理ログイン (Caddy)、外形の監視 (Gatus)、資源と記憶装置の監視 (Beszel の hub)、端末 (ttyd) を別のプロセスに分ける。tailnet (`tailscaled`) は Ansible 適用の SSH 到達専用であり、利用者向けの到達には関与しない。
 - **監視の担い手を 3 層に分ける**: Beszel が agent を置いたホストの資源・SMART・ZFS プールの health・failed ユニット・到達不能を、Gatus が外形と agent を置かない対象を、`host_health` がその双方が備えない検査だけを担う。**同じ事象を 2 つの層で見ない。**とりわけホストの到達不能は、**Beszel が agent を置いたホスト、Gatus がそれ以外**と分担し、同じホストを両方の対象に入れない (要件 3.15)。
 - **維持する既存パターン**: DNS とトンネルの ingress を Terraform の locals マップで列挙する形、`vps_proxy` の「許可集合を defaults に列挙する」形、`systemd_failure_notify` の `OnFailure` による通知。
 - **Steering への適合**: `tech.md` の Cluster Management 節が禁じるのは「クラスタ全体を素通しにするブラウザ管理 UI」であり、本設計が公開するのは OPNsense と AdGuard の管理画面、Gatus の状態一覧、および対象ホストの端末である。k3s の管理 UI を新設しない。
@@ -143,14 +145,14 @@ graph TB
 | Layer | Choice / Version | Role in Feature | Notes |
 |-------|------------------|-----------------|-------|
 | Runtime / Host | Raspberry Pi 3, Debian 系 arm64 | Console セグメントの足 | microSD を boot 区画、USB 接続ドライブを root とする |
-| Reverse Proxy | Caddy 2 系 (公式 apt / arm64 `.deb`) | 公開対象の列挙と振り分け、基本認証 | `basic_auth` は bcrypt。新規依存 |
-| Web Terminal | ttyd (aarch64 静的バイナリ、約 1.37MB) | ブラウザからの対話的な端末 | 宛先ごとに 1 ユニット。新規依存 |
-| Landing Page | Homer (ビルド済み `homer.zip` の静的ファイル) | 単一の起点となるリンク集 | 常駐プロセスを持たない |
+| Reverse Proxy | Caddy 2 系 (公式 apt / arm64 `.deb`) | 公開対象の列挙と振り分け。AdGuard 向けに固定の Basic 認証ヘッダーを自動付与する代理ログイン | 追加の認証機構 (`forward_auth` / oauth2-proxy / caddy-security) は持たない。Cloudflare Access (Kanidm OIDC) をエッジの唯一の認証ゲートとして信頼する |
+| Web Terminal | ttyd (aarch64 静的バイナリ、約 1.37MB) | ブラウザからの対話的な端末 | 宛先ごとに 1 ユニット。Caddy 側に追加の認証は挟まず、SSH 鍵認証による自動ログインに任せる。新規依存 |
+| Landing Page | Homer (ビルド済み `homer.zip` の静的ファイル) | 単一の起点となるリンク集 | 常駐プロセスを持たない。Cloudflare 経由の 1 セクションのみを持つ (tailnet 経由のセクションは撤去) |
 | Monitoring / 外形 | Gatus (単一 Go バイナリ、arm64) | 外形の死活監視と状態一覧の画面 | `storage.type: memory`。新規依存 |
-| Monitoring / 資源・記憶装置 | Beszel v0.19.0 (hub と agent、arm64 と x86_64 の公式バイナリ) | 各ホストの資源の画面、SMART と ZFS プールの health の検知 | hub は `console-pi`、agent は対象ホスト。PocketBase (SQLite) に最長 30 日。新規依存 |
-| Tunnel | cloudflared (公式 apt、`cloudflared-linux-arm64.deb`) | 到達経路 1 の終端 | `akishima` のものとは別のトンネル |
-| Overlay Network | Tailscale (tailscaled + Tailscale Services) | 到達経路 2 の終端。対象ごとに独立した MagicDNS 名 | GA、全プラン、上限 10 サービス。`tailscale_node` role を `vps` と共有 |
-| Edge / Auth | Cloudflare Zero Trust, provider `cloudflare` v5 系 | 到達経路 1 の認証と DNS | **識別提供者は既存の Kanidm をそのまま用いる** |
+| Monitoring / 資源・記憶装置 | Beszel v0.19.0 (hub と agent、arm64 と x86_64 の公式バイナリ) | 各ホストの資源の画面、SMART と ZFS プールの health の検知。**hub は Cloudflare Access が付与した認証済みユーザーのヘッダーを `TRUSTED_AUTH_HEADER` で信頼する** | hub は `console-pi`、agent は対象ホスト。PocketBase (SQLite) に最長 30 日。新規依存 |
+| Tunnel | cloudflared (公式 apt、`cloudflared-linux-arm64.deb`) | **利用者向けの到達手段の唯一の経路の終端** | `akishima` のものとは別のトンネル |
+| Overlay Network | Tailscale (tailscaled のみ、Tailscale Services は用いない) | `console-pi` への Ansible 適用の SSH 到達専用 | 利用者向けの到達手段には数えない (要件 1.11)。`tailscale_node` role を `vps` と共有 |
+| Edge / Auth | Cloudflare Zero Trust, provider `cloudflare` v5 系 | 到達経路の認証と DNS。**唯一の到達ゲート** | **識別提供者は既存の Kanidm をそのまま用いる。**Cloudflare Access の認証の後段に Caddy の追加認証を重ねない (要件 1.5)。AdGuard 向けの代理 Basic 認証はこの後段に運用者が資格情報を入力するものではなく Caddy が自動付与するため、これに当たらない |
 | Notification | 既存 `systemd_failure_notify` role、Gatus の `alerting.custom`、Beszel の shoutrrr | 通知の単一の宛先 | いずれも `PORTFOLIO_DISCORD_WEBHOOK_URL` と同じ Discord の宛先。Beszel は `discord://token@id` で直送する |
 | Remote Power | OPNsense `os-wol` プラグインの REST API | magic packet の送出 | 本 spec は利用側。プラグインの導入は手作業 |
 | Config Management | Ansible >= 10.7.0 | 構成適用 | 既存の実行形態を維持 |
@@ -159,6 +161,14 @@ graph TB
 **新しい足で用意しないもの**: Prometheus、Grafana、デスクトップ環境。**中央の時系列データベースと、そこへ向けた exporter の群れを持たない** (要件 3.4)。監視は Gatus の外形、Beszel の資源と記憶装置、`host_health` の閾値検査で代替する。`akishima` 上のこれらは本 spec では停止させず、廃止の決定のみを記録する (要件 3.8)。
 
 **`community.beszel` collection は採らない。**この repo が collection に依存するのはモジュール単位に限られ、ホストの外形の構成 (パッケージの導入、systemd ユニット、`EnvironmentFile`、待受の拘束) は全て `ansible/roles/` の自前実装が持つ。collection の role を採ると待受を `127.0.0.1` と内部アドレスに絞る拘束と秘匿値の供給の形が collection 側の実装に従属し、`console_proxy` / `web_terminal` と同じ形を保てない。加えてアラートを管理するモジュールが collection に無く、いずれにせよ `ansible.builtin.uri` を要する。**依存を 1 つ増やす見返りが、バイナリ 1 つとユニット 1 つの配置に見合わない。**
+
+**Caddy に `forward_auth` を含む認証機構を追加しない。`oauth2-proxy` も `caddy-security` も導入しない。**Cloudflare Access が Kanidm OIDC によってトンネル手前でエッジの認証・ポリシー評価を完結させており、認証 NG のリクエストは origin である `console-pi` まで届かない。この手前に既に 1 段のゲートが立っている状態で、Caddy 側にもう一段の OIDC 仲介 (`forward_auth` + `oauth2-proxy`、または `caddy-security` による Caddy 自体への組み込み) を重ねることは冗長と判断した。到達制御は Caddy の `127.0.0.1` bind と cloudflared トンネル経由限定という既存の仕組みで引き続き担保する。AdGuard のみ、Caddy が固定の Basic 認証ヘッダーを自動付与する代理ログインを持つ (資格情報は Infisical から供給し、Caddyfile に平文で書かない)。詳細は `research.md` を参照。
+
+### 公開対象の識別子の命名規則
+
+要件 1.12 が禁じるのは、対象の種類や内容を推測させる語 (`opnsense`, `adguard` 等をそのまま用いること) である。**ドメインが対象ごとに異なることは禁止しない。**識別子は意味を持たないランダムトークンではなく、**対象の名称を運用者本人が判別できる範囲で極限まで短縮した略語**とする (例: `opnsense` → `osr`、`adguard` → `adg`)。第三者が識別子だけを見て対象を一目で特定できない程度に短ければよく、文字数の下限は定めない。ランダムトークンは本人にとっても意味を持たず記憶・運用の負担になるため採らない。
+
+**対象の一覧 (`console_proxy_targets` / `web_terminal_targets`) の `description` に対象の実体を記す一方、`public_hostname` (識別子) はその実体をそのままの形では読み取れない値にする。**この非対称性が要件 1.12 と要件 1.4 (宣言による対象の列挙) を同時に満たす手段である。`description` は宣言の中でのみ意味を持ち、外部に露出する識別子には反映しない。
 
 ### 実行主体の到達経路
 
@@ -169,7 +179,7 @@ Ansible / Terraform / kubectl、およびそれらを呼ぶ非対話のクライ
 | Ansible | DMZ の 8 ホストと `vps` | **現状のまま。**DMZ は Private から直接、`vps` は tailnet | ED25519 鍵。`ANSIBLE_SSH_PRIVATE_KEY` を Infisical から ssh-agent へ |
 | Ansible | **`console-pi`** | **tailnet。**通常の sshd で受ける | 同上 |
 | Terraform / kubectl | 現状の対象 | **現状のまま** | 現状のまま |
-| いずれの主体 | Console セグメントの Web UI | tailnet → `tailscale serve` → Caddy | Caddy の基本認証。資格情報は Infisical |
+| いずれの主体 | Console セグメントの Web UI と端末 | **Cloudflare Tunnel の 1 経路のみ。**tailnet 経由の個別公開は行わない (要件 1.11) | **Cloudflare Access (Kanidm OIDC) がエッジで完結する唯一のゲート。**Beszel は Cloudflare Access が付与する認証済みユーザーのヘッダーを `TRUSTED_AUTH_HEADER` で信頼する。AdGuard は Caddy が固定の Basic 認証ヘッダーを自動付与して代理ログインする。OPNsense は代理ログインを行わず手動ログインのまま残す。Caddy 自身は認証機構を持たない (要件 1.5) |
 
 `console-pi` はタグを付与した auth key で tailnet に参加させる。**タグの目的は node key の期限の無効化 (要件 4.7) と ACL による到達範囲の限定であり、SSH の認証には用いない。**Tailscale SSH は有効にせず、既存の 9 ホストと同じ鍵による認証に揃える。
 
@@ -190,13 +200,13 @@ ansible/
 │       ├── main.yml                      # ansible_become_password ほかホスト固有値
 │       └── vault.yml.example             # 追加する Infisical キー名の一覧
 ├── roles/
-│   ├── tailscale_node/                   # tailnet への参加と serve の適用。console-pi と vps が共有
-│   ├── console_proxy/                    # Caddy の導入と Caddyfile の生成
+│   ├── tailscale_node/                   # tailnet への参加のみ。console-pi と vps が共有。serve は持たない
+│   ├── console_proxy/                    # Caddy の導入と Caddyfile (AdGuard 向け代理 Basic 認証を含む) の生成
 │   ├── console_firewall/                 # inbound の許可集合を専用 chain として適用
 │   ├── web_terminal/                     # ttyd の導入。宛先ごとの systemd ユニット
-│   ├── landing_page/                     # Homer の配置と assets/config.yml の生成
+│   ├── landing_page/                     # Homer の配置と assets/config.yml の生成 (Cloudflare 経由の 1 セクションのみ)
 │   ├── gatus/                            # Gatus の導入と config.yaml の生成
-│   ├── beszel_hub/                       # hub の導入、config.yml とアラートの適用
+│   ├── beszel_hub/                       # hub の導入、config.yml とアラートの適用。TRUSTED_AUTH_HEADER で Cloudflare Access のヘッダーを信頼
 │   ├── beszel_agent/                     # agent の導入。対象ホストごとの systemd ユニット
 │   ├── cloudflared_tunnel/               # cloudflared の導入とトンネルの常駐
 │   ├── host_health/                      # 閾値監視の systemd タイマー群
@@ -222,38 +232,39 @@ terraform/
 - `ansible/inventory/group_vars/all/main.yml` — 遠隔起動の対象と OPNsense API 資格情報の束縛を追加
 - `ansible/playbooks/site.yml` — `console.yml` と `host_health.yml` を日常適用へ組み込む
 - `ansible/roles/vps_proxy/tasks/main.yml` / `handlers/main.yml` / `defaults/main.yml` — Tailscale の配置を `tailscale_node` role に委ね、tailscaled のテンプレートを持たない。**再起動後に tailnet SSH の復帰を待つ挙動を保持する**
-- `terraform/cloudflare_zero_trust.tf` — `console` トンネル、その ingress、新しい Access application と policy の追加。**識別提供者は既存の `kanidm` を参照する**
+- `terraform/cloudflare_zero_trust.tf` — `console` トンネル、その ingress、新しい Access application と policy の追加。**識別提供者は既存の `kanidm` を参照する。**`local.console_ingress_targets` に `landing_page` (Homer) を 1 件追加し、起点ページも経路 1 から到達させる
 - `terraform/cloudflare_dns.tf` — `local.tunnel_cnames` への 1 エントリ追加
 - `ansible/inventory/group_vars/all/vault.yml.example` — `PORTFOLIO_DISCORD_WEBHOOK_URL` の記載漏れを是正する
 
 ## System Flows
 
-### 到達の 2 経路
+### 到達経路
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator or client
-    participant TS as Tailnet
     participant CF as Cloudflare Access
     participant Cad as Caddy on console-pi
     participant Target as Admin UI or terminal
 
-    Note over Op,Target: 経路 2 — 常用。非対話クライアントもこちら
-    Op->>TS: connect to tailnet
-    TS->>TS: node key and ACL check
-    TS->>Cad: forward to serve endpoint
-    Cad->>Cad: basic auth
-    Cad->>Target: proxy request
-
-    Note over Op,Target: 経路 1 — 予備。ブラウザのみ
     Op->>CF: open console hostname
-    CF->>CF: authenticate with Kanidm
-    CF->>Cad: forward through tunnel
-    Cad->>Cad: basic auth
-    Cad->>Target: proxy request
+    CF->>CF: authenticate and authorize with Kanidm OIDC
+    CF->>Cad: forward through tunnel, only if authorized
+
+    alt Target is Beszel
+        Cad->>Target: proxy request with trusted auth header, client-supplied header stripped first
+        Target->>Target: trust Cf-Access-Authenticated-User-Email as the logged in user
+    else Target is AdGuard
+        Cad->>Target: proxy request with injected basic auth header
+    else Target is OPNsense or ttyd
+        Cad->>Target: proxy request
+        Target->>Target: existing login, manual for OPNsense, ssh key for ttyd
+    end
 ```
 
-経路 1 の認証は既存の Kanidm に依存する。**Kanidm が停止するとこの経路は成立しない。**その場合の到達は経路 2 が担う。経路 2 は tailnet のノード認証と ACL のみに依存し、k3s を参照しない。**この非対称は本 spec では解消せず、`admin-plane-cutover` が扱う。**
+**利用者向けの到達手段は Cloudflare Tunnel を終端とするこの 1 経路のみである** (要件 1.11)。認証の唯一のゲートは Cloudflare Access (Kanidm OIDC) であり、認証・認可に失敗したリクエストは origin である `console-pi` まで届かない。**Caddy 自身は認証機構を追加しない。**Beszel は Cloudflare Access が付与する認証済みユーザーのメールアドレスをヘッダー経由で受け取り `TRUSTED_AUTH_HEADER` で信頼するため、Kanidm への追加のログインを要求しない。AdGuard は Caddy が固定の Basic 認証ヘッダーを自動付与して代理ログインするため、運用者が追加の資格情報を入力する場面はない。OPNsense は Web UI がセッションベースのフォームログイン専用で `Authorization: Basic` を受け付けないため代理ログインを行わず、既存の手動ログインのまま残る。`console-pi` の tailnet 参加は Ansible 適用の SSH 到達専用として別途残るが、利用者向けの到達手段には数えない。**この経路が停止した場合の代替手段は物理的な接続による復旧であり、ソフトウェア上の第 2 経路は持たない** (要件 1.6)。
+
+この経路の認証は既存の Kanidm に依存する。**Kanidm または Cloudflare Access が停止すると、この経路は成立しない。**その場合にソフトウェアで切り替えられる代替経路は無く、要件 1.6 の物理的な接続による復旧が唯一の手段になる。**この依存そのもの (Kanidm の停止が管理経路の停止に直結する循環) は本 spec では解消せず、`admin-plane-cutover` が扱う。**
 
 ### 起点から端末までの流れ
 
@@ -275,7 +286,7 @@ flowchart LR
     Entry --> TermPi
 ```
 
-要件 1.9 が求める「単一の起点から画面と端末の双方へ」を、この 1 ページが満たす。**リンクの一覧は公開対象と端末の宣言から生成し、二重管理しない。**
+要件 1.9 が求める「単一の起点から画面と端末の双方へ」を、この 1 ページが満たす。**リンクの一覧は公開対象と端末の宣言から生成し、二重管理しない。**起点ページ自身も他の対象と同じく `console_ingress_targets` (Cloudflare ingress) の 1 エントリとして公開する。**経路が 1 本である以上、起点ページをこの経路に含めないと要件 1.9 の起点そのものへ到達できなくなる。**
 
 ### 遠隔起動
 
@@ -302,29 +313,29 @@ OPNsense が対象の VLAN 上で送出するため、magic packet がルータ�
 
 ```mermaid
 flowchart TB
-    P1[Phase 1 stand up console-pi and reach it via tailnet]
-    P2[Phase 2 publish target UIs and terminals through Caddy]
-    P3[Phase 3 add the cloudflare route as the second path]
-    P4[Phase 4 stand up monitoring and notification]
-    P5[Phase 5 enable remote power on]
+    P1[Phase 1 stand up console-pi and reach it via tailnet ssh]
+    P2[Phase 2 publish target UIs and terminals through Caddy and the cloudflare route]
+    P3[Phase 3 stand up monitoring and notification]
+    P4[Phase 4 enable remote power on]
 
-    P1 --> P2 --> P3 --> P4 --> P5
+    P1 --> P2 --> P3 --> P4
 ```
 
-**既存の到達手段を停止させない。**`akishima` は全段階を通じて稼働したままであり、要件 4.1 / 4.2 は構造的に満たされる。
+**既存の到達手段を停止させない。**`akishima` は全段階を通じて稼働したままであり、要件 4.1 / 4.2 は構造的に満たされる。**利用者向けの到達手段は Cloudflare Tunnel の 1 経路のみであり、tailnet は Phase 1 で確立した SSH 到達を継続して用いる。**
 
 ## Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1, 1.3, 1.4 | 到達手段と公開対象の列挙 | `console_proxy` | `console_proxy_targets`, `web_terminal_targets` | 到達の 2 経路 |
-| 1.2 | セグメント全体を広告しない | `tailscale_node` | `tailscale serve` の適用 | 到達の 2 経路 |
-| 1.5 | 認証を要求する | `console_proxy`, Cloudflare Access | `basic_auth`, Access policy | 到達の 2 経路 |
-| 1.6 | 停止時の第 2 経路 | `tailscale_node`, `cloudflared_tunnel` | 2 系統の独立 | 到達の 2 経路 |
+| 1.1, 1.3, 1.4 | 到達手段と公開対象の列挙 | `console_proxy`, `cloudflared_tunnel` | `console_proxy_targets`, `web_terminal_targets` | 到達経路 |
+| 1.2, 1.11 | セグメント全体を広告せず、Cloudflare Tunnel の 1 経路のみを利用者向けの到達手段とする | `tailscale_node` (SSH 到達専用に縮小), `console_proxy`, `cloudflared_tunnel` | Tailscale Services を持たない、`console_proxy_targets` | 到達経路 |
+| 1.5 | Kanidm との OIDC 連携。追加の認証を重ねない | Cloudflare Access (唯一のゲート), `beszel_hub` (`TRUSTED_AUTH_HEADER`), `console_proxy` (AdGuard 向け代理 Basic 認証、Beszel 向けの認証済みヘッダーの転送) | Cloudflare Access の Kanidm OIDC 設定, Beszel の `TRUSTED_AUTH_HEADER` 設定 | 到達経路 |
+| 1.6 | 停止時は物理的な接続による復旧 | — | `manual-operations.md` の記録 | 到達経路 |
 | 1.7 | inbound の列挙 | `console_firewall` | `console_inbound_allow` | — |
-| 1.8, 1.10 | 作業機に固有の設定を要求しない | `tailscale_node`, `console_proxy` | Tailscale クライアントのみ | 到達の 2 経路 |
-| 1.9 | 単一の起点から画面と端末の双方へ | `landing_page`, `web_terminal` | Homer の `config.yml`, `console_proxy_targets`, `web_terminal_targets` | 起点から端末までの流れ |
-| 1.11 | 非対話クライアントからの到達 | `tailscale_node` | 実行主体の到達経路の表 | 到達の 2 経路 |
+| 1.8, 1.10 | 作業機に固有の設定を要求しない | `console_proxy`, `cloudflared_tunnel` | ブラウザと非対話クライアントのみで到達 | 到達経路 |
+| 1.9 | 単一の起点から画面と端末の双方へ | `landing_page`, `web_terminal`, `cloudflared_tunnel` | Homer の `config.yml`, `console_ingress_targets` への起点ページの追加 | 起点から端末までの流れ |
+| 1.12 | 識別子が対象の種類を推測させない | `console_proxy_targets`, `web_terminal_targets` の命名 | 公開対象の識別子の命名規則 | — |
+| 1.13 | IP アドレス直接指定によらない | `console_proxy`, `cloudflared_tunnel` | ホスト名による到達 | — |
 | 2.1, 2.2 | インベントリと適用の前提 | インベントリ宣言 | `console` グループ, `ansible_become_password` | — |
 | 2.3, 2.4 | 既存構成の再現と非再現の記録 | `manual-operations.md` | 旧環境から引き継ぐものの表 | — |
 | 2.5, 2.6 | 秘匿値の扱い | `cloudflared_tunnel`, `web_terminal` | `EnvironmentFile` 0600 | — |
@@ -357,15 +368,15 @@ flowchart TB
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| `tailscale_node` | ホスト構成 | tailnet への参加と serve の適用 | 1.2, 1.6, 1.11, 4.7 | Tailscale 制御平面 (P0), Infisical (P0) | Service, State |
-| `console_proxy` | ホスト構成 | 公開対象の列挙と振り分け、基本認証 | 1.1, 1.3, 1.4, 1.5 | Infisical (P0) | Service, State |
+| `tailscale_node` | ホスト構成 | tailnet への参加 (SSH 到達専用)。`tailscale serve` は持たない | 1.11, 4.7 | Tailscale 制御平面 (P0), Infisical (P0) | Service, State |
+| `console_proxy` | ホスト構成 | 公開対象の列挙と振り分け。AdGuard 向けの代理 Basic 認証ヘッダーの自動付与 | 1.1, 1.3, 1.4, 1.5, 1.12, 1.13 | Infisical (P0) | Service, State |
 | `console_firewall` | ホスト構成 | Console セグメントへの inbound の許可集合の宣言と適用 | 1.7 | `tailscale_node` (P0) | Service, State |
 | `web_terminal` | ホスト構成 | ブラウザからの対話的な端末 | 1.9, 2.5 | `console_proxy` (P0) | Service, State |
 | `landing_page` | ホスト構成 | 単一の起点となるリンク集 | 1.9 | `console_proxy` (P0) | State |
 | `gatus` | ホスト構成 | 外形の死活監視と状態一覧 | 3.1, 3.4, 3.5, 3.6, 3.13, 3.17, 5.6 | 通知の宛先 (P1) | Service, Event |
 | `beszel_hub` | ホスト構成 | 資源の画面と、agent からの計測値の受けとアラートの発報 | 3.1, 3.4, 3.5, 3.7, 3.10, 3.14 | `console_proxy` (P0), 通知の宛先 (P1), Infisical (P0) | Service, API, Event, State |
 | `beszel_agent` | ホスト構成 | 対象ホストの資源・SMART・ZFS プールの health・failed ユニットの計測 | 3.7, 3.11, 3.12, 3.15 | `beszel_hub` (P0) | Service, Event |
-| `cloudflared_tunnel` | ホスト構成 | 到達経路 1 の終端 | 1.1, 1.6, 2.5, 2.6 | Cloudflare (P0), Infisical (P0) | Service |
+| `cloudflared_tunnel` | ホスト構成 | 利用者向けの到達手段の唯一の終端 | 1.1, 1.6, 1.9, 2.5, 2.6 | Cloudflare (P0), Infisical (P0) | Service |
 | `host_health` | ホスト構成 | 既製の機構が備えない検査と通知への接続 | 3.1, 3.9, 3.10, 3.12, 3.13, 3.15, 3.16 | `systemd_failure_notify` (P0) | Batch, Event |
 | `rpi_boot` | ホスト構成 | boot 区画の読み取り専用運用 | 2.7 | — | State |
 | `playbooks/wol.yml` | 運用 | 遠隔起動の要求の発行 | 5.1, 5.2, 5.3, 5.4 | OPNsense API (P0), Infisical (P0) | Batch |
@@ -377,86 +388,83 @@ flowchart TB
 | Field | Detail |
 |-------|--------|
 | Intent | Console セグメントの Web UI と端末を、宣言された一覧に従って対象単位で公開する |
-| Requirements | 1.1, 1.3, 1.4, 1.5 |
+| Requirements | 1.1, 1.3, 1.4, 1.5, 1.12, 1.13 |
 
 **Responsibilities & Constraints**
 
 - 公開対象の一覧の唯一の保持者。この一覧に無い宛先へは到達できない (要件 1.3)
-- 到達経路 1 と 2 の合流点。**両経路とも対象ごとの `caddy_port` へ向かう。**振り分けはポートで行い、`Host` ヘッダを見ない
-- **待受を `127.0.0.1` に限定する。**`cloudflared` も `tailscale serve` も同一ホスト内から接続するため、外部のインタフェースに開く必要がない。`akishima` の Guacamole が `0.0.0.0:8080` で晒されていた形を繰り返さない
-- 基本認証を掛ける。認証情報は Infisical から供給し、宣言に平文で置かない (要件 2.5)
+- **Cloudflare Tunnel の 1 経路のみの受け口。**対象ごとの `caddy_port` へ向かう。振り分けはポートで行い、`Host` ヘッダを見ない
+- **待受を `127.0.0.1` に限定する。**`cloudflared` が同一ホスト内から接続するため、外部のインタフェースに開く必要がない。`akishima` の Guacamole が `0.0.0.0:8080` で晒されていた形を繰り返さない
+- **対象ごとに認証方式を分ける。**Beszel へは Cloudflare Access が付与した認証済みユーザーのメールアドレスヘッダー (`Cf-Access-Authenticated-User-Email`) を、クライアント由来の同名ヘッダーを一旦除去した上で転送する (`auth_mode: trusted_header`)。AdGuard は Caddy が固定の Basic 認証ヘッダーを自動付与して代理ログインする (`auth_mode: basic_proxy`)。OPNsense と Gatus (`status`) は Caddy 側で追加の認証を挟まない (`auth_mode: none`)。**`forward_auth` や `oauth2-proxy` は導入しない。**Cloudflare Access (Kanidm OIDC) がトンネル手前のエッジで唯一の認証ゲートを担っており、Caddy 側にもう一段の認証を重ねることは冗長と判断した (要件 1.5)
+- 転送先をホスト名ではなくアドレスで宣言する。DNS フィルタ (AdGuard) はルータと同じ機体で動いており、その管理画面の名前解決が自身の管理する DNS 機構に依存するため、壊れたときに直すための画面へ到達できなくなる
+- **公開対象の識別子 (`public_hostname`) は対象の種類を推測させない値にする** (要件 1.12)。詳細は「公開対象の識別子の命名規則」を参照
 
 **Dependencies**
 
-- Inbound: `cloudflared_tunnel` / `tailscale_node` — 両経路からの転送 (P0)
+- Inbound: `cloudflared_tunnel` — Cloudflare Tunnel からの転送 (P0)
 - Outbound: OPNsense / AdGuard の Web UI (P0)、`gatus` / `beszel_hub` / `web_terminal` / `landing_page` (P1)
-- External: Infisical — 基本認証の資格情報 (P0)
+- External: Infisical — AdGuard の代理ログインに用いる固定資格情報 (P0)。それ以外の認証情報は各対象自身が保持し、Caddy は仲介しない
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [x]
 
 ##### Service Interface
 
-`group_vars/console/main.yml` に置く宣言。**1 つのエントリが両経路の入口と転送先を同時に定める。**
+`group_vars/console/main.yml` に置く宣言。**1 つのエントリが Cloudflare 経路の入口・転送先・認証方式を同時に定める。**
 
 ```yaml
 console_proxy_targets:
-  - name: opnsense
-    caddy_port: 8081            # Caddy が 127.0.0.1 で待ち受けるポート
-    service_name: opnsense      # Tailscale Service の名前。svc:<service_name> になる
-    public_hostname: opnsense   # Cloudflare 経路のホスト名のラベル部分
+  - name: opnsense-admin
+    caddy_port: 8081             # Caddy が 127.0.0.1 で待ち受けるポート
+    public_hostname: "osr"       # opnsense を本人が判別できる範囲で極限まで短縮した識別子
     upstream: "https://192.168.10.1:443"
     tls_insecure: true
+    auth_mode: none               # Web UI 自身のフォームログインのみ。代理ログインは行わない
     description: "ルータの管理画面。自己署名証明書のため tls_insecure が要る"
   - name: adguard
     caddy_port: 8082
-    service_name: adguard
-    public_hostname: adguard
+    public_hostname: "adg"       # adguard を短縮した識別子
     upstream: "http://192.168.10.1:3000"
     tls_insecure: false
+    auth_mode: basic_proxy         # Caddy が固定の Basic 認証ヘッダーを自動付与して代理ログインする
     description: "DNS フィルタの管理画面。ルータと同じ機体で動く"
   - name: status
     caddy_port: 8083
-    service_name: status
-    public_hostname: status
+    public_hostname: "sts"       # status を短縮した識別子
     upstream: "http://127.0.0.1:8080"
     tls_insecure: false
+    auth_mode: none                # Gatus は自身の認証機構を持たず、Caddy 側でも追加しない
     description: "Gatus の状態一覧。要件 3.6 の画面"
   - name: beszel
     caddy_port: 8084
-    service_name: beszel
-    public_hostname: beszel
+    public_hostname: "bsz"       # beszel を短縮した識別子
     upstream: "http://127.0.0.1:8090"
     tls_insecure: false
+    auth_mode: trusted_header    # Cloudflare Access の認証済みユーザーのメールをヘッダーで転送し Beszel が信頼する
     description: "Beszel の hub。各ホストの資源の状態を示す要件 3.14 の画面"
 ```
 
-**両経路ともホスト名で分かれ、Caddy はポートで受ける。**tailnet 側は Tailscale Services が対象ごとに独立した MagicDNS 名を生やす。Caddy は `caddy_port` ごとに独立したサイトブロックを持ち、**`Host` ヘッダを一切見ない**。
+Caddy は `caddy_port` ごとに独立したサイトブロックを持ち、**`Host` ヘッダを一切見ない**。入口は `https://<public_hostname>.<domain>/` (Cloudflare Tunnel の ingress → `127.0.0.1:<caddy_port>`) の 1 種類のみである。**URL にポートもパスも現れない。**転送先の Web UI が絶対パスを吐いても、`https://<Host>/path` の形で絶対 URL を組み立てても壊れない。
 
-| 経路 | 入口 | 経由 |
-|------|------|------|
-| tailnet | `https://<service_name>.<tailnet>.ts.net/` | `tailscale serve --service=svc:<service_name> --https=443` → `127.0.0.1:<caddy_port>` |
-| Cloudflare | `https://<public_hostname>.<domain>/` | tunnel の ingress → `127.0.0.1:<caddy_port>` |
+`auth_mode: basic_proxy` のサイトブロックは、`reverse_proxy` の `header_up Authorization "Basic {$ADGUARD_BASIC_AUTH}"` のように Caddy の環境変数展開 (`{$VAR}`) で資格情報を注入する。**値そのものは Caddyfile に書かず、Caddy の systemd unit が読む `EnvironmentFile` (0600, root 所有) から供給する。**Infisical → Ansible の変数 → `EnvironmentFile` という他の常駐 (cloudflared・Beszel 等) と同じ経路をたどり、Caddyfile のテンプレートおよびリポジトリには平文が現れない。**`auth_mode: trusted_header` のサイトブロックは、`header_up -Cf-Access-Authenticated-User-Email` でクライアント由来の同名ヘッダーを一旦除去してから、cloudflared が実際に付与した値のみを転送する。**`Cf-Access-Authenticated-User-Email` はクライアントが偽装できてはならないヘッダーであるため、`console-pi` の Caddy が loopback bind + cloudflared トンネル経由限定でしか到達できない構成 (実害は薄い) に加え、多層防御としてこの除去を行う。`auth_mode: none` のサイトブロックはいずれの注入も持たず、`reverse_proxy` のみで転送する。
 
-**いずれの経路でも URL にポートもパスも現れない。**転送先の Web UI が絶対パスを吐いても、`https://<Host>/path` の形で絶対 URL を組み立てても壊れない。パスで分ける方式 (`--set-path`) もポートで分ける方式 (`--https=<port>`) も採らない理由がこれである。
-
-- **Preconditions**: `upstream` が Console セグメントの内側から到達可能であること。tailnet の Services の上限 (10) に収まること
-
-**転送先をホスト名で指定しない。**DNS フィルタはルータと同じ機体で動いており、その管理画面の名前解決は、まさにその画面が管理する DNS の機構に依存する。**この機構が壊れたときに、直すための画面へ到達できなくなる。**転送先は名前ではなくアドレスで宣言する。
+- **Preconditions**: `upstream` が Console セグメントの内側から到達可能であること。`auth_mode: basic_proxy` の対象は AdGuard 側の管理者資格情報が Infisical に登録されていること
 - **Postconditions**: 宣言した対象のみが応答し、それ以外は拒否される
-- **Invariants**: `caddy_port` と `service_name` がそれぞれ重複しない。`web_terminal_targets` の同名の値とも重複しない。`description` の無いエントリを置かない
+- **Invariants**: `caddy_port` と `public_hostname` がそれぞれ重複しない。`web_terminal_targets` の同名の値とも重複しない。`description` の無いエントリを置かない。`public_hostname` が対象の種類や内容を読み取れる値でない。`auth_mode` は `none`、`trusted_header`、`basic_proxy` のいずれかである
 
 ##### State Management
 
-- 状態モデル: Caddyfile と基本認証のハッシュファイル。いずれも宣言から生成される
-- 永続性: 設定に永続的な状態を持たない。TLS は `tailscale serve` と Cloudflare がそれぞれ終端するため、**Caddy 側では終端せず平文 HTTP を `127.0.0.1` で待ち受ける**
+- 状態モデル: Caddyfile のみ。宣言から生成される
+- 永続性: 設定に永続的な状態を持たない。**認証情報のハッシュファイルを持たない**ため、旧設計にあった基本認証のハッシュファイルが無くなる。AdGuard の代理ログイン資格情報は `EnvironmentFile` から実行時に注入し、Caddyfile 自体には現れない。TLS は Cloudflare が終端するため、**Caddy 側では終端せず平文 HTTP を `127.0.0.1` で待ち受ける**
 - 並行性: 単一プロセス。設定変更は reload で反映する
 
 **Implementation Notes**
 
 - Integration: **Caddyfile を `console_proxy_targets` と `web_terminal_targets` の双方から生成する。**端末も管理画面と同じ形で公開の対象であり (要件 1.9)、**端末だけが公開の宣言から漏れる状態を作らない。**端末の転送先は `web_terminal_targets` の `listen_port` から導き、ポート番号を 2 つの宣言に重ねて書かない
-- Integration: 経路 1 と 2 の双方が同一の待受へ向かうため、**Caddy が停止すると両経路が同時に失われる**。最後の砦は tailnet 経由の SSH であり、これは Caddy を経由しない (要件 1.6)
+- Integration: **Caddy が停止すると利用者向けの到達手段が失われる。**代替はソフトウェア上の第 2 経路ではなく、要件 1.6 の物理的な接続による復旧である。`console-pi` への tailnet 経由の SSH は運用者・構成管理向けに残るが、利用者向けの到達手段としては数えない
+- Integration: **Cloudflare Access (Kanidm OIDC) がトンネル手前で全対象に共通の認証・認可判定を完結させる。**認証・認可に失敗したリクエストは origin (`console-pi`) まで届かないため、Caddy 側にもう一段の認証を重ねる必要がない。Beszel は `TRUSTED_AUTH_HEADER` により Cloudflare Access の認証結果をそのまま信頼するため、Kanidm への追加のログインを要求しない。AdGuard の代理 Basic 認証は運用者からは見えない自動付与であり、資格情報の入力を運用者に要求しない。**基本認証だった旧設計、および forward_auth + oauth2-proxy を前段に置く旧設計はいずれも撤回した** (要件 1.5)
 - Validation: 一覧に無い宛先への要求が拒否されることを実測する
 - Validation: `ss -ltnp` で Caddy が `127.0.0.1` 以外に bind していないことを確認する
+- Validation: 認証プロンプトが Kanidm への 1 度きりのログインで完結し、AdGuard と Beszel で追加の資格情報入力が発生しないことを確認する。OPNsense は代理ログインを行わない対象であるため、引き続き自身のログイン画面が現れることを確認する (要件 1.5)
 - Risks: `tls_insecure` を要するのは Console セグメント内の自己署名証明書の宛先に限る。理由を `description` に残さないまま増やさない
 
 #### `console_firewall`
@@ -504,7 +512,7 @@ console_inbound_allow:
 
 **IPv4 と IPv6 の双方へ同じ許可集合を敷く。**片方で失敗しても他方の適用を試み、既定のポリシーが `ACCEPT` のまま残る側を作らない。ICMP は PMTUD のため、ICMPv6 は Neighbor Discovery と Router Advertisement が乗るため、いずれも許可する。**後者を落とすと IPv6 そのものが壊れる。**
 
-`console_inbound_allow` に tailnet 側の待受を列挙しない。**Services は仮想 IP で待ち受けるため、ノード自身のポートを消費しない。**
+`console_inbound_allow` が持つのは SSH (22/tcp) の 1 件のみである。**Tailscale Services を持たないため、公開対象ごとの待受を tailnet 側に列挙する必要が無い。**
 
 - **Preconditions**: 適用先が Debian 系であること。`console_inbound_allow` が 1 件以上を宣言していること
 - **Postconditions**: `INPUT` のポリシーが `DROP` になり、必須の 3 本と宣言した列挙のみが通る
@@ -537,7 +545,7 @@ console_inbound_allow:
 **Responsibilities & Constraints**
 
 - 宛先ごとに 1 つの systemd ユニットを持つ。宛先は宣言から生成する
-- **`127.0.0.1` にのみ bind する。**認証は Caddy に一任し、`ttyd` 自身の `-c` を使わない
+- **`127.0.0.1` にのみ bind する。**Caddy 側に追加の認証機構を持たず、対象への SSH 鍵認証による自動ログインがそのまま利用者の認証になる。`ttyd` 自身の `-c` を使わない
 - **資格情報をプロセスの引数に載せない。**`akishima` の cloudflared が `ExecStart=` に token を平文で持ち `ps aux` から読めた失敗様式を繰り返さない (要件 2.6)
 
 **Dependencies**
@@ -554,30 +562,30 @@ web_terminal_targets:
   - name: opnsense-terminal
     listen_port: 7681             # ttyd 自身が 127.0.0.1 で待ち受けるポート
     caddy_port: 8085              # Caddy が 127.0.0.1 で待ち受けるポート
-    service_name: opnsense-terminal
-    public_hostname: opnsense-terminal
+    public_hostname: "osrt"       # opnsense terminal を本人が判別できる範囲で短縮した識別子
     ssh_target: "192.168.10.1:2222"
     description: "ルータの端末。SSH の待受は 22 ではなく 2222"
   - name: console-pi-terminal
     listen_port: 7682
     caddy_port: 8086
-    service_name: console-pi-terminal
-    public_hostname: console-pi-terminal
+    public_hostname: "cpt"        # console-pi terminal を短縮した識別子
     ssh_target: "localhost"
     description: "Console の足自身の端末。ここから他ホストへ辿れる"
 ```
 
+`web_terminal_targets` の各エントリは `console_proxy_targets` と同じく `auth_mode: none` として扱う。**Cloudflare Access の認証を経た上で、対象への SSH 鍵認証による自動ログインが既に成立しており、Caddy 側で追加の認証を挟む必要がない。**
+
 - **Preconditions**: 対象への SSH の資格情報が `console-pi` 上に用意されていること
-- **Postconditions**: Caddy の認証を経た要求のみが端末に到達する
-- **Invariants**: `listen_port` が重複しない。`caddy_port` と `service_name` と `public_hostname` が `console_proxy_targets` の同名の値と重複しない。全エントリが `description` を持つ
+- **Postconditions**: 認証を経た要求のみが端末に到達する
+- **Invariants**: `listen_port` が重複しない。`caddy_port` と `public_hostname` が `console_proxy_targets` の同名の値と重複しない。全エントリが `description` を持つ。`public_hostname` が対象の種類や内容を読み取れる値でない
 
 **Implementation Notes**
 
 - Integration: **既定は読み取り専用のため `-W` を付ける。**付けないと入力を受け付けない
 - Integration: `-O` で origin の検査を有効にし、別 origin からの WebSocket 接続を拒否する
-- Integration: **tailnet 経路と Cloudflare 経路の双方から使える。**Tailscale SSH Console は tailnet 経路でしか使えないため採らない
-- Validation: 双方の経路から端末が開き、入力が通ることを確認する
-- Risks: 対象への SSH の資格情報が `console-pi` 上に置かれる。**このホストが侵害されると対象へ横断される。**Caddy の認証と 2 経路の認証が前段の防御になる
+- Integration: **Cloudflare Tunnel 経由の 1 経路のみから使える。**tailnet 経由の個別公開は撤去したため、tailnet からはこの端末へ到達しない
+- Validation: 経路から端末が開き、入力が通ることを確認する
+- Risks: 対象への SSH の資格情報が `console-pi` 上に置かれる。**このホストが侵害されると対象へ横断される。**Cloudflare Access (Kanidm OIDC) の認証が唯一の前段の防御になる
 
 #### `landing_page`
 
@@ -592,7 +600,8 @@ web_terminal_targets:
 
 - Integration: Homer のビルド済み配布物を配置し、Caddy の `file_server` で配信する。**常駐プロセスを持たない**
 - Integration: `assets/config.yml` を `console_proxy_targets` と `web_terminal_targets` の宣言から生成する。**リンクの一覧を二重管理しない**
-- Integration: **経路によって URL が異なるため、1 枚のページに 2 つのグループを置く。**tailnet 経由のグループは `https://<service_name>.<tailnet>.ts.net/`、Cloudflare 経由のグループは `https://<public_hostname>.<domain>/`。いずれも同じ宣言から生成するため、対象の追加時に片方だけ漏れることがない
+- Integration: **経路が 1 本のため、ページは Cloudflare 経由の 1 グループのみを持つ。**各リンクは `https://<public_hostname>.<domain>/` の形で、同じ宣言から生成する
+- Integration: **起点ページ自身も `console_proxy_targets` と同じ形で `console_ingress_targets` (Terraform の Cloudflare ingress) へ登録する。**登録が漏れると起点ページ自身が経路から到達できなくなり、要件 1.9 の起点そのものが成立しない
 - Validation: `file://` では動作しないため、Caddy 経由での表示を確認する
 
 #### `gatus`
@@ -615,7 +624,7 @@ web_terminal_targets:
 | 対象 | 見る理由 |
 |------|----------|
 | Console セグメントの Web 管理画面と公開している URL | 到達経路そのものの成立。管理面へ到達できなくなったことを、到達できなくなってから知る状態を作らない (要件 3.13) |
-| `ldaps.kanidm.fickledev.com` の名前解決 | host override が壊れると経路 1 の認証が成立しない |
+| `ldaps.kanidm.fickledev.com` の名前解決 | host override が壊れると到達経路の認証が成立しない |
 | Beszel の agent を置かない対象 (`opnsense`) | FreeBSD であり agent の公式バイナリの対象外。到達不能を見る担い手が他に無い |
 | Beszel の hub のエンドポイント | 要件 3.17。監視の機構が自らの停止を通知することに依存しない |
 
@@ -649,7 +658,7 @@ web_terminal_targets:
 - Integration: `akishima` の Prometheus が収集していた 5 件 (自身 / OPNsense / VPS / hp-z440 / n100) と、収集対象外だった k3s の各ノード・NAS・PBS は、**いずれも Beszel の agent が担う。**Gatus はそれらを外形の死活の一覧に入れない。収集の停止が検知の後退にならない状態は、agent の導入をもって作る
 - Integration: `ldaps.kanidm.fickledev.com` の名前解決を監視対象に含める。host override が壊れたときに検知できるようにする
 - Integration: **hub の外形は `127.0.0.1` の待受に対して見る。**Caddy を経由すると Caddy の停止と hub の停止が区別できない。要件 3.17 が求めるのは監視の機構から独立した検知であり、hub と Gatus が別プロセスであることでこれを満たす。**Gatus と hub が同時に停止した場合は、Gatus のユニットの `OnFailure` が最後の砦になる**
-- Integration: **公開している URL の外形は Console セグメントの外から見えない。**`console-pi` から見る限り、Cloudflare 経路の到達性は測れない。Gatus が見るのは Caddy の待受までであり、経路 1 の端から端までの到達は要件 3.3 の手順で確認する
+- Integration: **公開している URL の外形は Console セグメントの外から見えない。**`console-pi` から見る限り、Cloudflare 経由の到達性は測れない。Gatus が見るのは Caddy の待受までであり、到達経路の端から端までの到達は要件 3.3 の手順で確認する
 - Validation: 意図的に対象を落として通知が届くことを確認する (要件 3.3)
 - Validation: hub のプロセスを停止させ、Gatus からの通知が届くことを確認する (要件 3.17)
 - Risks: 通知の宛先が `backup-durability-and-alerting` と共有される。**同じ事象を二重に通知しないよう、監視対象の分担を両 spec で確定する**
@@ -659,11 +668,14 @@ web_terminal_targets:
 | Field | Detail |
 |-------|--------|
 | Intent | 各ホストの資源・記憶装置・記憶領域の状態を集約し、画面として示し、閾値と状態の遷移で通知する |
-| Requirements | 3.1, 3.4, 3.5, 3.7, 3.10, 3.14 |
+| Requirements | 1.5, 3.1, 3.4, 3.5, 3.7, 3.10, 3.14 |
 
 **Responsibilities & Constraints**
 
-- **待受を `127.0.0.1` に限定する。**公開は Caddy を通し、`console_proxy_targets` の 1 エントリとして両経路から到達させる。`akishima` の Prometheus と Grafana が全インタフェースに bind し無認証だった形を繰り返さない
+- **待受を `127.0.0.1` に限定する。**公開は Caddy を通し、`console_proxy_targets` の 1 エントリ (`auth_mode: trusted_header`) として到達させる。`akishima` の Prometheus と Grafana が全インタフェースに bind し無認証だった形を繰り返さない
+- **Kanidm への直接の OIDC 連携は持たない (要件 1.5)。**Cloudflare Access がトンネル手前で認証を完結させ、付与した認証済みユーザーのメールアドレスヘッダー (`Cf-Access-Authenticated-User-Email`) を hub の環境変数 `TRUSTED_AUTH_HEADER` で信頼する ([beszel.dev/guide/environment-variables](https://beszel.dev/guide/environment-variables))。Kanidm 側への OAuth2 クライアント登録も Beszel 側の OIDC プロバイダの手作業登録 (旧設計) も不要になる
+- **`USER_CREATION=true` で初回アクセス時にアカウントを自動作成させる。**手作業でのユーザー作成を要さない
+- **`DISABLE_PASSWORD_AUTH` は当面有効化しない。**`TRUSTED_AUTH_HEADER` が有効な場合のパスワードログインとの共存挙動が未確認のため、実装時に実機で確認してから要否を判断する (見送りの理由は Implementation Notes を参照)
 - 資源のアラートの一覧の唯一の保持者 (要件 3.5)。閾値と継続分数を宣言から与える
 - **通知の宛先を Gatus と `systemd_failure_notify` に揃える。**shoutrrr の `discord://token@id` で同じ Discord の宛先へ直送する
 - **`ContainerHealth` のアラートを有効にしない。**このアラートだけは本文にコンテナのログ抜粋を最大 1800 文字埋め込む。ログの内容は制御できず、秘匿値と運用者個人を識別する情報が混入する経路になる (要件 3.10)。コンテナの異常は `SystemdFailed` と資源のアラートで間接的に現れる
@@ -672,7 +684,7 @@ web_terminal_targets:
 
 **Dependencies**
 
-- Inbound: `console_proxy` — 画面の公開 (P0)
+- Inbound: `console_proxy` — 画面の公開。Cloudflare Access が付与した認証済みユーザーのメールアドレスヘッダーをそのまま受け取る (P0)
 - Outbound: `beszel_agent` — 各ホストの待受からの計測値の取得 (P0)
 - Outbound: 通知の webhook 宛先 (P1)
 - External: Infisical — superuser の資格情報、universal token、Discord の宛先 (P0)
@@ -743,7 +755,10 @@ beszel_alerts:
 
 **Implementation Notes**
 
-- Integration: **初期セットアップに Web UI での手作業を要さない。**`USER_EMAIL` / `USER_PASSWORD` を `EnvironmentFile` から与えると初回起動時に superuser が作られる。システムは `config.yml` が宣言し、agent は universal token (`GET /api/beszel/universal-token`) で自己登録する
+- Integration: **superuser のセットアップに Web UI での手作業を要さない。**`USER_EMAIL` / `USER_PASSWORD` を `EnvironmentFile` から与えると初回起動時に superuser が作られる。システムは `config.yml` が宣言し、agent は universal token (`GET /api/beszel/universal-token`) で自己登録する
+- Integration: **`TRUSTED_AUTH_HEADER` に `Cf-Access-Authenticated-User-Email` を設定するだけで連携が成立する。**Kanidm 側への OAuth2 クライアント登録、Beszel 側の OIDC プロバイダ登録 (旧設計では Web UI 上の手作業を要した) のいずれも不要になる。`EnvironmentFile` から与える環境変数のみで完結し、Web UI 上の手作業が無い
+- Integration: **なりすまし対策として、Caddy が Beszel へ転送する前にクライアント由来の同名ヘッダーを一旦除去する。**`Cf-Access-Authenticated-User-Email` はクライアントが偽装できてはならないヘッダーであり、Caddyfile で `header_up -Cf-Access-Authenticated-User-Email` により受信ヘッダーを一度クリアしてから cloudflared が実際に付与した値のみを転送する。`console-pi` 上の Caddy が loopback bind + cloudflared トンネル経由限定でしか到達できない構成のため実害は薄いが、多層防御として明示する
+- Risks: **`TRUSTED_AUTH_HEADER` が有効な場合にパスワードログインが共存できるかは未確認。**`DISABLE_PASSWORD_AUTH` は当面有効化せず、実装時に実機で挙動を確認してから要否を判断する。到達可否の制限は Cloudflare Access の `console_access` グループが唯一の担い手であり、Beszel 側には持たせない
 - Integration: **`config.yml` に無いシステムは hub の起動時に削除される。**この破壊的な同期が、宣言を唯一の正に保つ手段でもある。宣言から外すことがそのまま削除を意味することを前提に扱う
 - Integration: 秘匿値は `EnvironmentFile` (0600, root 所有) から供給し、`ExecStart=` に置かない (要件 2.6)
 - Integration: **アラート種別ごとの通知先の振り分けはできない。**通知先はユーザー単位であり、そのユーザーの全アラートが全宛先へ飛ぶ。本設計は宛先を 1 つに集約するためこの制約が問題にならない
@@ -827,15 +842,15 @@ beszel_alerts:
 
 | Field | Detail |
 |-------|--------|
-| Intent | 到達経路 1 を終端し、Caddy へ転送する |
-| Requirements | 1.1, 1.6, 2.5, 2.6 |
+| Intent | 利用者向けの到達手段の唯一の経路を終端し、Caddy へ転送する |
+| Requirements | 1.1, 1.6, 1.9, 2.5, 2.6 |
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [ ]
 
 **Implementation Notes**
 
 - Integration: トンネルは `config_src = "cloudflare"` で作成し、ingress を Terraform に宣言する。**`config_src = "local"` と `cloudflare_zero_trust_tunnel_cloudflared_config` は排他であるため、両方を指定しない**
-- Integration: ingress は `console_proxy_targets` と `web_terminal_targets` の各エントリについて 1 行を持ち、`public_hostname` を `http://127.0.0.1:<caddy_port>` へ向ける。末尾に catch-all を置く。**端末を含めない ingress を作らない** (要件 1.9)
+- Integration: ingress (`local.console_ingress_targets`) は `console_proxy_targets` と `web_terminal_targets` の各エントリに加え、**起点ページ (`landing_page_caddy_port`) の 1 行を持つ。**`public_hostname` を `http://127.0.0.1:<caddy_port>` へ向ける。末尾に catch-all を置く。**端末と起点ページを含めない ingress を作らない** (要件 1.9)。起点ページを欠くと、経路が 1 本である以上 Homer 自身へ到達する手段が無くなる
 - Integration: **既存の `guacamole` トンネルは破棄も置換もしない。**新規のトンネルを追加する
 - Integration: token を `EnvironmentFile` (0600, root 所有) から供給する。旧環境は `ExecStart=` に平文で持っていた (要件 2.6)
 - Validation: `ps aux` と `~/.bash_history` に token が現れないことを確認する
@@ -845,13 +860,13 @@ beszel_alerts:
 
 | Field | Detail |
 |-------|--------|
-| Intent | ホストを tailnet に参加させ、`tailscale serve` の設定を適用する |
-| Requirements | 1.2, 1.6, 1.11, 4.7 |
+| Intent | ホストを tailnet に参加させ、Ansible 適用の SSH 到達を確立する |
+| Requirements | 1.11, 4.7 |
 
 **Responsibilities & Constraints**
 
-- セグメント全体を広告しない。**subnet router として動作させない** (要件 1.2)
-- **Tailscale Services を対象ごとに 1 つ用意する。**`console_proxy_targets` と `web_terminal_targets` の各エントリについて `tailscale serve --service=svc:<service_name> --https=443 127.0.0.1:<caddy_port>` を適用する。**`--set-path` も非標準ポートも使わない**
+- セグメント全体を広告しない。**subnet router として動作させない**
+- **`tailscale serve` および Tailscale Services を持たない。**利用者向けの到達手段は Cloudflare Tunnel の 1 経路のみであり (要件 1.11)、tailnet 経由で個別のサービスを公開しない。本コンポーネントの責務は tailnet への参加そのものに閉じる
 - **タグを事前付与した auth key でノードを参加させる。**これにより node key の期限が既定で無効化される (要件 4.7)
 
 **Contracts**: Service [x] / API [ ] / Event [ ] / Batch [ ] / State [x]
@@ -863,11 +878,9 @@ beszel_alerts:
 - Integration: 移す場合は、ポート値の唯一の保持者をどちらにするかを先に決める。両ロールが同じ変数を読む形にするのが最小の変更になる
 - Integration: **Tailscale SSH を有効にしない。**SSH は通常の sshd で受け、既存の 9 ホストと同じ鍵による認証に揃える。`ansible.cfg` の `host_key_checking` と `refresh_known_hosts.yml` が前提とする host key の扱いを崩さない
 - Validation: `tailscale status` が広告している経路を持たないことを確認する
-- Validation: 非対話のクライアントから、人手の操作を経ずに SSH と HTTP が通ることを確認する (要件 1.11)
-- Integration: **Tailscale Services は 2026-02-19 に GA。全プランで利用でき、1 つの tailnet あたり最大 10 サービス、追加課金は無い。**本 spec で使うのは 3 つ前後で上限に余裕がある
-- Integration: サービスの MagicDNS 名はノードのホスト名とは独立しており、ノードを入れ替えても名前が変わらない。**将来 `console-pi` を別の機体へ置き換えても、利用者が覚える URL が変わらない**
-- Risks: `tailscale serve` の設定はファイルから流し込めない。**適用するコマンドを role のタスクとして持つことで、宣言としての再現性を確保する**
-- Risks: 上限は 10 サービス。対象を増やし続ける場合はここが天井になる。超える場合はパス分割か非標準ポートへ退避する (どちらも `serve` 側に制限は無いことを確認済み)
+- Validation: `tailscale serve status` に `svc:*` のエントリが 1 件も無いことを確認する。**個別サービス公開を撤去した後に残骸が無いことの検査である**
+- Validation: 非対話のクライアントから、人手の操作を経ずに SSH が通ることを確認する (要件 1.11)
+- Risks: **tailnet はもはや利用者向けの到達手段ではない。**`console-pi` への tailnet 経由の SSH が失われても、要件 1.6 が定める代替は物理的な接続による復旧であり、tailnet の再接続待ちに依らない
 
 #### `host_health`
 
@@ -980,9 +993,9 @@ beszel_alerts:
 
 | 一覧 | 保持場所 | 満たす要件 | 不変条件 |
 |------|----------|-----------|----------|
-| `console_proxy_targets` | `group_vars/console/main.yml` | 1.3, 1.4 | `caddy_port` と `service_name` が重複しない。`web_terminal_targets` の同名の値とも重複しない。全エントリが `description` を持つ |
-| `console_inbound_allow` | `group_vars/console/main.yml` | 1.7 | 全エントリが `reason` を持つ。tailnet 側の待受は Services の仮想 IP のため列挙しない |
-| `web_terminal_targets` | `group_vars/console/main.yml` | 1.9 | `listen_port` が重複しない。`caddy_port` と `service_name` と `public_hostname` が `console_proxy_targets` の同名の値と重複しない |
+| `console_proxy_targets` | `group_vars/console/main.yml` | 1.3, 1.4, 1.5, 1.12 | `caddy_port` と `public_hostname` が重複しない。`web_terminal_targets` の同名の値とも重複しない。全エントリが `description` を持つ。`public_hostname` が対象の種類を推測させない。`auth_mode` が `none`、`native`、`basic_proxy` のいずれかである |
+| `console_inbound_allow` | `group_vars/console/main.yml` | 1.7 | 全エントリが `reason` を持つ。**Tailscale Services を持たないため tailnet 側の待受の列挙は無い** |
+| `web_terminal_targets` | `group_vars/console/main.yml` | 1.9 | `listen_port` が重複しない。`caddy_port` と `public_hostname` が `console_proxy_targets` の同名の値と重複しない。`auth_mode` は常に `none` |
 | `gatus_endpoints` | `group_vars/console/main.yml` | 3.5, 3.17 | 通知の要否がエントリから読み取れる。**`beszel_systems` に列挙したホストの死活を含まない。**Beszel の hub のエンドポイントを含む |
 | `beszel_systems` | `group_vars/console/main.yml` | 3.14 | `name` が重複せず、個人を識別する語を含まない。列挙したホストが `gatus_endpoints` の死活の対象と重複しない |
 | `beszel_alerts` | `group_vars/console/main.yml` | 3.5, 3.11, 3.12 | 閾値と継続分数がエントリから読み取れる。**`ContainerHealth` を含まない** |
@@ -990,7 +1003,7 @@ beszel_alerts:
 
 **秘匿値の供給**: ロール本体は一般名の変数のみを参照し、`group_vars` / `host_vars` の右辺だけを `lookup('env', 'VAR_NAME')` に束縛する。既存の変数間接化層を踏襲する。
 
-**追加する Infisical のキー**: `console-pi` の become パスワード、Caddy の基本認証の資格情報、cloudflared のトンネル token、OPNsense の API key と secret、Tailscale のタグ付き auth key、Beszel の hub の superuser の資格情報 (`USER_EMAIL` / `USER_PASSWORD`)、agent が用いる universal token、shoutrrr の `discord://` の宛先。いずれも該当する `vault.yml.example` に名前を列挙する。
+**追加する Infisical のキー**: `console-pi` の become パスワード、AdGuard の代理ログインに用いる管理者資格情報、cloudflared のトンネル token、OPNsense の API key と secret、Tailscale のタグ付き auth key、Beszel の hub の superuser の資格情報 (`USER_EMAIL` / `USER_PASSWORD`)、agent が用いる universal token、shoutrrr の `discord://` の宛先。**Caddy の基本認証 (旧設計) の資格情報は廃止する。**いずれも該当する `vault.yml.example` に名前を列挙する。
 
 ## Error Handling
 
@@ -1000,8 +1013,8 @@ beszel_alerts:
 
 ### Error Categories and Responses
 
-- **到達手段の喪失**: Caddy の停止で経路 1 と 2 の双方が失われる。復旧経路は tailnet 経由の SSH で、これは Caddy を経由しない。tailscaled も停止した場合は Cloudflare 経路のブラウザから端末を開く。**両方が失われた場合の最終手段は運用者による物理的な作業**であり、要件 4.6 に従って `manual-operations.md` に記録する
-- **認証基盤の停止**: Kanidm が停止すると経路 1 が成立しない。経路 2 は tailnet のノード認証のみに依存するため残る。**この非対称は本 spec では解消しない**
+- **到達手段の喪失**: Caddy・cloudflared・Cloudflare Tunnel のいずれが停止しても、利用者向けの到達手段は 1 本しか無いため全体が失われる。**ソフトウェア上の代替経路は持たない。**要件 1.6 が定める代替は運用者による物理的な接続での復旧であり、要件 4.6 に従って `manual-operations.md` に記録する。`console-pi` への tailnet 経由の SSH は Ansible 適用向けに残るが、これは利用者向けの到達手段の代替として設計したものではない
+- **認証基盤の停止**: Kanidm または Cloudflare Access が停止すると到達手段そのものが成立しない。**ソフトウェアで切り替えられる代替経路が無いため、この場合も要件 1.6 の物理的な接続による復旧に依る。**この依存 (循環) は本 spec では解消しない
 - **通知の不達**: `systemd_failure_notify` は webhook が 2xx を返さない場合に自身を failed にする。既存の実装がこの区別を持つ
 - **監視の停止**: **監視の機構が自らの停止を通知することに依存しない** (要件 3.17)。Beszel の hub の停止は Gatus が外形で見る。Gatus の停止は自身のユニットの `OnFailure=notify-failure@%n.service` が systemd 経由で通知する。agent の停止は hub の `Status` アラートに到達不能として現れる。**3 者が互いに別のプロセスであり、1 つの停止が他の 2 つの検知を巻き込まない**
 - **検知の空白**: Gatus と hub が同時に停止した場合、外形と資源の双方の検知が同時に失われる。この場合に残るのは `systemd_failure_notify` による systemd 経由の通知のみである。**両者を同一の機体に置いた帰結であり、機体そのものの停止を検知する手段を `console-pi` の内側に持たない**
@@ -1021,14 +1034,16 @@ beszel_alerts:
 
 ### 到達性の検証
 
-1. **経路 2 (tailnet)**: 公開対象の全ホスト名と全ての端末へ、端から端まで到達する
-2. **経路 1 (Cloudflare)**: 既存の Kanidm の認証を経て同様に到達する
+1. **Cloudflare Tunnel 経由の 1 経路**: 既存の Kanidm の OIDC 認証を経て、公開対象の全ホスト名と全ての端末へ端から端まで到達する
+2. **tailnet 経由では `console_inbound_allow` が許可する SSH 以外に到達手段が存在しないことを確認する。**個別サービスの公開が残っていないことの否定的な検証である (要件 1.11)
 3. **起点の 1 ページから、公開している全ての画面と全ての端末へ到達できることを確認する** (要件 1.9)
-4. **非対話のクライアントから、人手の操作を経ずに SSH と管理画面の双方へ到達できることを確認する** (要件 1.11)
-5. 作業機に Tailscale のクライアント以外の設定を加えずに到達できることを確認する (要件 1.8)
+4. **非対話のクライアントから、人手の操作を経ずに管理画面へ到達できることを確認する** (要件 1.11)
+5. ブラウザに追加の設定を加えずに到達できることを確認する (要件 1.8)
 6. 公開対象の一覧に無い宛先への要求が拒否されることを確認する (要件 1.3)
-6.1 **転送先の Web UI が、どちらの経路でも崩れずに表示されることを確認する。**URL にポートもパスも現れない形にしたのは、絶対パスと絶対 URL の双方で壊れないようにするためである
+6.1 **転送先の Web UI が崩れずに表示されることを確認する。**URL にポートもパスも現れない形にしたのは、絶対パスと絶対 URL の双方で壊れないようにするためである
+6.2 **Cloudflare Access の Kanidm 認証を経れば、AdGuard と Beszel で追加の資格情報入力を求められずに到達することを確認する** (要件 1.5)。Beszel は `TRUSTED_AUTH_HEADER` により Cloudflare Access の認証結果を信頼し、追加のログイン画面が現れないことをあわせて確認する。OPNsense は代理ログインを行わない対象であるため、引き続き自身のログイン画面が現れることを確認する
 7. Console セグメントへの inbound が `console_inbound_allow` の列挙のみであることを実測する (要件 1.7)
+8. **公開対象の識別子から対象の種類が推測できないことを確認する** (要件 1.12)
 
 ### 通知の検証
 
@@ -1056,11 +1071,12 @@ beszel_alerts:
 
 - **待受を全インタフェースに開かない**。`akishima` では Guacamole・Prometheus・Grafana がいずれも全インタフェースに bind し、後者 2 つは無認証だった。Gatus・ttyd・Homer・Beszel の hub はいずれも `127.0.0.1` に絞り、公開は Caddy を通す
 - **Beszel の agent の待受も対象ホストの内部に絞る**。hub からのみ到達できる 1 つのアドレスで待ち受け、`0.0.0.0` で開かない。agent は各ホストの資源と記憶装置の状態を晒すため、hub 以外から読める状態を作らない
-- **秘匿値をプロセスの引数に置かない**。cloudflared の token、Beszel の hub の superuser の資格情報、agent の universal token はいずれも `EnvironmentFile` (0600) から供給し、`ttyd` の `-c` を使わない
-- **`console-pi` が対象ホストへの SSH の資格情報を持つ**。`web_terminal` が対象へ接続するために必要であり、このホストの侵害が横断につながる。Caddy の認証と 2 経路の認証を前段の防御とする
+- **秘匿値をプロセスの引数に置かない**。cloudflared の token、AdGuard の代理ログインに用いる管理者資格情報、Beszel の hub の superuser の資格情報、agent の universal token はいずれも `EnvironmentFile` (0600) から供給する。AdGuard の資格情報は Caddyfile のテンプレート変数として Ansible から注入し、リポジトリに平文で書かない。`ttyd` の `-c` を使わない
+- **`console-pi` が対象ホストへの SSH の資格情報を持つ**。`web_terminal` が対象へ接続するために必要であり、このホストの侵害が横断につながる。Cloudflare Access (Kanidm OIDC) の認証を唯一の前段の防御とする
 - **通知の本文に journal とログの抜粋を載せない**。既存の `systemd_failure_notify` の設計を Gatus の通知にも適用する。Beszel の本文は Go の固定フォーマットでテンプレートを変更できないため、**ログ抜粋を最大 1800 文字埋め込む `ContainerHealth` のアラートを有効にしないことで同じ拘束を満たす**
 - **Beszel のシステム名に個人を識別する語を含めない**。本文に入るのはシステム名・メトリクス・値・閾値・hub へのリンクのみで IP アドレスとホスト名は含まれないため、**要件 3.10 の適合を左右するのはこの名前だけである**
-- **管理経路の認証は既存の Kanidm に依存したままである**。循環は解消されておらず、Kanidm の停止時に経路 1 が使えない。これは既知の未解決事項であり `admin-plane-cutover` が扱う
+- **利用者向けの到達手段が単一経路に集約された**。Caddy・cloudflared・Cloudflare Access のいずれかが単一障害点になり、停止時の代替はソフトウェア上の第 2 経路ではなく物理的な接続による復旧である (要件 1.6)。**攻撃対象面としては経路が 1 本に絞られたことで縮小する一方、可用性としては単一の経路に依存する**
+- **管理経路の認証は既存の Kanidm に依存したままである**。循環は解消されておらず、Kanidm の停止時に到達手段そのものが使えない。これは既知の未解決事項であり `admin-plane-cutover` が扱う
 
 ## 立ち上げの段階と完了条件
 
@@ -1073,6 +1089,8 @@ beszel_alerts:
 | 5 遠隔起動 | 宣言した対象が `wol.yml` で起動する | 起動しない対象は要件 5.5 に従って理由を記録する |
 
 **`akishima` は全段階を通じて稼働したままとする。**要件 4.1 / 4.2 が求める「新しい到達手段が成立してから既存を停止する」は、既存を停止しないことで構造的に満たされる。停止と転用は `admin-plane-cutover` が扱う。
+
+**Phase 2 / 3 が個別に立てた tailnet 経路と Cloudflare 経路は、その後の是正で Cloudflare Tunnel の 1 経路に統合されている。**現行の到達手段の構成は「到達経路」節が定める形を正とし、本表は Phase 単位の完了条件の記録として残す。
 
 ### 旧環境から引き継ぐもの
 

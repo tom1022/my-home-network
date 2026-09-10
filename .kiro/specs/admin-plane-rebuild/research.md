@@ -1,6 +1,12 @@
 # Research & Design Decisions: admin-plane-rebuild
 
 > **スコープの変更 (2026-09-05)**: 本 spec は Console セグメントの足の構築に絞り込まれた。管理経路の認証の依存の解消、`akishima` の転用と撤去、ネットワーク分離の回復は後続の `admin-plane-cutover` へ移した。**以下のうち「4. 管理経路の認証 — 循環の切り方」の節と、One-time PIN に関する記述は本 spec の設計に反映されていない。**認証は既存の Kanidm をそのまま用いる。要件の番号も縮小前のものであり、現行の `requirements.md` とは対応しない。
+>
+> **到達手段の改訂 (2026-09-08)**: 実測検証 (`manual-operations.md` セクション 6, 7) を経て Requirement 1 が改訂され、tailnet 経由の個別サービス公開 (旧経路 2) を撤去し Cloudflare Tunnel の 1 経路へ一本化、Caddy の基本認証を廃し Kanidm との OIDC 連携へ一本化することになった。**「3. 到達手段 — プロキシを置くか置かないか」と「10. `tailscale serve` のポートと Tailscale Services の提供状況」が結論付けた tailnet 側の個別公開 (Tailscale Services の採用) は、この改訂で撤去される。**`console-pi` 自身の tailnet 参加 (SSH 到達) は影響を受けない。新しい決定は「11. 到達経路の一本化と、Caddy の認証機構の選定」と「12. 公開対象の識別子の命名」を参照。
+>
+> **認証方針の再改訂 (2026-09-08 運用者レビュー)**: 上記の改訂で導入した `oauth2-proxy` (forward_auth の後段) は、運用者のレビューで撤回された。理由は「Cloudflare Access が既に Kanidm OIDC でエッジの認証・ポリシー評価を完結させており (認証 NG なら origin まで届かない)、Caddy 側にもう一段の認証機構を挟むのは冗長」というもの。**「11. 到達経路の一本化と、Caddy の認証機構の選定」の `oauth2-proxy` 採用の結論は撤回済みであり、以下の記述は不採用に至った検討過程の記録として残す。**最終方針は個別アプリごとに確定し、「13. 個別アプリの認証統合方式の調査」を参照。
+>
+> **Beszel の認証方式の変更 (2026-09-08)**: 「13. 個別アプリの認証統合方式の調査」で採用した Beszel 自身の Kanidm OIDC 連携 (ネイティブ) は、その後より単純な `TRUSTED_AUTH_HEADER` 方式に変更された。Kanidm 側への OAuth2 クライアント登録も Beszel 側の OIDC プロバイダ登録の手作業も不要になる。当初 OIDC 連携を検討した経緯は 13 節に残し、変更後の内容は「14. Beszel の認証を `TRUSTED_AUTH_HEADER` 方式へ変更」を参照。
 
 ## Summary
 
@@ -12,6 +18,7 @@
   - **`tailscale serve` は 1 ノードに 1 ホスト名しか持てず、設定をファイルから流し込めない。**この 2 つの制約が、リバースプロキシを 1 枚挟む理由になる。Caddy を置くと公開対象の列挙が 1 ファイルに集約され、`tailscale serve` も `cloudflared` も「Caddy の 1 ポートへ向ける」だけに縮む。
   - **WoL は OPNsense の `os-wol` プラグインで解ける。**指定インタフェースのサブネットブロードキャスト宛に送出するため、directed broadcast の転送を許す必要がない。REST API で未登録の MAC を即時送出できるので、**対象の列挙を本リポジトリ側に置ける**。
   - **`config_src = "local"` と `cloudflare_zero_trust_tunnel_cloudflared_config` は排他。**ingress の宣言先が Terraform 側か実機のファイル側かに分かれる。
+  - **Caddy に forward_auth や oauth2-proxy を追加しない。**Cloudflare Access が Kanidm OIDC によってトンネル手前でエッジの認証・ポリシー評価を完結させており、後段の Caddy にもう一段の認証機構を挟むのは冗長と判断した (運用者レビューでの撤回、第 13 節)。**Beszel は `TRUSTED_AUTH_HEADER` 環境変数で Cloudflare Access が付与した認証済みユーザーのメールアドレスヘッダーを信頼する** (第 14 節)。当初は Beszel 自身の Kanidm OIDC 連携を検討したが、Kanidm 側のクライアント登録が要らないこちらの方式へ変更した。AdGuard は `Authorization: Basic` ヘッダーを直接受け付ける実装であることを確認し、Caddy が固定資格情報を自動付与する代理ログインで解決する。OPNsense の Web UI はセッションベースのフォームログイン専用で Basic 認証を受け付けないため、代理ログインを行わず手動ログインのまま残す。
 
 ## Research Log
 
@@ -233,6 +240,78 @@
   - Caddy 側の設計はどちらでも変わらない。対象ごとに `127.0.0.1:<caddy_port>` で待ち受ける形は共通で、宣言の `tailnet_port` が `service_name` に変わるだけである。
 
 
+### 11. 到達経路の一本化 (要件 1.11 改訂) と、Caddy の認証機構の選定 (要件 1.5 改訂・不採用)
+
+> **本節の「forward_auth の後段には oauth2-proxy を採る」という Implications は、運用者レビュー (2026-09-08) で撤回された。**Cloudflare Access が既に Kanidm OIDC でエッジの認証・ポリシー評価を完結させており、Caddy 側にもう一段の認証機構を追加するのは冗長と判断されたため。本節は forward_auth 方式そのものを検討した過程 (caddy-security との比較) の記録として残し、最終的な個別アプリごとの認証統合方針は第 13 節を参照。
+
+- **Context**: `requirements.md` の Requirement 1 が改訂され、tailnet 経由の個別サービス公開 (旧経路 2) を撤去し利用者向けの到達手段を Cloudflare Tunnel の 1 経路に一本化すること (1.11)、Caddy の基本認証を廃し Kanidm との OIDC 連携に一本化すること (1.5) が新たに求められた。標準ビルドの Caddy は OIDC をネイティブ対応しないため、`caddy-security` (xcaddy によるプラグイン組み込み) と `oauth2-proxy` (Caddy の `forward_auth` の後段に置く別プロセス) のいずれを採るかを判定する。
+- **Sources Consulted**:
+  - [Caddyfile: forward_auth](https://caddyserver.com/docs/caddyfile/directives/forward_auth)
+  - [greenpau/caddy-security](https://github.com/greenpau/caddy-security)
+  - [oauth2-proxy: Overview](https://oauth2-proxy.github.io/oauth2-proxy/)
+  - [oauth2-proxy: OIDC provider configuration](https://oauth2-proxy.github.io/oauth2-proxy/configuration/providers/)
+  - [oauth2-proxy GitHub Releases (v7.15.4)](https://github.com/oauth2-proxy/oauth2-proxy/releases/latest) — `api.github.com` の release asset 一覧を直接取得して確認
+  - [oauth2-proxy issue #2140: reuse one instance for multiple subdomains](https://github.com/oauth2-proxy/oauth2-proxy/issues/2140)
+  - [Beszel: OAuth / OIDC ガイド](https://beszel.dev/guide/oauth)
+  - 本リポジトリ `terraform-kanidm/oauth2_clients.tf` (既存の `forward_auth` / `guacamole` クライアントの実装)
+- **Findings**:
+  - **`forward_auth` は Caddy 標準ビルドに既に組み込まれている。**公式ドキュメントが「`reverse_proxy` を使った、より長い一般的な設定への便宜的な短縮形」と明記しており、プラグインでも `xcaddy` の再ビルドでもない。既存の `console_proxy` (公式 apt 配布の Caddy) をそのまま使える。
+  - `caddy-security` は Caddy に OIDC を含む複数の認証方式を組み込む plugin で、汎用 OIDC プロバイダにも対応するが、**利用には `xcaddy build --with github.com/greenpau/caddy-security` によるプラグイン込みの再ビルドを要する。**公式の arm64 バイナリ配布は無く、`console-pi` 向けにはクロスコンパイルないし自前のビルドパイプラインを新設する必要がある。これは公式 apt パッケージを使う既存の `Reverse Proxy` の技術選定 (Technology Stack) から外れる。
+  - **`oauth2-proxy` は v7.15.4 で公式に `oauth2-proxy-v7.15.4.linux-arm64.tar.gz` を配布している** (GitHub Releases の asset 一覧で実機確認)。単一バイナリを配置するだけで、Gatus / ttyd / cloudflared と同じ「公式ビルド済みバイナリを 1 つ置く」パターンに揃う。
+  - `oauth2-proxy` は `--provider=oidc` で汎用 OIDC プロバイダ (issuer URL / client ID / client secret) に対応し、forward auth のパターン (自身は上流を持たず `/oauth2/auth` へのサブリクエストにのみ応答する `--upstreams=static://200` 構成) で Caddy の `forward_auth` の後段に置ける。
+  - **本リポジトリは k3s 側で既に `oauth2-proxy` を Traefik の `forwardAuth` middleware から使う構成を持つ** (`product.md` の「forward auth: Traefik の `forward-auth-chain` middleware...oauth2-proxy への forwardAuth。適用先は Home Assistant と Garage」、Kanidm 側クライアントは `terraform-kanidm/oauth2_clients.tf` の `kanidm_oauth2_basic.forward_auth`)。Console 側に同じ道具を追加することは、リポジトリ全体で見て新しいパターンの追加ではなく既存パターンの再利用になる。
+  - **単一の `oauth2-proxy` インスタンスで複数ドメインを保護することは既知の制約を伴う** (oauth2-proxy issue #2140)。OIDC のコールバック URL (`redirect_url`) は Kanidm 側のクライアント定義で 1 つに固定されるため、保護対象が複数の apex ドメインに分散すると同一インスタンスでは賄えない。`--cookie-domain` / `--whitelist-domain` による同一 apex 配下のサブドメイン共有は標準的にサポートされる。
+  - **Beszel は既知の OIDC 対応先の一覧に Kanidm を含む** (`beszel.dev/guide/oauth` の Self-hosted / custom identity providers)。コールバック URL は `<beszel の公開 URL>/api/oauth2-redirect` で固定。**ただしプロバイダの登録は PocketBase の `users` collection の設定画面上の手作業に限られ、環境変数や設定ファイルからの非対話な投入手段が無い。**`DISABLE_PASSWORD_AUTH` と `USER_CREATION` は環境変数で制御できるが、issuer / client ID / client secret の登録自体は UI操作を要する。
+- **Implications (2026-09-08 時点で不採用)**:
+  - ~~forward_auth の後段には `oauth2-proxy` を採り、`caddy-security` は採らない。~~ **運用者レビューで撤回。**Cloudflare Access (Kanidm OIDC) がエッジで認証・ポリシー評価を完結させているため、Caddy 側に forward_auth 層を追加する必要そのものが無いと判断された。`caddy-security` との比較検討自体は無駄にならず、「Caddy 標準ビルドに OIDC を組み込むにはプラグイン再ビルドを要する」という事実は今後 forward_auth の要否を再検討する際の参考として残す。
+  - ~~OPNsense・AdGuard・Gatus (`status`)・ttyd 2 件の計 5 対象を、当面は同一 apex ドメイン配下に置き 1 インスタンスの `oauth2-proxy` で保護する。~~ 不採用。各対象の認証統合方式は第 13 節の個別調査に基づき、AdGuard は Caddy の代理 Basic 認証、OPNsense は手動ログイン維持、Gatus (`status`) と ttyd は追加認証なしとした。
+  - ~~Beszel が自身の設定で Kanidm と直接連携するという結論のみは維持される。~~ **この結論も後に撤回された。**第 13 節で一旦採用したネイティブ OIDC 連携は、より単純な `TRUSTED_AUTH_HEADER` 方式 (第 14 節) に置き換えられた。
+
+### 12. 公開対象の識別子の命名 (要件 1.12 改訂)
+
+- **Context**: 当初検討した「単一ドメインへの統合」ではなく、「識別子が対象の種類を推測させないこと」が本質であるとの運用者の指摘を受け、命名規則を再設計する必要がある。技術的な調査を要する新規要素ではないため、Web 調査は行わず既存の宣言パターンとの整合のみを確認した。
+- **Findings**:
+  - `console_proxy_targets` / `web_terminal_targets` は `public_hostname` を Cloudflare Tunnel の ingress ホスト名ラベルとしてそのまま使う (`terraform/cloudflare_zero_trust.tf` の `console_ingress_targets`)。ホスト名ラベルは DNS のラベル文字集合 (英数字とハイフン、先頭末尾がハイフン不可) に制約される。
+  - `description` フィールドが既に対象の実体を記す唯一の場所として使われており、外部に露出する識別子とは別に保つ既存の設計原則と整合する。
+- **Implications**:
+  - ランダムな英数字トークンまたは意味を持たない語のいずれかを識別子に使う。既存の `description` との非対称性 (実体は `description` にのみ書き、識別子には書かない) をそのまま踏襲する。詳細は design.md の「公開対象の識別子の命名規則」を参照。
+
+### 13. 個別アプリの認証統合方式の調査
+
+- **Context**: 第 11 節の `oauth2-proxy` 採用が運用者レビューで撤回された後、Cloudflare Access (Kanidm OIDC) をエッジの唯一のゲートとし、Caddy に認証機構を追加しない方針へ転換した。この方針の下で、各対象アプリが個別に持つ (あるいは持たない) 認証機構との整合を対象ごとに調査した。
+- **Sources Consulted**:
+  - [Beszel: OAuth / OIDC ガイド](https://beszel.dev/guide/oauth)
+  - [Beszel GitHub Discussion #814: DISABLE_PASSWORD_AUTH でロックアウトした報告](https://github.com/henrygd/beszel/discussions/814)
+  - [Pomerium: AdGuard Home 導入事例](https://www.pomerium.com/docs/guides/ad-guard)
+  - AdGuard Home の HTTP Basic 認証の受け入れ (Pomerium の forward-auth 事例により、`Authorization: Basic` ヘッダーを直接受け付ける実装であることを実証確認)
+  - OPNsense Web UI のログイン経路の実測 (`manual-operations.md` セクション 6, 7)。REST API (`/api/...`) は API key/secret による Basic 認証を受け付けるが、Web UI 自体のログインフォームとは別経路であることを確認済み
+- **Findings**:
+  - **Beszel** は環境変数 `DISABLE_PASSWORD_AUTH=true` で通常ユーザーのパスワードログインを無効化でき、`USER_CREATION=true` で OAuth 経由の初回ログイン時にアカウントを自動作成できる。**ただし `DISABLE_PASSWORD_AUTH` を有効化する前に OAuth 連携が実際に機能することを確認する必要がある。**GitHub Discussion #814 に、設定ミスでロックアウトした実例が報告されている。**この時点では Beszel 自身の Kanidm OIDC 連携 (ネイティブ) を採用候補としていたが、後により単純な `TRUSTED_AUTH_HEADER` 方式に変更された。詳細は第 14 節を参照。**
+  - **PocketBase の superuser アカウントと通常ユーザーアカウントは別コレクションである。**`DISABLE_PASSWORD_AUTH` が通常ユーザーのログインに効くことは公式ガイドから確認できるが、**superuser 管理コンソール (`/_/`) への影響は公式ドキュメントに明記が無く未確認。**実装時に実機で確認する必要がある。**`TRUSTED_AUTH_HEADER` 方式への変更後は `DISABLE_PASSWORD_AUTH` を当面有効化しない方針としたため、この論点も第 14 節の方針に従う。**
+  - **AdGuard Home は `Authorization: Basic` ヘッダーを直接受け付ける実装である。**Pomerium の公式導入事例が forward-auth 経由でこの方式を実証しており、Caddy の `reverse_proxy` が固定の Basic 認証ヘッダーを自動付与すれば代理ログインが成立する。
+  - **OPNsense の Web UI はセッションベースのフォームログイン専用で、`Authorization: Basic` ヘッダーを受け付けない。**Basic 認証が効くのは `/api/...` の REST API に限られ、Web UI のログインパスとは別である。代理ログインを実現する手段は (a) 非公式 OIDC プラグイン [Lachee/opnsense-oidc](https://github.com/Lachee/opnsense-oidc) の導入 — メンテナンス状況が不明でルータという重要対象へのリスクに見合わない、(b) Caddy 側でログインフォームを自動 POST してセッション Cookie を取得する自作ロジック — 3.8 の実測検証で判明した OPNsense の `HTTP_REFERER` チェック (CSRF 対策) も突破する必要があり複雑で壊れやすい、のいずれかであり、両方とも運用者と合意の上で見送った。
+  - **ttyd (opnsense-terminal, console-pi-terminal) は既に SSH 鍵認証で自動ログインが成立している** (3.8 で実測確認済み)。Caddy 側・ttyd 側のいずれにも追加の認証統合は不要。
+- **Implications**:
+  - ~~**Beszel**: Cloudflare Access の保護対象に残しつつ (多層防御)、自身の設定で Kanidm と OIDC 連携させる。~~ **この結論は撤回され、`TRUSTED_AUTH_HEADER` 方式に変更された (第 14 節)。**
+  - **AdGuard**: Caddy の `reverse_proxy` が固定の Basic 認証ヘッダー (Infisical から供給する管理者資格情報を Base64 エンコード) を自動付与し、代理ログインを行う。資格情報を Caddyfile に平文で書かない。運用者は「1 人しか利用しないため confused deputy 問題は考慮不要」という前提でこの方式を了承している。
+  - **OPNsense**: 代理ログインを行わず、手動ログインのまま残す。
+  - **ttyd**: 対応不要。
+
+### 14. Beszel の認証を `TRUSTED_AUTH_HEADER` 方式へ変更
+
+- **Context**: 第 13 節で Beszel はネイティブ OIDC 連携を採用候補としたが、運用者から「Beszel も oauth2-proxy か何か使って代理ログインを実装してほしい」という指示を受け、より単純な方式が無いか調べ直した。
+- **Sources Consulted**:
+  - [Beszel: Environment Variables](https://beszel.dev/guide/environment-variables)
+- **Findings**:
+  - **Beszel は `TRUSTED_AUTH_HEADER` という環境変数をネイティブでサポートしている。**リバースプロキシ (oauth2-proxy, Authelia, Authentik 等) が付与した認証済みユーザーのメールアドレスをヘッダー経由で受け取り、それを信頼してログイン扱いにする仕組みで、公式ドキュメントに oauth2-proxy との連携が想定利用例として明記されている。
+  - **Cloudflare Access は既に `Cf-Access-Authenticated-User-Email` ヘッダーを origin へのリクエストに付与している。**cloudflared のデバッグログでの実測検証 (3.8) で確認済み。この値を Caddy が Beszel へそのまま転送し、`TRUSTED_AUTH_HEADER` にこのヘッダー名を設定すれば、Kanidm への OAuth2 クライアント登録も Beszel 側の OIDC 手動設定も不要になる。**oauth2-proxy という新規の常駐プロセスすら不要**であり、13 節のネイティブ OIDC 連携より大幅にシンプル。
+  - **`Cf-Access-Authenticated-User-Email` はクライアントが偽装できてはならないヘッダーである。**`console-pi` の Caddy は loopback bind + cloudflared トンネル経由限定でしか到達できない構成のため実害は薄いが、多層防御として Caddy が Beszel へ転送する前にクライアント由来の同名ヘッダーを一旦除去し、cloudflared が実際に付与した値のみを通す必要がある (`header_up -Cf-Access-Authenticated-User-Email` で受信ヘッダーを一度クリアしてから改めて渡す)。
+  - `USER_CREATION=true` は `TRUSTED_AUTH_HEADER` 方式でも引き続き必要 (初回アクセス時の自動ユーザー作成)。`DISABLE_PASSWORD_AUTH` は `TRUSTED_AUTH_HEADER` が有効な場合のパスワードログインとの共存挙動が公式ドキュメントに明記が無く未確認のため、当面は設定を見送る。
+- **Implications**:
+  - **Beszel の認証統合方式を、13 節のネイティブ OIDC 連携から `TRUSTED_AUTH_HEADER` 方式に変更する。**Kanidm 側 (`terraform-kanidm`) への OAuth2 クライアント登録は不要になり、design.md / tasks.md からもその記述を削除する。
+  - Caddy の `beszel` サイトブロック (`auth_mode: trusted_header`) は、クライアント由来の `Cf-Access-Authenticated-User-Email` を除去してから転送する処理を持つ。
+  - `DISABLE_PASSWORD_AUTH` は当面有効化しない。実装時に実機で共存挙動を確認し、問題が無ければ追加のハードニングとして有効化を検討する。
+
 ## Architecture Pattern Evaluation
 
 | Option | Description | Strengths | Risks / Limitations | Notes |
@@ -329,6 +408,46 @@
 - **Trade-offs**: 配布物の取得と展開の手順が増える。`file://` では動かないため Caddy からの配信が前提になる。
 - **Follow-up**: リンクの一覧を `console_proxy_upstreams` と `web_terminal_targets` の宣言から生成し、二重管理にしない。
 
+### Decision: 到達手段を Cloudflare Tunnel の 1 経路に一本化する
+
+- **Context**: 要件 1.11 の改訂により、tailnet 経由の個別サービス公開 (旧経路 2、Tailscale Services) が過剰と判断された。運用者の判断根拠は「物理的な LAN ケーブルの差し替えで到達できるため tailnet を復旧経路として持つ必要がない」「Guacamole 以上の冗長性 (複数経路) は不要」の 2 点。
+- **Alternatives Considered**:
+  1. 現状維持 (Cloudflare Tunnel と tailnet Services の 2 経路)
+  2. Cloudflare Tunnel の 1 経路のみに一本化し、`console-pi` 自身の tailnet 参加は Ansible 適用の SSH 到達専用として残す
+- **Selected Approach**: 2 を採る。`tailscale_node` role から `tailscale serve` の適用と Tailscale Services の生成を削除し、tailnet への参加そのもの (タグ付き auth key、node key expiry の無効化) のみを残す。
+- **Rationale**: 到達手段が 1 経路に減ることで、`console_proxy_targets` / `web_terminal_targets` の宣言と Caddy のサイトブロックが Cloudflare Tunnel 向けの 1 種類に単純化される。tailnet の Services 上限 (10) や `--set-path` / 非標準ポートの制約 (第 10 節) を今後気にする必要も無くなる。
+- **Trade-offs**: 到達手段の可用性はソフトウェア上の冗長性を失う。Caddy・cloudflared・Cloudflare Access・Kanidm のいずれかが停止すると利用者向けの到達手段は全て失われ、代替は要件 1.6 が定める物理的な接続による復旧のみになる。運用者はこの trade-off を明示的に受け入れている。
+- **Follow-up**: `landing_page` の Homer が生成していた「tailnet 経由」セクションを削除し、`landing_page_tailscale_status` (MagicDNS サフィックス取得) に依存するロジックごと除去する。起点ページ自身を Cloudflare ingress (`console_ingress_targets`) に追加し忘れない (実測で判明した既存の抜け、`manual-operations.md` セクション 6.2 参照)。
+
+### Decision (撤回): Caddy の認証を Kanidm との OIDC 連携へ一本化し、forward_auth の後段には oauth2-proxy を採る
+
+> **本 Decision は運用者レビュー (2026-09-08) で撤回された。**理由は下の Decision (個別アプリごとの認証統合方式) を参照。以下は撤回前の検討過程の記録として残す。
+
+- **Context**: 要件 1.5 の改訂により、Cloudflare Access (Kanidm) 認証の後段にある Caddy の基本認証を廃し、Kanidm との OIDC 連携のみで認証を完結させることになった。標準ビルドの Caddy は OIDC をネイティブ対応しないため、`caddy-security` (xcaddy によるプラグイン組み込み) と `oauth2-proxy` (forward_auth の後段に置く別プロセス) のいずれかを選ぶ必要がある、という前提で検討した。
+- **Alternatives Considered**:
+  1. `caddy-security` を `xcaddy` で組み込み、Caddy 自体に OIDC を持たせる
+  2. `oauth2-proxy` を forward_auth の後段に置く
+  3. Beszel を含む全対象を forward_auth 経由で統一する
+- **Selected Approach (撤回済み)**: 対象の性質で分岐する。Beszel は自身の設定で Kanidm と直接連携させる (ネイティブ OIDC)。OPNsense・AdGuard・Gatus (`status`)・ttyd 2 件は Caddy 標準ビルド組み込みの `forward_auth` から `oauth2-proxy` (公式 `linux-arm64` バイナリ) へ認可を問い合わせる。
+- **Rationale (撤回前の判断根拠)**: `forward_auth` はプラグインではなく標準ビルドの機能であるため、Caddy 自体の入れ替えやビルドパイプラインの新設が要らない。`oauth2-proxy` は公式に arm64 バイナリを配布しており、`caddy-security` (公式 arm64 配布が無く `xcaddy` の再ビルドを要する) より本リポジトリの「単一バイナリを配置する」既存パターンに揃う。加えて本リポジトリは k3s 側で `oauth2-proxy` を forward auth 用途に既に採用しており (Traefik `forwardAuth`、対象は Home Assistant と Garage)、新しい種類の依存の追加にはならない。Beszel は既知の OIDC 対応先一覧に Kanidm を含むため、対応しない対象だけを `oauth2-proxy` に絞ることで対象数が最小になる。
+- **なぜ撤回されたか**: この検討は「Caddy 側に何らかの OIDC 仲介を置く」ことを前提にしていたが、運用者のレビューで**その前提自体が誤りと指摘された。**Cloudflare Access が Kanidm OIDC によってトンネル手前のエッジで認証・ポリシー評価を既に完結させており (認証 NG なら origin である `console-pi` までリクエストが届かない)、後段の Caddy にもう一段の認証機構を追加することは冗長である。`oauth2-proxy` インスタンスという新規の常駐プロセスと、Kanidm 側の追加クライアント登録という複雑性を負うだけの見返りが無い。
+- **Follow-up**: 個別アプリごとの認証統合方式は第 13 節の調査と、下記の新しい Decision を参照。
+
+### Decision: Caddy に認証機構を追加せず、個別アプリごとに認証統合方式を分ける
+
+- **Context**: 上記の Decision (oauth2-proxy 採用) が撤回された後、要件 1.5 (Kanidm との OIDC 連携。追加の認証を重ねない) をどう満たすかを再検討する必要があった。
+- **Alternatives Considered**:
+  1. Caddy に forward_auth + oauth2-proxy を追加する (撤回済み、上記参照)
+  2. Cloudflare Access をエッジの唯一のゲートとして信頼し、Caddy には何も追加しない。個別アプリの認証統合は対象ごとの制約に応じて決める
+- **Selected Approach**: 2 を採る。Cloudflare Access (Kanidm OIDC) がトンネル手前で認証・ポリシー評価を完結させる唯一のゲートとし、到達制御は Caddy の `127.0.0.1` bind と cloudflared トンネル経由限定という既存の仕組みで担保する。個別アプリの扱いは第 13 節の調査に基づき次の通りとする。
+  - **Beszel**: Cloudflare Access の保護対象に残しつつ (多層防御)、`TRUSTED_AUTH_HEADER` 環境変数で Cloudflare Access が付与した認証済みユーザーのヘッダーを信頼させる (第 14 節、13 節時点のネイティブ OIDC 連携から変更済み)
+  - **AdGuard**: Caddy が固定の Basic 認証ヘッダーを自動付与する代理ログインを行う
+  - **OPNsense**: 代理ログインを行わず、手動ログインのまま残す
+  - **ttyd**: 対応不要 (SSH 鍵認証で既に自動ログインが成立)
+- **Rationale**: Cloudflare Access が既にエッジで認証・ポリシー評価を完結させているため、Caddy 側に一律の認証機構を重ねることは冗長である。対象ごとに実際に必要な統合だけを行うことで、新規の常駐プロセス (`oauth2-proxy`) と Kanidm 側の追加クライアント登録を避けられる。
+- **Trade-offs**: 認証統合の方式が対象ごとに異なる (trusted_header / basic_proxy / none) ため、`console_proxy_targets` の `auth_mode` の種類が増える。OPNsense は代理ログインを持たないため、Cloudflare Access の認証に加えて自身のログイン画面が引き続き現れる。運用者はこれを要件 1.5 の趣旨 (運用者への追加の資格情報入力を求めない到達手段) に反しないと判断している。AdGuard は「1 人しか利用しないため confused deputy 問題は考慮不要」という前提で代理ログインを了承している。
+- **Follow-up**: 実装時に `console_proxy` role の `auth_mode` (`none` / `trusted_header` / `basic_proxy`) を宣言から生成する。Beszel の `TRUSTED_AUTH_HEADER` 設定と、Caddy 側でのクライアント由来ヘッダーの除去を `manual-operations.md` またはロールの実装に反映する。
+
 ## Risks & Mitigations
 
 - **Tailscale role の抽出で VPS への到達を失う** — `vps_proxy` の「再起動後に tailnet SSH の復帰を待つ」ハンドラを抽出後も保持する。抽出は Console の足が独立して到達可能になった後に行う。
@@ -339,6 +458,11 @@
 - **Gatus の履歴が再起動で消えるため、通知を取りこぼす** — 通知は webhook で外部へ出るため、Gatus 自身の履歴の消失は通知の到達に影響しない。
 - **転用した k3s ノードが `k3s_internal_ips` への追記漏れで静かに誤起動する** — 追記が無い場合に失敗するよう、変数の解決を `default('')` に頼らない形へ改める。
 - **S5 からの WoL が機体によって成立しない** — 対応の可否を実機で確認し、成立しない機体は要件 8.5 に従って理由とともに記録する。
+- **利用者向けの到達手段が単一障害点になる** — Caddy・cloudflared・Cloudflare Access・Kanidm のいずれかの停止で到達手段全体を失う。ソフトウェア上の代替は持たず、要件 1.6 の物理的な接続による復旧に依る。運用者が明示的に受け入れた trade-off であり、`manual-operations.md` に復旧手順を記録する。
+- **`Cf-Access-Authenticated-User-Email` ヘッダーがクライアントに偽装される** — `console-pi` の Caddy は loopback bind + cloudflared トンネル経由限定でしか到達できないため実害は薄いが、多層防御として Caddy が Beszel へ転送する前にクライアント由来の同名ヘッダーを一旦除去し、cloudflared が実際に付与した値のみを通す (第 14 節)。
+- **`TRUSTED_AUTH_HEADER` とパスワードログインの共存挙動が未確認** — 公式ドキュメントに明記が無い。`DISABLE_PASSWORD_AUTH` は当面有効化せず、実装時に実機で確認してから要否を判断する。
+- **AdGuard の代理ログイン資格情報が Caddyfile に平文で残る** — Infisical から Ansible の変数として供給し、テンプレートおよびリポジトリに平文を書かない。
+- **OPNsense が代理ログインを持たないため、手動ログインの運用負荷が残る** — 運用者と合意済みの trade-off。将来 [Lachee/opnsense-oidc](https://github.com/Lachee/opnsense-oidc) のメンテナンス状況が改善すれば再検討の余地がある。
 
 ## References
 
@@ -354,3 +478,12 @@
 - [RFC 2644](https://www.rfc-editor.org/rfc/rfc2644) — directed broadcast を採らない根拠
 - [Raspberry Pi OS release notes](https://downloads.raspberrypi.org/raspios_armhf/release_notes.txt) — `/boot/firmware` への移動と PARTUUID の採用理由
 - [Debian Wiki: WakeOnLan](https://wiki.debian.org/WakeOnLan) — 対象側の恒久化手段
+- [Caddyfile: forward_auth](https://caddyserver.com/docs/caddyfile/directives/forward_auth) — 標準ビルド組み込みであることの一次情報 (検討したが不採用)
+- [greenpau/caddy-security](https://github.com/greenpau/caddy-security) — xcaddy によるプラグイン組み込みが必要な代替案 (不採用)
+- [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) — forward_auth の後段に置く OIDC 仲介として検討したが、運用者レビューで不採用
+- [oauth2-proxy issue #2140](https://github.com/oauth2-proxy/oauth2-proxy/issues/2140) — 単一インスタンスでの複数ドメイン保護の制約 (不採用の検討過程の記録)
+- [Beszel: OAuth / OIDC ガイド](https://beszel.dev/guide/oauth) — Kanidm を含む対応プロバイダ一覧とコールバック URL の形式 (13 節で検討したネイティブ OIDC 連携。不採用、経緯の記録)
+- [Beszel GitHub Discussion #814](https://github.com/henrygd/beszel/discussions/814) — `DISABLE_PASSWORD_AUTH` の有効化順序を誤りロックアウトした実例
+- [Beszel: Environment Variables](https://beszel.dev/guide/environment-variables) — `TRUSTED_AUTH_HEADER` の一次情報 (14 節、採用)
+- [Pomerium: AdGuard Home 導入事例](https://www.pomerium.com/docs/guides/ad-guard) — AdGuard Home が `Authorization: Basic` ヘッダーを直接受け付けることの実証
+- [Lachee/opnsense-oidc](https://github.com/Lachee/opnsense-oidc) — OPNsense 向け非公式 OIDC プラグイン。メンテナンス状況が不明のため不採用

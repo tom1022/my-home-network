@@ -92,6 +92,7 @@
     group: root
     mode: '0600'
   no_log: true
+  notify: Restart beszel hub
 
 - name: Deploy config.yml (beszel_systems is the single source of truth)
   ansible.builtin.template:
@@ -186,6 +187,60 @@
 # blob) にプレーンな Discord webhook URL を1件持たせるだけで、shoutrrr 経由で
 # 直送する。ContainerHealth は別 (アラート自体を宣言しない、beszel_alerts の
 # 責務) で、ここは宛先を揃えるだけ。
+# TRUSTED_AUTH_HEADER (console_proxy 側の auth_mode: trusted_header) は、届いた
+# Cf-Access-Authenticated-User-Email の値が users コレクションの既存レコードと
+# 一致することを要求する (henrygd/beszel internal/hub/api.go の
+# authorizeRequestWithEmail: FindAuthRecordByEmail が失敗すると認証は素通しされず
+# 通常ログイン画面に落ちる)。USER_CREATION はこの経路には効かない (oauth2 コンテキスト
+# 限定の CreateRule のため)。ここで運用者のメールのレコードを事前に作る。
+- name: Ensure a TRUSTED_AUTH_HEADER app-level user exists for the operator
+  no_log: true
+  block:
+    - name: Authenticate as superuser for trusted-header user management
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/_superusers/auth-with-password"
+        method: POST
+        body_format: json
+        body:
+          identity: "{{ beszel_hub_user_email }}"
+          password: "{{ beszel_hub_user_password }}"
+        status_code: 200
+      register: beszel_hub_trusted_superuser_token
+
+    - name: Look up the trusted-header user record
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/users/records?filter=email%3D%27{{ beszel_hub_trusted_user_email | urlencode }}%27"
+        method: GET
+        headers:
+          Authorization: "{{ beszel_hub_trusted_superuser_token.json.token }}"
+        status_code: 200
+      register: beszel_hub_trusted_user_lookup
+
+    # 実際にはこのパスワードでログインしない (TRUSTED_AUTH_HEADER 経由のみ)。
+    # レコード作成の password/passwordConfirm に同じ値を要するため、生成は
+    # 1回の set_fact に切り出す (body 内に lookup を2回書くと別値になる)。
+    - name: Generate a password for the trusted-header user record (create-only, never used to log in)
+      ansible.builtin.set_fact:
+        beszel_hub_trusted_user_password: "{{ lookup('ansible.builtin.password', '/dev/null length=40 chars=ascii_letters,digits') }}"
+      when: beszel_hub_trusted_user_lookup.json['items'] | length == 0
+
+    - name: Create the trusted-header user record
+      ansible.builtin.uri:
+        url: "http://{{ beszel_hub_http_listen }}/api/collections/users/records"
+        method: POST
+        headers:
+          Authorization: "{{ beszel_hub_trusted_superuser_token.json.token }}"
+        body_format: json
+        body:
+          email: "{{ beszel_hub_trusted_user_email }}"
+          password: "{{ beszel_hub_trusted_user_password }}"
+          passwordConfirm: "{{ beszel_hub_trusted_user_password }}"
+          verified: true
+          role: admin
+        status_code: 200
+      when: beszel_hub_trusted_user_lookup.json['items'] | length == 0
+      changed_when: true
+
 - name: Ensure the Discord notification webhook URL is supplied
   ansible.builtin.assert:
     that:

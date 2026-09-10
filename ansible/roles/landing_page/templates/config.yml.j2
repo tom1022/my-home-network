@@ -8,14 +8,6 @@ footer: false
 theme: default
 
 services:
-  - name: "tailnet 経由"
-    icon: "fas fa-diagram-project"
-    items:
-{% for target in (console_proxy_targets + web_terminal_targets) %}
-      - name: "{{ target.public_hostname }}"
-        subtitle: "{{ target.description }}"
-        url: "https://{{ target.service_name }}.{{ landing_page_tailnet_suffix }}/"
-{% endfor %}
   - name: "Cloudflare 経由"
     icon: "fas fa-cloud"
     items:

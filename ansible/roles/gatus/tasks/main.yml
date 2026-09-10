@@ -23,13 +23,14 @@
       - gatus_endpoints | length > 0
     fail_msg: gatus_endpoints must declare at least one endpoint (group_vars/console/main.yml).
 
-- name: Ensure every gatus_endpoints entry has a name, url, and at least one condition
+- name: Ensure every gatus_endpoints entry has a name, url, description, and at least one condition
   ansible.builtin.assert:
     that:
       - item.name | default('') | trim | length > 0
       - item.url | default('') | trim | length > 0
       - item.conditions | default([]) | length > 0
-    fail_msg: "gatus_endpoints entry '{{ item.name | default('(unnamed)') }}' is missing name, url, or conditions."
+      - item.description | default('') | trim | length > 0
+    fail_msg: "gatus_endpoints entry '{{ item.name | default('(unnamed)') }}' is missing name, url, conditions, or description."
   loop: "{{ gatus_endpoints }}"
   loop_control:
     label: "{{ item.name | default('(unnamed)') }}"

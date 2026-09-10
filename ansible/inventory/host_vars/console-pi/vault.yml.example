@@ -8,10 +8,8 @@
 # ansible-vault encryption of a copy is a defense-in-depth measure, not the
 # supply path itself.
 
-vault_console_proxy_basic_auth_user: "CHANGEME_CONSOLE_PROXY_BASIC_AUTH_USER"
-vault_console_proxy_basic_auth_password: "CHANGEME_CONSOLE_PROXY_BASIC_AUTH_PASSWORD"
+vault_console_proxy_adguard_basic_auth_user: "CHANGEME_CONSOLE_PROXY_ADGUARD_BASIC_AUTH_USER"
+vault_console_proxy_adguard_basic_auth_password: "CHANGEME_CONSOLE_PROXY_ADGUARD_BASIC_AUTH_PASSWORD"
 vault_console_cloudflared_tunnel_token: "CHANGEME_CONSOLE_CLOUDFLARED_TUNNEL_TOKEN"
 vault_console_tailscale_authkey: "CHANGEME_CONSOLE_TAILSCALE_AUTHKEY"
 vault_console_web_terminal_ssh_private_key: "CHANGEME_CONSOLE_WEB_TERMINAL_SSH_PRIVATE_KEY"
-vault_console_tailscale_api_client_id: "CHANGEME_CONSOLE_TAILSCALE_API_CLIENT_ID"
-vault_console_tailscale_api_client_secret: "CHANGEME_CONSOLE_TAILSCALE_API_CLIENT_SECRET"

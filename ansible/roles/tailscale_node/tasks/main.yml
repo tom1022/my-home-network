@@ -1,6 +1,7 @@
 ---
-# tailnet への参加、tailscaled の待受ポート/FLAGS の宣言的収束、および
-# (console_proxy_targets が定義されたホストに限り) tailscale serve の適用を扱う。
+# tailnet への参加と tailscaled の待受ポート/FLAGS の宣言的収束のみを扱う。
+# Ansible 適用の SSH 到達専用であり、利用者向けの個別サービス公開
+# (tailscale serve / Tailscale Services) は持たない (要件 1.11)。
 
 - name: Ensure target host is Debian family
   ansible.builtin.assert:
@@ -134,18 +135,3 @@
       Node is not in the declared tailnet state: it must not advertise routes,
       must not run Tailscale SSH, and must have key expiry disabled (requires
       a tagged auth key).
-
-# console_proxy_targets / web_terminal_targets only exist in
-# group_vars/console (console-pi); vps has neither, so the whole file is
-# skipped there without ever templating either variable.
-- name: Apply tailscale serve configuration for declared Console targets
-  ansible.builtin.include_tasks: serve.yml
-  when: console_proxy_targets is defined
-
-# tailscale serve (このホスト上のローカルな受け口設定) とは別に、tailnet 側で
-# Tailscale Service を Define する必要がある (`tailscale serve --service=`
-# は advertise するのみで、tailnet 全体への配信には admin 承認相当の Define が
-# 要る)。tailscale_node_serve_targets は上の serve.yml が set_fact 済み。
-- name: Ensure declared Tailscale Services (VIP Services) are defined on the tailnet via the Tailscale API
-  ansible.builtin.include_tasks: vip_services.yml
-  when: console_proxy_targets is defined

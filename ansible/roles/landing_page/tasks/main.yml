@@ -48,26 +48,6 @@
     owner: root
     group: root
 
-# MagicDNSSuffix はノードのホスト名ではなくテイルネット単位の値であり、テイルネット名を
-# ここへ直書きしない (テイルネット名は組織の設定でありハードコードすると乖離しうる)。
-- name: Query current tailscale status for the tailnet MagicDNS suffix
-  ansible.builtin.command: tailscale status --json
-  register: landing_page_tailscale_status
-  changed_when: false
-
-- name: Set the tailnet MagicDNS suffix fact
-  ansible.builtin.set_fact:
-    landing_page_tailnet_suffix: "{{ (landing_page_tailscale_status.stdout | from_json).MagicDNSSuffix | default('') }}"
-
-- name: Ensure the tailnet MagicDNS suffix was retrieved
-  ansible.builtin.assert:
-    that:
-      - landing_page_tailnet_suffix | length > 0
-    fail_msg: >-
-      Could not determine the tailnet MagicDNS suffix from `tailscale status
-      --json`. Ensure console-pi is joined to the tailnet (tailscale_node role)
-      before running this role.
-
 # リンクの一覧を手書きしない: console_proxy_targets と web_terminal_targets
 # (group_vars/console/main.yml が唯一の正) から生成する。
 - name: Generate Homer's config.yml from the declared reverse proxy and terminal targets

@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+# /boot/firmware is mounted read-only (rpi_boot role). raspi-firmware's
+# postinst and its kernel postinst.d hook write into it, so remount rw
+# for the duration of any dpkg run and back to ro afterwards.
+DPkg::Pre-Invoke {"mount -o remount,rw /boot/firmware 2>/dev/null || true";};
+DPkg::Post-Invoke {"mount -o remount,ro /boot/firmware 2>/dev/null || true";};

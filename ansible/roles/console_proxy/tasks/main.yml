@@ -23,6 +23,15 @@
       (group_vars/console/main.yml). console_proxy exposes it alongside
       console_proxy_targets.
 
+- name: Ensure every console_proxy_targets entry has a description
+  ansible.builtin.assert:
+    that:
+      - item.description | default('') | trim | length > 0
+    fail_msg: "console_proxy_targets entry '{{ item.name | default('(unnamed)') }}' is missing a description."
+  loop: "{{ console_proxy_targets }}"
+  loop_control:
+    label: "{{ item.name | default('(unnamed)') }}"
+
 # design.md の不変条件: console_proxy_targets と web_terminal_targets を合わせた
 # 集合の中で caddy_port/service_name/public_hostname が重複しないこと
 # (Host ヘッダを見ないため、重複するとどちらか一方が到達不能になる)。
@@ -44,15 +53,25 @@
       caddy_port, service_name, or public_hostname values with each other or
       with landing_page_caddy_port (group_vars/console/main.yml).
 
-- name: Ensure basic auth credentials are provided
+- name: Ensure auth_mode is one of the supported values
   ansible.builtin.assert:
     that:
-      - console_proxy_basic_auth_user | default('') | length > 0
-      - console_proxy_basic_auth_password | default('') | length > 0
+      - item.auth_mode | default('none') in ['none', 'trusted_header', 'basic_proxy']
+    fail_msg: "console_proxy_targets entry '{{ item.name }}' has an unsupported auth_mode."
+  loop: "{{ console_proxy_targets }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Ensure AdGuard proxy basic auth credentials are provided when a basic_proxy target is declared
+  ansible.builtin.assert:
+    that:
+      - console_proxy_adguard_basic_auth_user | default('') | length > 0
+      - console_proxy_adguard_basic_auth_password | default('') | length > 0
     fail_msg: >-
-      console_proxy_basic_auth_user / console_proxy_basic_auth_password are
-      required. Supply them via Infisical (CONSOLE_PROXY_BASIC_AUTH_USER /
-      CONSOLE_PROXY_BASIC_AUTH_PASSWORD).
+      console_proxy_adguard_basic_auth_user / console_proxy_adguard_basic_auth_password
+      are required. Supply them via Infisical
+      (CONSOLE_PROXY_ADGUARD_BASIC_AUTH_USER / CONSOLE_PROXY_ADGUARD_BASIC_AUTH_PASSWORD).
+  when: "'basic_proxy' in (console_proxy_targets | map(attribute='auth_mode') | list)"
 
 - name: Ensure gnupg is installed for apt key handling
   ansible.builtin.apt:
@@ -91,79 +110,46 @@
     state: present
     update_cache: true
 
-# `caddy hash-password` has no --salt flag (checked: v2.11.4), so it re-salts
-# on every call and a naive "hash every run" approach would never converge
-# (the Caddyfile, and thus the reload handler, would fire on every apply).
-# python3-bcrypt lets us reuse the already-deployed hash whenever it still
-# matches the current password, so only an actual password change changes
-# anything.
-- name: Ensure python3-bcrypt is installed for idempotent hash reuse
-  ansible.builtin.apt:
-    name: python3-bcrypt
-    state: present
-    update_cache: true
-
-- name: Check whether a Caddyfile is already deployed
-  ansible.builtin.stat:
-    path: /etc/caddy/Caddyfile
-  register: console_proxy_caddyfile_stat
-
-- name: Slurp the currently deployed Caddyfile, if any
-  ansible.builtin.slurp:
-    src: /etc/caddy/Caddyfile
-  register: console_proxy_caddyfile_current
-  when: console_proxy_caddyfile_stat.stat.exists
-
-# All site blocks share the same global basic_auth user/hash, so the first
-# bcrypt-shaped hash found in the file is the one to check.
-- name: Determine the currently deployed basic auth hash, if any
-  ansible.builtin.set_fact:
-    console_proxy_current_hash: >-
-      {{ (console_proxy_caddyfile_current.content | b64decode
-          | regex_search('\$2[abxy]\$[0-9]{2}\$[A-Za-z0-9./]{53}'))
-         if console_proxy_caddyfile_stat.stat.exists
-         else '' }}
-
-# ponytail: bcrypt.checkpw is a straight library call, not exposed by any
-# `caddy` subcommand, so this stays a python3 one-liner rather than pulling
-# in a collection for one comparison.
-- name: Verify whether the currently deployed hash still matches the current password
-  ansible.builtin.command:
-    argv:
-      - python3
-      - -c
-      - |
-        import bcrypt, sys
-        sys.exit(0 if bcrypt.checkpw(sys.argv[1].encode(), sys.argv[2].encode()) else 1)
-      - "{{ console_proxy_basic_auth_password }}"
-      - "{{ console_proxy_current_hash }}"
-  register: console_proxy_hash_still_valid
-  changed_when: false
-  failed_when: false
+# AdGuard 向け代理 Basic 認証の値は Caddyfile に平文で書かず、Caddy プロセスの
+# 環境変数 (EnvironmentFile 経由) から `{$ADGUARD_BASIC_AUTH}` として展開する。
+# Authorization ヘッダーが要求する "Basic <base64>" の <base64> 部分を Ansible 側で
+# 組み立てて渡す (Caddy 自身は base64 エンコードを行わない)。
+# no_log: 値そのものは秘匿値のため task 全体を隠す (b64encode 後も user:password が
+# 復元可能)。
+- name: Deploy the Caddy environment file (AdGuard proxy basic auth)
+  ansible.builtin.copy:
+    dest: /etc/caddy/adguard-proxy.env
+    content: |
+      ADGUARD_BASIC_AUTH={{ (console_proxy_adguard_basic_auth_user + ':' + console_proxy_adguard_basic_auth_password) | b64encode }}
+    owner: root
+    group: root
+    mode: '0600'
   no_log: true
-  when: console_proxy_current_hash | length > 0
+  notify: Restart caddy
 
-# no_log on the whole task, not just the register: the plaintext password is
-# also present in argv, which Ansible would otherwise echo in the task result.
-- name: Generate a bcrypt hash for the basic auth password (only when it changed)
-  ansible.builtin.command:
-    argv:
-      - caddy
-      - hash-password
-      - --plaintext
-      - "{{ console_proxy_basic_auth_password }}"
-  register: console_proxy_basic_auth_hash
-  changed_when: false
-  no_log: true
-  when: console_proxy_current_hash | length == 0 or console_proxy_hash_still_valid.rc | default(1) != 0
+# The packaged caddy.service unit has no EnvironmentFile= directive, so the
+# `{$ADGUARD_BASIC_AUTH}` placeholder in the Caddyfile would otherwise expand
+# to empty. A drop-in override adds it without forking the upstream unit file.
+- name: Ensure the Caddy systemd unit override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/caddy.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
 
-- name: Determine the basic auth hash to deploy (freshly generated, or the still-valid existing one)
-  ansible.builtin.set_fact:
-    console_proxy_final_hash: >-
-      {{ console_proxy_basic_auth_hash.stdout | trim
-         if (console_proxy_current_hash | length == 0 or console_proxy_hash_still_valid.rc | default(1) != 0)
-         else console_proxy_current_hash }}
-  no_log: true
+- name: Deploy the Caddy systemd unit override (EnvironmentFile for the AdGuard proxy auth)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/caddy.service.d/override.conf
+    content: |
+      [Service]
+      EnvironmentFile=/etc/caddy/adguard-proxy.env
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart caddy
 
 # validate substitutes %s with the rendered temp file's path and runs it
 # before the file is copied to dest, so a broken Caddyfile never reaches
@@ -183,3 +169,4 @@
     name: caddy
     enabled: true
     state: started
+    daemon_reload: true

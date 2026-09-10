@@ -556,3 +556,185 @@ Beszel hub API (`/api/collections/systems/records/<id>`) から取得した pbs 
 Grafana による可視化は再現しない。外形の状態一覧は Gatus の内蔵ダッシュボードが、各ホストの資源の状態は Beszel hub の画面が代替する。閲覧のための保持は Beszel の既定の間引きに限られ (4.8 で実測)、中央の時系列データベースは持たない。
 
 **実際の停止は本 spec の範囲外**: `akishima` は本 spec の全期間を通じて稼働したままとする (実行前の禁止事項、要件 4.1 / 4.2)。実際の停止と、停止に先立つ「収集していた対象ごとの通知の要否の判断」(要件 3.9) は、後続の spec `admin-plane-cutover` が担う。
+
+## 13. tailnet 経由の個別サービス公開の撤去 (タスク 7.1、2026-09-08 実施)
+
+要件 1.11 への対応。3.5 で構成した `tailscale serve` / Tailscale Services (VIP Services) を撤去し、利用者向けの到達手段を Cloudflare Tunnel の 1 経路のみに一本化した。`console-pi` の tailnet 参加自体 (2 章、Ansible 適用の鍵認証 SSH) は変更していない。
+
+**宣言側の変更**:
+
+- `ansible/roles/tailscale_node/tasks/serve.yml` と `vip_services.yml` を削除し、`main.yml` からの `include_tasks` 呼び出しを外した。同ロールの責務を tailnet への参加のみに戻した
+- `ansible/roles/tailscale_node/defaults/main.yml` から VIP Service 用の `tailscale_node_vip_service_ports` を削除した
+- `ansible/inventory/host_vars/console-pi/main.yml` と `vault.yml.example` から、Tailscale API の OAuth client (`tailscale_api_client_id` / `_secret`、Infisical キー `CONSOLE_TAILSCALE_API_CLIENT_ID` / `_SECRET`) を削除した。もう Ansible からは参照されない
+- `ansible/roles/landing_page/templates/config.yml.j2` から「tailnet 経由」セクションを削除し、`tasks/main.yml` の `landing_page_tailnet_suffix` (MagicDNS サフィックス取得) 一式を除去した。Homer の画面は「Cloudflare 経由」セクションのみになった
+
+**実機側の未実施事項 (要手作業)**:
+
+- `console-pi` 上に残るローカルな `tailscale serve` 設定 (`svc:opnsense-admin` 等 6 件) を `tailscale serve clear <svc>` でクリアする
+- tailnet 側で Define 済みの Tailscale Service (VIP Service) 6 件を Tailscale の管理コンソールまたは API (`DELETE /tailnet/-/services/svc:<name>`) で削除する
+- Infisical 上の `CONSOLE_TAILSCALE_API_CLIENT_ID` / `CONSOLE_TAILSCALE_API_CLIENT_SECRET` (OAuth client) は、上記の API 削除作業に使い終えた後、Tailscale 管理画面側で失効させてよい
+
+上記はいずれも宣言 (Ansible) の外側にある一度限りの手作業であり、本タスクでは実施していない。7.5 (是正後の到達性の再検証) で、tailnet 経由では SSH 以外の到達手段が存在しないことをあわせて確認する際に、実施済みであることを検証する。
+
+## 14. 公開対象の識別子の命名の是正 (タスク 7.3、2026-09-09 実施)
+
+要件 1.12, 1.13 への対応。design.md「公開対象の識別子の命名規則」に従い、`public_hostname` (Cloudflare Tunnel 経由で外部に露出するホスト名の一部) を、対象の種類が推測できない略語へ変更した。`description` (宣言内でのみ意味を持つ実体の記述) は変更していない。
+
+**変更した識別子 (旧 → 新)**:
+
+| name | 旧 public_hostname | 新 public_hostname |
+|------|--------------------|---------------------|
+| opnsense-admin | `opnsense` | `osr` |
+| adguard | `adguard` | `adg` |
+| status | `status` | `sts` |
+| beszel | `beszel` | `bsz` |
+| opnsense-terminal | `opnsense-terminal` | `ost` |
+| console-pi-terminal | `console-pi-terminal` | `cpt` |
+
+**変更ファイル**:
+
+- `ansible/inventory/group_vars/console/main.yml` — `console_proxy_targets` / `web_terminal_targets` の `public_hostname`、および `host_health_cert_checks` の `host` (証明書残存期間の検査対象。外部公開ホスト名と一致させる必要があるため連動して変更)
+- `terraform/cloudflare_zero_trust.tf` — `local.console_ingress_targets` の `public_hostname`。ファイル冒頭のコメントが明示する通り、Ansible の宣言との手動同期
+
+DNS レコード (`terraform/cloudflare_dns.tf` の `console_tunnel_cnames`)、Cloudflare Access の `destinations`、Homer (`landing_page` ロール) のリンク URL はいずれも `console_ingress_targets` / `console_proxy_targets` / `web_terminal_targets` から生成される派生値であり、上記 2 ファイルの変更のみで一貫して反映される。二重管理箇所は無い。
+
+`caddy_port` / `service_name` / `name` (内部識別子・journal ログ等にのみ現れる) は変更していない。`service_name` は 7.1 で Tailscale Service の生成が撤去されたため現在は console_proxy 側の一意性検査でのみ参照される値になっている。
+
+**検証**: `ansible-playbook --syntax-check` (console.yml, site.yml) 通過。`terraform validate` は認証情報 (Cloudflare API token) が本作業環境に無く実行不可のため、`terraform fmt -check` と、`console_ingress_targets` ブロックの HCL 構文の目視確認で代替した。実際の `terraform apply` と DNS/Access の反映確認は 7.5 で実施する。
+
+**検証**: `ansible-playbook --syntax-check` で `playbooks/console.yml` (と、`tailscale_node` を含む `playbooks/vps.yml`) の構文を確認した。`ansible-lint` は既存の指摘 (本変更と無関係) を除き新規の指摘なし。実機への `--check` 実行は VPS/console-pi いずれも対象外 (このタスクの完了条件は宣言側の是正であり、実機適用は上記の手作業クリーンアップの後に行う)。
+
+## 15. 起点ページ (Homer) の Cloudflare ingress への追加 (タスク 7.4、2026-09-09 実施)
+
+要件 1.9 への対応。`landing_page_caddy_port` (8087、`ansible/inventory/group_vars/console/main.yml`) が `console_ingress_targets` (`terraform/cloudflare_zero_trust.tf`) に含まれておらず、経路 1 (Cloudflare Tunnel) からは起点ページへ到達できなかった状態を是正した。
+
+**変更ファイル**:
+
+- `terraform/cloudflare_zero_trust.tf` — `local.console_ingress_targets` に `{ public_hostname = "lnd", caddy_port = 8087 }` を追加。この一覧は `cloudflare_zero_trust_tunnel_cloudflared_config.console` の ingress と、`cloudflare_zero_trust_access_application.console` の `destinations` の両方を生成するため、追加した 1 行だけで DNS ルーティングと Cloudflare Access の保護対象への追加が同時に成立する
+- `ansible/inventory/group_vars/console/main.yml` — `host_health_cert_checks` に `{ name: landing_page, host: lnd.fickledev.com, port: 443 }` を追加。この一覧は `console_ingress_targets` と同じ対象を指す (design.md の記述どおり)。起点ページも他の 6 件と同じ手段で外部公開される以上、証明書の残存期間監視の対象からも漏らさない
+
+**識別子の決定**: `lnd` (landing_page ロール名に由来)。design.md「公開対象の識別子の命名規則」に従い、対象の種類 (Homer というダッシュボードソフト) を識別子から推測できない略語とした。
+
+**認証**: 起点ページ自体を Cloudflare Access の `console` アプリケーションの保護対象に含めた (他の 6 件と同一のポリシー `console_kanidm`)。Homer はリンク集であり機微な資格情報は含まないが、公開している宛先の一覧という運用情報を無認証で晒さないため、他対象と同じ扱いとした。
+
+Ansible 側 (`landing_page` ロール、`config.yml.j2`) は変更していない。Homer が生成するリンクは `console_proxy_targets` / `web_terminal_targets` から作られる他対象への URL であり、Homer 自身の URL をリンク集に含める必要は無い。
+
+**検証**: `terraform validate` Success。`terraform fmt -check` は本作業環境で出力が不安定 (既知の環境要因、`ansible-lint` 同様のツール起動時の非ブロッキング I/O の癖に類する挙動) だったため、`git diff` によるインデントの目視確認で代替した。`ansible-playbook --syntax-check` (console.yml, site.yml) 通過。実際の `terraform apply` と、起点ページから公開対象・端末の全てへ辿れることの実機確認は 7.5 で実施する。
+
+## 16. 是正後の到達性再検証 (タスク 7.5、2026-09-09 実施)
+
+`terraform apply` (命名是正 + `lnd` 追加、7 added / 2 changed / 6 destroyed) と `console.yml` の `console-pi` への適用を実施し、`osr`/`adg`/`sts`/`bsz`/`ost`/`cpt`/`lnd`.fickledev.com の 7 件全てで Cloudflare Access の Kanidm ログイン画面への誘導を確認した。実機側の手作業クリーンアップ (ローカル `tailscale serve` 6 件のクリア、tailnet VIP Service 6 件の API 経由削除) も完了した。
+
+運用者がブラウザで実ログイン後の到達を確認したところ、AdGuard と Beszel が設計通り動作していないことが判明した。
+
+### 16.1 AdGuard: 資格情報の不一致 (解決済み)
+
+Caddy 側の実装 (`header_up Authorization "Basic {$ADGUARD_BASIC_AUTH}"`、`/etc/caddy/adguard-proxy.env` 経由の EnvironmentFile) は正しく機能している。`console-pi` 上でのローカル検証 (`curl http://127.0.0.1:8082/control/status`) で当初 **401** が返った。
+
+**原因の切り分け**: Infisical に保存されている `CONSOLE_PROXY_ADGUARD_BASIC_AUTH_USER` / `_PASSWORD` の実値を Caddy/Ansible テンプレートを一切経由せず直接 AdGuardHome (`http://192.168.10.1:3000/control/status`) へ `curl -u` で試したところ **200** が返り、資格情報自体は正しいと確認できた。一方、Caddy が実際に使っている値 (`/etc/caddy/adguard-proxy.env` の Base64 をデコードしたもの) はパスワード長が異なっており、**Infisical の値を更新したタイミングと Ansible 適用のタイミングにズレがあり、直前の適用がまだ更新前の古い値を読んでいた**ことが原因と判明した。
+
+**対応**: `console.yml --limit console-pi` を最新の Infisical 値で再適用し、`/etc/caddy/adguard-proxy.env` が新しい値で `changed` になったことを確認。Caddy 経由の `curl http://127.0.0.1:8082/control/status` が **200** に変わり、ブラウザで `adg.fickledev.com` を開いて追加の資格情報入力なしにダッシュボードへ到達することを実機で確認した。
+
+### 16.2 Beszel: 3 つの問題が重なっていた (解決済み)
+
+`bsz.fickledev.com` をブラウザで開いても通常のログイン画面 (`name@example.com` / `Password`) が表示され、`TRUSTED_AUTH_HEADER` が機能していなかった。原因は 1 つではなく、以下 3 点が重なっていた。
+
+**(1) env ファイル変更にハンドラ通知が無い実装漏れ**: `ansible/roles/beszel_hub/tasks/main.yml` の「Deploy the Beszel hub environment file」タスクに `notify` が設定されておらず、`hub.env.j2` (`TRUSTED_AUTH_HEADER` / `USER_CREATION` を追加した変更) の内容が変わってもハンドラ `Restart beszel hub` が発火しなかった。同タスクに `notify: Restart beszel hub` を追加。今回分の反映は `ansible console-pi -m systemd -a "name=beszel-hub state=restarted"` で一度限りの手動再起動を行った (`ActiveEnterTimestamp` が `2026-09-08 13:38:34 UTC` → `2026-09-09 11:47:27 UTC` に更新)。
+
+**(2) Caddy の `header_up -Cf-Access-Authenticated-User-Email` が正当なヘッダーごと消していた**: 7.2 実装時、「クライアント由来ヘッダーを一旦除去してから cloudflared 由来の値のみを転送する」多層防御を意図して `header_up -Cf-Access-Authenticated-User-Email` (除去のみの構文) を入れていたが、これは除去するだけで再セットする処理が無く、Cloudflare Access が正当に付与したヘッダーまで一緒に消していた。`console-pi` 上でローカル直叩き (`curl -H 'Cf-Access-Authenticated-User-Email: ...' http://127.0.0.1:8090/api/collections/users/auth-refresh`) では **200** でトークンが発行されることを確認し、Beszel 側 (henrygd/beszel `internal/hub/api.go`) の実装自体は正常と確認した上で、Caddy 側の該当行を削除した。到達制御は既に loopback bind + cloudflared トンネル経由限定で成立しており、この除去は当初から実害の薄い追加防御に過ぎなかった (design.md の記述どおり)。
+
+**(3) TRUSTED_AUTH_HEADER は Beszel 内に事前のユーザーレコードが必要**: henrygd/beszel のソース (`internal/hub/api.go` の `authorizeRequestWithEmail`、`internal/hub/collections.go` の `USER_CREATION`) を調査した結果、`TRUSTED_AUTH_HEADER` はヘッダーの値に一致する `users` コレクションのレコードが**既に存在すること**を前提としており (`FindAuthRecordByEmail` が失敗すると認証はスキップされ通常ログインへ落ちる)、`USER_CREATION=true` は OAuth2/OIDC ログイン経由の自動作成 (`@request.context = 'oauth2'` の CreateRule) にのみ適用され、trusted header 経由では効かないと判明した。ブラウザの `CF_Authorization` Cookie (JWT) から実際に届くメールアドレスが `tochi@kanidm.fickledev.com` であることを確認し、`ansible/inventory/group_vars/console/main.yml` に `beszel_hub_trusted_user_email: tochi@kanidm.fickledev.com` を追加、`beszel_hub` role に superuser トークンでこのメールの `users` レコードを作成するタスクを追加した (存在しない場合のみ、パスワードはランダム生成・未使用)。作成直後は監視対象システムへのアクセス権が無く「No systems found」になったため (`internal/hub/systems/system.go` の `HasUser`)、`hub.env.j2` に `SHARE_ALL_SYSTEMS=true` を追加して解消した。
+
+**検証**: 3 点の修正後、ブラウザで `bsz.fickledev.com` を開くと追加ログインなしで即座に "All Systems" ダッシュボード (監視対象 10 ホスト全て) が表示されることを実機で確認した。
+
+### 16.3 外形監視 (Gatus) の `console-caddy` エントリが陳腐化していた (解決済み)
+
+到達性の実測中、Gatus の状態一覧 (`sts.fickledev.com`) で `console-caddy` エントリが継続的に Unhealthy と表示されていることに気づいた。`gatus_endpoints` の条件が `[STATUS] == 401` のままで、これは 3.1 時点で Caddy 自身が Basic 認証を持っていた旧設計の名残りだった。7.2 で Caddy の Basic 認証を全面撤去し起点ページ (`landing_page_caddy_port`) は無認証の `file_server` になったため、実際には 200 が返るのに条件不一致で Unhealthy 扱いになっていた。`ansible/inventory/group_vars/console/main.yml` の該当条件を `[STATUS] == 200` へ修正し、適用後に Healthy へ復帰したことを確認した。
+
+### 16.4 opnsense-terminal (`ost`) の鍵認証失敗 (未解決、運用者判断で見送り)
+
+`ost.fickledev.com` をブラウザで開くと `(root@192.168.10.1) Password:` というパスワードプロンプトで停止し、3.8 時点で確認できていた鍵認証による自動ログインが成立しなくなっていた。`console-pi-terminal` (`cpt`) は同じ `web_terminal` role・同じ秘密鍵 (`/etc/web-terminal/id_ed25519`) を使いながら正常に自動ログインしており、`ansible/roles/web_terminal/` に本 spec-impl 期間中の変更は無い (`git diff` で確認済み)。原因は OPNsense 側 (`192.168.10.1`、Ansible 管理対象外) の `authorized_keys` またはSSH設定の変化と推測されるが、リポジトリ側からは追跡できない。運用者の判断により、この spec-impl では原因調査・修正を見送り、既知の課題として記録に留める。
+
+### まとめ
+
+| 対象 | 状態 |
+|---|---|
+| DNS・Tunnel ingress・Access destinations (命名是正 + lnd 追加) | ○ 反映済み、7 件全てで Kanidm ログイン画面への誘導を確認 |
+| tailnet 個別公開の撤去 (ローカル serve・VIP Service) | ○ 完了 |
+| AdGuard の代理ログイン | ○ 解決済み、追加の資格情報入力なしに到達を実機確認 |
+| Beszel の trusted header 認証 | ○ 解決済み、追加ログインなしにダッシュボード到達を実機確認 |
+| OPNsense (`osr`) | ○ 仕様通り (自身のログイン画面) |
+| 起点ページ (`lnd`) からの到達 | ○ 6 リンク全てへ到達可能、tailnet 経由セクションは 7.1 により削除済み |
+| 外形監視 `console-caddy` | ○ 陳腐化した監視条件を修正、Healthy 復帰を確認 |
+| `opnsense-terminal` (`ost`) の鍵認証 | ✕ 未解決。OPNsense 側の変化と推測、運用者判断で見送り |
+
+## 17. 起動区画 (`/boot/firmware`) の読み取り専用化 (タスク 6.1、2026-09-10 実施)
+
+要件 2.7 への対応。design.md の `rpi_boot` role 仕様に基づき、`console-pi` (DietPi, aarch64) の `/boot/firmware` (`/dev/mmcblk0p1`, vfat) を読み取り専用へ切り替えた。全パッケージ導入が完了した後、console.yml の最後の play として追加した。
+
+**適用前の実測**: `raspi-config` は未導入 (DietPi のため) だが、`raspi-firmware` パッケージの postinst とカーネル更新フック (`/etc/kernel/postinst.d/z50-raspi-firmware`) が `/boot/firmware` へ書き込む実装であることをスクリプト自体を読んで確認した。適用前の `/etc/fstab` の該当行 (ロールバック参照用): `UUID=16F7-3328 /boot/firmware vfat noatime,lazytime,rw 0 2`。
+
+**新規ファイル**: `ansible/roles/rpi_boot/tasks/main.yml`, `ansible/roles/rpi_boot/templates/50-rpi-boot-rw.j2`
+- `/etc/apt/apt.conf.d/50-rpi-boot-rw` (APT hook) を配置: `DPkg::Pre-Invoke` で remount rw、`DPkg::Post-Invoke` で remount ro (raspi-config の Write-protect と同じ方式)
+- `ansible.posix.mount` で `/etc/fstab` の `/boot/firmware` エントリのオプションから `rw` を除き `ro` を追加、`state: mounted` で実マウントも同時に切り替え
+
+**変更ファイル**: `ansible/playbooks/console.yml` — 全パッケージ導入プレイの最後に `rpi_boot` role の新規 play を追加
+
+**実装時の不具合と修正**: 当初 `ansible.builtin.copy` の `content:` に `{{ ansible_managed }}` を直接書いたところ、`copy` モジュールは template 専用変数 `ansible_managed` を解決できず `'ansible_managed' is undefined` で失敗した。他 role の慣習 (`ansible.builtin.template` + `.j2`) に合わせてテンプレートファイルへ切り出し、`ansible.builtin.template` で配置する形に修正した。
+
+**実機検証 (全て実施、reboot は方針どおり未実施)**:
+- 1 回目適用: `changed=2` (APT hook 配置 + mount 切り替え)。適用後 `mount | grep boot` で `ro` になったこと、SSH 接続が引き続き成立することを確認
+- 2 回目適用: `changed=0` (冪等性確認)
+- `mount -o remount,rw` → `/boot/firmware` への書き込み (`touch` → 削除) 成功 → `remount,ro` で `ro` に戻ることを確認
+- APT hook の実動作: `apt-get install --reinstall -y ca-certificates` の実行前後で `mount | grep boot` を比較し、`dpkg` 実行中は自動で `rw` になり、完了後は自動で `ro` に戻っていることを確認 (Pre/Post-Invoke フックが正しく機能)
+- **reboot は実施していない**。誤って起動不能になった場合の物理復旧はこの spec-impl の権限範囲を超えるため、この spec-impl では reboot を伴う検証を行わない方針とした。次回の実機再起動 (カーネル更新等の機会) で `/boot/firmware` が `ro` のまま正常に起動することを確認する必要がある
+
+## 18. 宣言の不変条件の検査と日常の適用への組み込み (タスク 6.2、2026-09-10 実施)
+
+要件 2.7 への対応。
+
+**不変条件の検査 (既存実装の棚卸しと不足分の追加)**: 受け口のポート・サービス名の一意性 (`console_proxy` role、実装済み)、死活監視の対象と計測 agent 導入ホストの重複禁止 (`gatus` role、`beszel_systems` との intersect 検査、実装済み) は既に各 role に分散して実装されていた。「理由を持たないエントリの不在」については `beszel_hub`/`beszel_alerts`/`web_terminal` の各宣言には既に description 必須の assert があったが、`console_proxy_targets` と `gatus_endpoints` に欠けていたため追加した (`ansible/roles/console_proxy/tasks/main.yml`, `ansible/roles/gatus/tasks/main.yml`)。
+
+**日常の適用への組み込み**: `ansible/playbooks/site.yml` の末尾 (既存ホストへの適用が全て終わった後) に `console.yml` の import を追加した。`console.yml` 冒頭のコメントが予告していた「site.yml への組み込みはタスク 6.2 で行う」を実施した形。
+
+**Console 関連の秘匿値が未設定でも既存ホストへの適用が完走することの確認**: `any_errors_fatal` はどのplaybookにも設定されておらず、`console.yml` は `site.yml` の最後に置かれているため、既存ホスト (`nas`/`gitea`/`pbs`/`vps` 等) への適用は構造的に `console.yml` の成否と無関係に完走する。実機で `infisical run` を経由せず (秘匿値が全て空文字列の状態で) `ansible-playbook playbooks/site.yml --limit console --check --diff` を実行し、`console-pi` の play が assert 失敗で単独 fail することを確認した (`failed=1`、他ホストは対象外のため影響なし)。
+
+**静的検査**: CI (`ansible-galaxy` インストール後に `playbooks/*.yml` 全件へ `--syntax-check`、リポジトリルートから `ansible-lint`) と同じ手順をローカルで実行し、全 playbook の syntax-check 通過、`ansible-lint` (production profile) が 0 failure / 0 warning で通過することを確認した。
+
+## 19. 完走の確認と記録の整合 (タスク 6.3、2026-09-10 実施)
+
+### 19.1 旧環境の機能の再現要否と実際の一致確認
+
+1 章 (セクション 3、タスク 1.3) で決定した旧環境 (`akishima`) の機能ごとの扱いと、実際にこの spec-impl で実装したものを突き合わせた。差分なし。
+
+| 旧環境の機能 | 決定 | 実際 |
+|---|---|---|
+| Guacamole の画面転送 | 代替 (`console_proxy` + `web_terminal`) | ○ 一致。7.5 で全対象への到達を実測確認済み |
+| cloudflared | 同型で引き継ぐ (新規トンネル追加、既存は破棄しない) | ○ 一致。3.7 で新規トンネル追加、既存 `guacamole` トンネルは本タスクの実測 (19.3) でも稼働中を確認 |
+| Prometheus | 再現しない (Gatus/Beszel/host_health が代替) | ○ 一致。4 章で実装済み |
+| Grafana | 再現しない (Gatus/Beszel の内蔵画面が代替) | ○ 一致 |
+| LXQt デスクトップ + RDP | 再現しない (Caddy 経由の Web UI で足りる) | ○ 一致。`osr`/`adg` で到達確認済み |
+| USB シリアルコンソール | 移設しない、`akishima` に残置 | ○ 一致。引き継ぎ先の決定は `admin-plane-cutover` |
+
+### 19.2 保護されない形で置かれていた秘匿値の扱い
+
+1 章 (セクション 3) で確認した「`cloudflared` のトンネル token が `ExecStart=` に平文で存在する」問題について、新しい構成 (`console-pi` 側) では `EnvironmentFile` (0600、`CONSOLE_CLOUDFLARED_TUNNEL_TOKEN`) 経由で供給する形に改め、平文化を解消した (3.7、7.5 で確認済み)。
+
+`akishima` 側の既存 `guacamole` トンネルの token は、本 spec の対象外 (移設せず旧環境に残す資産、1.3 の決定どおり) のため、平文のままである。**この spec-impl の完走確認作業中に、`systemctl cat cloudflared` の実行結果からこの token の実値が誤って手元のログに出力される事故があった。** 影響は旧環境 (`akishima`) の既存トンネル 1 本の token のみで、新構成 (`console-pi`) 側の秘匿値には影響しない。ローテーション (トンネル再作成) の要否は運用者の判断を仰ぐ。交換自体の要否判断は `admin-plane-cutover` (旧環境の実際の停止を担う spec) の範囲。
+
+### 19.3 旧環境の記憶装置の現存確認
+
+`akishima` へ SSH 接続し実測: `/dev/sda` (465.8G) 1 台のみ、パーティション構成 (`sda1` = `/boot/efi`, `sda2` = `/`) に変化なし、使用率 15% (63G/457G)。1.1 の取り決めどおり、消去・再利用の形跡なし。`cloudflared`/`prometheus`/`grafana-server`/`xrdp`/`docker` は全て `active` で稼働継続しており、要件 4.1/4.2 (旧環境ホストは全期間稼働したまま) を満たす。
+
+### 19.4 実行前の禁止事項の違反判定
+
+- **認証基盤の利用者の所属変更と本 spec 作業の並行禁止 (要件 4.3)**: この spec-impl (Ansible/Terraform の変更) からは Kanidm の利用者・グループ所属を変更する操作を一切行っていない。3.8 で記録された `console_access` グループの作成・メンバー追加は運用者自身が実施したものであり、本 spec の作業として行ったものではない。**違反なし**
+- **Proxmox VM 105 への操作禁止 (要件 4.4)**: 全期間を通じて一度も対象にしていない。**違反なし**
+- **永続データを失う操作の前の承認 (要件 4.5)**: この spec-impl で永続データを削除する操作は発生していない (tailnet VIP Service の削除は 7.1 の設計どおりの構成撤去であり、対象サービスへの到達性以外のデータは伴わない)。**違反なし**
+- **既存の到達手段を止めない、旧環境ホストの全期間稼働 (要件 4.1, 4.2)**: 19.3 で確認済み。**違反なし**
+
+### 19.5 到達手段を失ったときの物理的な復旧手順
+
+- **tailnet 経由の到達を失った場合**: `akishima` (Console セグメントに `192.168.10.2` で足を持つ、旧環境ホスト) を踏み台にした SSH ジャンプで `console-pi` (`192.168.10.100`) へ到達できる。同じ鍵 (`ANSIBLE_SSH_PRIVATE_KEY`) がそのまま使える。Ansible からは `--ssh-extra-args="-o ProxyJump=trvlr@akishima"` で利用可能なことを実機で確認した (`admin-plane-cutover` で `akishima` 停止後はこの経路も失われる点に注意)
+- **`akishima` も含め Console セグメントへのネットワーク到達自体を失った場合**: `console-pi` へ物理アクセス (HDMI + キーボードの接続、または `microSD` の取り出し) が必要。6.1 で `/boot/firmware` を読み取り専用化したため、緊急時の boot 設定編集は物理コンソールから `mount -o remount,rw /boot/firmware` を実行するか、`microSD` を取り出して別 PC でマウントする必要がある
+- 上記いずれも、この spec-impl 中に実機で到達可能なことを確認済み (物理アクセスそのものの実演は行っていない)

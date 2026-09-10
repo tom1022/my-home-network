@@ -32,6 +32,13 @@
 - name: Configure unattended security upgrades on Proxmox nodes
   import_playbook: proxmox_unattended_upgrades.yml
 
+# console-pi は既存ホストへの適用が全て終わった後に挿す (タスク 6.2)。
+# console-pi が到達不能でも、あるいは Console 関連の秘匿値が未設定でも
+# (Infisical から空文字列が注入されるだけで、Console の足以外には影響しない)、
+# ここまでの既存ホストへの適用は完走している。
+- name: Configure the Console segment's foothold (console-pi)
+  import_playbook: console.yml
+
 # Deliberately standalone, not imported here: k3s.yml (cluster bootstrap;
 # requires K3S_NODE_TOKEN and is not meant to run on every site.yml pass),
 # argocd.yml (post-bootstrap, one-time Argo CD install),
