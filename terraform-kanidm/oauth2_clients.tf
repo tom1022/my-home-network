@@ -149,3 +149,46 @@ resource "kanidm_oauth2_basic" "guacamole" {
     scopes = ["openid", "profile", "email", "groups"]
   }
 }
+
+# 共有端末ゲートウェイ (gitops-apps の apps/devplatform、devworkspaces.fickledev.com) の
+# `/api/` 配下を呼ぶ統合開発環境クライアント (手元の CLI / VSCode 拡張) 向け。
+#
+# クライアント名はハイフン区切りの `devplatform-gateway` で固定する。他の
+# dev-platform-* とは区切りが揃わないが、Kanidm はクライアントごとに issuer URL と
+# JWKS URL をこの名前から組み立てるため (integrations/oauth2.md)、ゲートウェイ側の
+# 宣言 (apps/devplatform/values.yaml の gateway.oidc.issuer / audience / jwksUrl) と
+# 文字列として一致していなければトークン検証が成立しない。
+#
+# public クライアントとする。トークンを取得するのは開発者マシン上で動く拡張機能であり
+# client_secret を秘匿できない。Kanidm の public クライアントは PKCE を無効化できないため、
+# 認可コード横取りへの対策が登録の時点で強制される。
+#
+# ブラウザ経路 (forward auth 経由の dev_platform_workspace) とは別クライアントにする。
+# ゲートウェイは forward auth を通さず自前で Bearer JWT を検証し、その aud を
+# このクライアント識別子と突き合わせるため、issuer が 1 つに定まっている必要がある。
+#
+# redirect_uris はループバックを個別に列挙する。provider 0.1.10 に Kanidm の
+# localhost リダイレクト一括許可 (oauth2_allow_localhost_redirect) に対応する属性が無く、
+# ポートを含む URI をそのまま宣言する以外に手段がない。拡張機能はここで固定した
+# ポートを bind すること。localhost と 127.0.0.1 の双方を登録するのは、名前解決が
+# ::1 を返す環境で前者が成立しないため。
+#
+# 許可グループは dev_platform_workspace_access を共用する。この API はワークスペースの
+# 払い出し・破棄・証明書発行そのものであり、到達可否の判断対象が
+# 「ワークスペースへ到達してよい利用者」と一致する。別グループを作っても所属は
+# 常に同一になる。
+resource "kanidm_oauth2_public" "devplatform_gateway" {
+  name        = "devplatform-gateway"
+  displayname = "Dev Platform Gateway"
+  origin      = "https://devworkspaces.fickledev.com/"
+
+  redirect_uris = [
+    "http://localhost:8086/oauth2/callback",
+    "http://127.0.0.1:8086/oauth2/callback",
+  ]
+
+  scope_map {
+    group  = kanidm_group.dev_platform_workspace_access.id
+    scopes = ["openid", "profile", "email", "groups"]
+  }
+}
