@@ -52,7 +52,7 @@ locals {
       vmid  = 201
       node  = "hp-z440"
       cores = 4
-      mem   = 8192
+      mem   = 4096
       disk  = 64
       zfs_pools = {
         data = { size = 1000, scsi = 1 }
