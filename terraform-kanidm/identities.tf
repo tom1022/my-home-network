@@ -77,14 +77,13 @@ resource "kanidm_group" "forward_auth_access" {
   description = "forward auth 判定ワークロード (oauth2-proxy) の OIDC クライアントにログインできる利用者"
 }
 
-# Kanidm のドメイン既定の credential_type_minimum は mfa 相当であり (実機確認: 本グループへの
-# 追加なしにパスワードのみで self-service credential update を commit しようとすると
-# "MfaRequired" 警告が出て commit できない)、明示しない限りパスワード単体でのログインが
-# 成立しない。forward auth が保護する対象は Home Assistant / Garage の UI 等 LAN 限定の
-# 低リスクサービスであり、dev_platform_service_access と同じ判断で緩める。
+# forward auth の背後にはブラウザからシェルを実行できる code-server (code.fickledev.com) がある。
+# ワイルドカード DNS と tunnel により forward auth の保護対象はインターネットから到達可能で、
+# local-whitelist は cloudflared Pod 経由の通信を素通しするため、LAN 限定とはみなせない。
+# パスワード単体の突破がそのままシェル実行に繋がるので MFA を必須にする。
 resource "kanidm_account_policy" "forward_auth_access" {
   group                   = kanidm_group.forward_auth_access.name
-  credential_type_minimum = "any"
+  credential_type_minimum = "mfa"
   authsession_expiry      = 86400 # 24h
 }
 
