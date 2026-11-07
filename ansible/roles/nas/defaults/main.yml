@@ -31,3 +31,13 @@ nas_gitea_export_opts_defaults: "rw,sync,no_subtree_check,all_squash"
 # id, so squashing to it leaves the container's writes owned by nobody:nogroup.
 nas_gitea_export_anon_uid: 100999
 nas_gitea_export_anon_gid: 101000
+
+# SMB share (Nextcloud external storage). Credentials come from Infisical via
+# `infisical run`; empty values fail the assert in smb_share.yml.
+nas_smb_share_enabled: true
+nas_smb_share_name: smb
+# Not under shares/: that parent is gitea:gitea 0750 for the NFS export, which
+# would block the SMB user from traversing to the share.
+nas_smb_share_path: "{{ nas_data_mount_path }}/smb"
+nas_smb_user: "{{ lookup('env', 'NEXTCLOUD_SMB_USER') }}"
+nas_smb_password: "{{ lookup('env', 'NEXTCLOUD_SMB_PASSWORD') }}"

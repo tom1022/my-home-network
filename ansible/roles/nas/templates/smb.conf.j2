@@ -1,0 +1,17 @@
+# Managed by Ansible
+[global]
+   workgroup = WORKGROUP
+   server role = standalone server
+   security = user
+   map to guest = never
+   # Only the NAS-local account may connect; no printer or home shares.
+   load printers = no
+   disable spoolss = yes
+
+[{{ nas_smb_share_name }}]
+   path = {{ nas_smb_share_path }}
+   valid users = {{ nas_smb_user }}
+   read only = no
+   browseable = no
+   create mask = 0640
+   directory mask = 0750

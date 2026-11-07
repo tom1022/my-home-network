@@ -6,3 +6,8 @@
   changed_when: false
   register: nas_exportfs_result
   failed_when: nas_exportfs_result.rc != 0
+
+- name: Restart smbd
+  ansible.builtin.service:
+    name: smbd
+    state: restarted
