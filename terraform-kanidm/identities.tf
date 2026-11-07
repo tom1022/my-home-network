@@ -135,3 +135,10 @@ resource "kanidm_account_policy" "nas_access" {
   credential_type_minimum = "any"
   authsession_expiry      = 86400 # 24h
 }
+
+# Nextcloud (cloud.fickledev.com) の OIDC ログインを許可する利用者の集合。所属は宣言しない
+# (人間の利用者の所属を Terraform の管理対象にしない既存の境界に従う)。
+resource "kanidm_group" "nextcloud_access" {
+  name        = "nextcloud_access"
+  description = "Nextcloud (cloud.fickledev.com) にログインできる利用者"
+}

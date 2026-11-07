@@ -192,3 +192,24 @@ resource "kanidm_oauth2_public" "devplatform_gateway" {
     scopes = ["openid", "profile", "email", "groups"]
   }
 }
+
+# Nextcloud (k3s、cloud.fickledev.com) の user_oidc 向け。scope map を持たない利用者は
+# Kanidm が認可を拒否する。prefer_short_username により preferred_username が
+# SPN ではなく短い名前になり、Nextcloud の既存 uid と照合できる。
+# redirect_uris の 2 本目は index.php 付きの URL 書き換え無効の構成で user_oidc が使う形。
+resource "kanidm_oauth2_basic" "nextcloud" {
+  name                  = "nextcloud"
+  displayname           = "Nextcloud"
+  origin                = "https://cloud.fickledev.com/"
+  prefer_short_username = true
+
+  redirect_uris = [
+    "https://cloud.fickledev.com/apps/user_oidc/code",
+    "https://cloud.fickledev.com/index.php/apps/user_oidc/code",
+  ]
+
+  scope_map {
+    group  = kanidm_group.nextcloud_access.id
+    scopes = ["openid", "profile", "email"]
+  }
+}
