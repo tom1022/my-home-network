@@ -20,7 +20,7 @@
   - 完了時、Kanidm の発見文書 `https://kanidm.fickledev.com/oauth2/openid/nextcloud/.well-known/openid-configuration` が応答し、許可グループに属さない利用者には認可が出ない設定になっている
   - _Requirements: 5.1, 5.2, 5.3, 5.4_
 
-- [ ] 1.2 Nextcloud とメール基盤が使うシークレットを Infisical に登録する
+- [x] 1.2 Nextcloud とメール基盤が使うシークレットを Infisical に登録する
   - 設計のキー一覧のうち、この時点で値を用意できるもの (DB のパスワード、OIDC のクライアントシークレット、通知メールの送信アカウントのパスワードと salt、master パスワード、samba の資格情報、宅外のリポジトリの鍵、GDrive の rclone 設定) を登録する
   - OIDC のクライアントシークレットは 1.1 の出力から値を表示せずに登録する
   - GDrive の rclone 設定 (`NEXTCLOUD_BACKUP_RCLONE_CONFIG`) は、既存の Infisical のキー `GARAGE_BACKUP_RCLONE_CONFIG` の値を表示せずに写して登録する。ブラウザでの OAuth は行わない
@@ -29,7 +29,7 @@
   - _Requirements: 3.4, 8.5_
 
 - [ ] 2. メール基盤の認証の追加と NAS の共有
-- [ ] 2.1 (P) k3s の Dovecot に master user を足す
+- [x] 2.1 (P) k3s の Dovecot に master user を足す
   - `mailbox` の Dovecot の設定に `auth_master_user_separator`、master 用 passdb `master_static`、`import_environment` を足す
   - master パスワードを Secret から環境変数 `MASTER_PASSWORD` として Dovecot へ渡す
   - 既存の Kanidm の LDAP passdb には触れない
@@ -38,7 +38,7 @@
   - _Boundary: MailMasterAuth_
   - _Depends: 1.2_
 
-- [ ] 2.2 VPS の docker-mailserver に通知メールの送信アカウントと master user を足す
+- [x] 2.2 VPS の docker-mailserver に通知メールの送信アカウントと master user を足す
   - Dovecot の設定に、LDAP より前に `result_failure = return-fail` 付きの passwd-file passdb `noreply` を置き、LDAP の後に master 用 passdb `master-static` と `import_environment` を置く
   - パスワードファイルを Infisical のパスワードと salt から Ansible の `password_hash` で生成し、`root:dovecot`・`0640` で配置する。再実行で内容が変わらない
   - compose の environment に `MASTER_PASSWORD` を渡す
@@ -46,7 +46,7 @@
   - 完了時、submission 587 の STARTTLS で noreply と `<利用者>*mailmaster` が AUTH PLAIN / LOGIN とも成功し、noreply の誤パスワード 1 回が `fail2ban-regex` で 1 回と数えられる
   - _Requirements: 6.3, 6.4_
 
-- [ ] 2.3 (P) NAS に samba の共有を設ける
+- [x] 2.3 (P) NAS に samba の共有を設ける
   - `ansible/roles/nas` と `host_vars/nas` に samba とローカル利用者を足す。資格情報は Infisical から供給する
   - 共有名はこのタスクで決める
   - 移行元の samba の共有先は空のため、データは移さない
@@ -56,7 +56,7 @@
   - _Depends: 1.2_
 
 - [ ] 3. 公開経路
-- [ ] 3.1 Traefik に Nextcloud 専用のエントリポイントを足す
+- [x] 3.1 Traefik に Nextcloud 専用のエントリポイントを足す
   - `gitops-apps` に `traefik-config` を新設し、`kube-system` の HelmChartConfig `traefik` で `nextcloud` エントリポイント (8444、TLS、PROXY protocol は VPS の tailnet アドレスだけを信頼、外から届いた転送ヘッダは信頼しない、応答の待ち時間の明示) を足す
   - エントリポイントを `externalTrafficPolicy: Local` の NodePort (30443) の追加 Service だけに出す。追加 Service の名前はこのタスクで決める
   - 既存の `web` / `websecure` と既存の LoadBalancer Service には値を足さない
@@ -64,13 +64,13 @@
   - 完了時、VPS から `192.168.1.150〜152:30443` へ接続して Traefik の Pod が載るノードだけが応答し、`websecure` の既存経路の応答とアクセスログの送信元の扱いが変わっていない
   - _Requirements: 3.1, 4.1, 4.7, 4.8, 7.3_
 
-- [ ] 3.2 (P) `cloud.fickledev.com` の A レコードを宣言する
+- [x] 3.2 (P) `cloud.fickledev.com` の A レコードを宣言する
   - `terraform/cloudflare_dns.tf` の `vps_hosts` に `cloud` を `proxied = false`、`aaaa = false` で足す
   - 完了時、`cloud.fickledev.com` の問い合わせがトンネル向けの CNAME ではなく VPS の A レコードを返す
   - _Requirements: 4.1_
   - _Boundary: PublicDnsRecord_
 
-- [ ] 3.3 VPS で `cloud.fickledev.com` を SNI で振り分け、80 番を HTTPS へ転送する
+- [x] 3.3 VPS で `cloud.fickledev.com` を SNI で振り分け、80 番を HTTPS へ転送する
   - HAProxy の `ft_tls` に SNI の振り分けを足し、`bk_nextcloud` に各 k3s ノードの `30443` を `send-proxy-v2` と死活確認付きで並べ、`timeout server` を明示する
   - 振り分けの値は既存の `vps_proxy_xray_sni` と同じ形の変数に置く
   - nginx の 80 番に `cloud.fickledev.com` を HTTPS へ 301 で転送する server ブロックを足す
@@ -79,38 +79,38 @@
   - _Requirements: 4.1, 4.4, 4.6, 4.7, 7.2, 7.3_
 
 - [ ] 4. Nextcloud の宣言
-- [ ] 4.1 namespace と専用ディスクの静的 PV を宣言する
+- [x] 4.1 namespace と専用ディスクの静的 PV を宣言する
   - `gitops-apps` に `apps/nextcloud` を新設し、namespace と `/var/lib/nextcloud` の hostPath 静的 PV / PVC (Retain、`claimRef` 固定、PV と PVC の双方に `Prune=false,Delete=false`) を置く
   - ディスク内を `html/`・`data/`・`dump/` の 3 つに分ける配置を前提にする
   - ワイルドカード証明書の reflector の複製先に `nextcloud` を足す
   - 完了時、ArgoCD の同期で PVC が Bound になり、PV と PVC に Garage と同じ削除除外の注記があることを確かめられる
   - _Requirements: 3.1, 3.2, 3.3_
 
-- [ ] 4.2 Infisical のシークレットを Nextcloud の namespace へ供給する
+- [x] 4.2 Infisical のシークレットを Nextcloud の namespace へ供給する
   - アプリ用と退避用の InfisicalStaticSecret を `components/infisical-common` を取り込んで置く。値は参照するキー名だけを書く
   - 完了時、`nextcloud` namespace に必要な Secret が作られ、リポジトリにシークレットの値が含まれない
   - _Requirements: 2.9, 3.4_
 
-- [ ] 4.3 Nextcloud 専用の CNPG Cluster を宣言する
+- [x] 4.3 Nextcloud 専用の CNPG Cluster を宣言する
   - `nextcloud-db` を `instances: 1`、PostgreSQL 17 の `imageName` 明示、local-path、k3s-agent-z440 への固定、`Prune=false,Delete=false` で置く
   - `bootstrap.initdb` に Infisical 由来の資格情報を与え、`backup:` は設定しない
   - 資源の値は設計の仮の値で置く
   - 完了時、`nextcloud-db` が Ready になり、利用者 `nextcloud` で DB `nextcloud` に接続できる
   - _Requirements: 3.3, 3.5, 12.4_
 
-- [ ] 4.4 Redis と、namespace の外からの接続を拒否する NetworkPolicy を宣言する
+- [x] 4.4 Redis と、namespace の外からの接続を拒否する NetworkPolicy を宣言する
   - 永続化しない Redis の Deployment と Service を置く
   - NetworkPolicy で Redis への接続を `nextcloud` namespace 内に限る。DB には掛けない
   - 完了時、namespace 内からは Redis に接続でき、他の namespace からの接続が拒否される
   - _Requirements: 3.5_
 
-- [ ] 4.5 変換用の一時 MariaDB を宣言する
+- [x] 4.5 変換用の一時 MariaDB を宣言する
   - `migration-mariadb` を `mariadb:10.11`、`emptyDir`、k3s-agent-z440 への固定、namespace 内のみの Service で置く
   - 利用者 `nextcloud` のパスワードを DB のパスワードと共用で Secret から与える
   - 完了時、一時 MariaDB が起動し、利用者 `nextcloud` で接続できる
   - _Requirements: 12.9, 12.10_
 
-- [ ] 4.6 Nextcloud 本体の Deployment と Service を宣言する
+- [x] 4.6 Nextcloud 本体の Deployment と Service を宣言する
   - 公式の Apache 版 `30.0.17` をダイジェストで固定し、`app` と `cron` の 2 コンテナ、`Recreate`、k3s-agent-z440 への固定、`replicas: 0` で置く
   - 専用ディスクの `html/` を `/var/www/html` に、`data/` を `/media/hdd0` にマウントする
   - `secret`・`passwordsalt`・DB のパスワード・通知メールのパスワードを環境変数で与え、管理者の自動導入の環境変数は与えない
@@ -119,7 +119,7 @@
   - 完了時、`kustomize build` が通り、同期後に Deployment が `replicas: 0` で存在して Pod が起動していない
   - _Requirements: 2.9, 3.1, 3.5, 3.7, 7.1, 7.3_
 
-- [ ] 4.7 IngressRoute と拒否のルートを宣言する
+- [x] 4.7 IngressRoute と拒否のルートを宣言する
   - 本体と、パスワードログインの POST を 403 にするルートの 2 つの IngressRoute を `nextcloud` エントリポイントだけに付ける。`websecure` には付けない
   - 拒否のルートの Middleware は到達しえない値を明示した `ipAllowList` にする
   - 本体のルートに HSTS を付け、ServersTransport の待ち時間を明示する
@@ -127,7 +127,7 @@
   - _Requirements: 4.1, 4.2, 4.8, 5.7, 7.2, 7.3_
   - _Depends: 3.1_
 
-- [ ] 4.8 Configure の段の冪等なスクリプトを ConfigMap として宣言する
+- [x] 4.8 Configure の段の冪等なスクリプトを ConfigMap として宣言する
   - `configure.sh` に、config.php の値、通知メールの送信設定、`hide_login_form` と `lost_password_link`、user_oidc の appconfig とシステム設定、provider の登録 (あれば更新)、files_external の `/SMB` の接続先を NAS へ替える更新、継続しないアプリの無効化と継続するアプリの版の確認 (下回れば失敗で終える)、管理者のアプリパスワードの発行 (同名のトークンを消して作り直す) を入れる
   - トークン名はこのタスクで決める
   - 資格情報は Secret の環境変数から読み、コマンド行に書かない
@@ -135,7 +135,7 @@
   - _Requirements: 4.2, 4.5, 5.1, 5.3, 5.6, 5.7, 6.4, 10.5_
   - _Depends: 1.1, 2.3_
 
-- [ ] 4.9 退避の CronJob を停止状態で宣言する
+- [x] 4.9 退避の CronJob を停止状態で宣言する
   - CronJob `nextcloud-backup` を `suspend: true`、`Asia/Tokyo` の仮の時刻、`Forbid`、`startingDeadlineSeconds`、`backoffLimit: 0`、k3s-agent-z440 への固定で置く
   - rclone の実行ファイルを写す init container の後に、保守モードの確認と有効化、`pg_dump`、宅内への `restic backup`、保守モードの解除、宅外への `copy` と `forget` / `prune` と GDrive の総量の確認の段を、設計の失敗時の扱いどおりに並べる
   - 宅外の restic と `rclone size` に `RCLONE_DRIVE_STOP_ON_UPLOAD_LIMIT=true` を与え、総量が 4 TB の閾値 (仮) を超えたら失敗で終える
@@ -147,7 +147,7 @@
 ## Phase 2: リハーサルと実測
 
 - [ ] 5. 関門 A0 と移行元からの取り出し
-- [ ] 5.1 関門 A0 の前提を確かめてから移行元に一時の公開鍵を足す
+- [x] 5.1 関門 A0 の前提を確かめてから移行元に一時の公開鍵を足す
   - 前提 (Phase 1 の宣言が済んでいること) をコマンドの結果で確かめ、満たさなければ止まって報告する
   - 鍵を足す場所、鍵 (scratchpad に置いた一時のもの)、削除の手順を `manual-operations.md` に記録する
   - 接続の前に、接続先が VM 105 であることをホスト名とホスト鍵で確かめる (VM 110 と IP が重複しているため)
@@ -161,7 +161,7 @@
   - _Requirements: 2.8, 12.7_
   - _Boundary: MigrationRecords_
 
-- [ ] 5.3 移行元から読み取りだけでファイル・設定・DB を取り出す
+- [x] 5.3 移行元から読み取りだけでファイル・設定・DB を取り出す
   - k3s-agent-z440 のホストから、各利用者の `files_trashbin/` を除いてデータディレクトリを数値の所有者を保って rsync で `data/` へ写す
   - `config/config.php` だけを取り、コードは取らない
   - `mysqldump --single-transaction` を移行元で実行し、出力を ssh 経由で移行先に受ける。移行元のディスクに書かない
