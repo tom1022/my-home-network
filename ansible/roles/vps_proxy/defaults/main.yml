@@ -26,6 +26,12 @@ vps_proxy_backend_port: 32080
 vps_proxy_xray_sni: []
 # - appflowy.fickledev.com
 
+# SNI names routed to the Nextcloud backend (Traefik `nextcloud` entrypoint,
+# NodePort on every k3s node; PROXY protocol v2 so Traefik sees the client IP).
+vps_proxy_nextcloud_sni:
+  - cloud.fickledev.com
+vps_proxy_nextcloud_node_port: 30443
+
 vps_proxy_required_packages:
   # Use nginx package that includes the `stream` module (Debian/Ubuntu: nginx-full)
   - nginx-full

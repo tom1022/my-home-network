@@ -24,6 +24,9 @@ frontend ft_tls
     use_backend bk_xray if { req.ssl_sni -i {{ sni }} }
     {% endfor %}
     {% endif %}
+    {% for sni in vps_proxy_nextcloud_sni %}
+    use_backend bk_nextcloud if { req.ssl_sni -i {{ sni }} }
+    {% endfor %}
     default_backend bk_web
 
 # XRay backend (TCP passthrough to k3s nodes)
@@ -36,6 +39,16 @@ backend bk_xray
     server xray_{{ loop.index }} {{ _ip }}:{{ vps_proxy_backend_port | default(32080) }} check inter 10s
 {% endfor %}
 {% endif %}
+
+# Nextcloud backend (TCP passthrough to Traefik nextcloud entrypoint on k3s nodes)
+backend bk_nextcloud
+    mode tcp
+    balance leastconn
+    timeout server 1h
+{% for h in groups['k3s'] | default([]) %}
+{% set _ip = hostvars[h].ansible_host | default(hostvars[h].inventory_hostname) %}
+    server nextcloud_{{ loop.index }} {{ _ip }}:{{ vps_proxy_nextcloud_node_port }} send-proxy-v2 check inter 10s
+{% endfor %}
 
 # Default web passthrough backend -> local nginx on loopback
 backend bk_web
