@@ -774,6 +774,7 @@ stateDiagram-v2
   | `ports.nextcloud.forwardedHeaders.trustedIPs` | 空 |
   | `ports.nextcloud.transport.respondingTimeouts` | `readTimeout: 0`、`writeTimeout: 0`、`idleTimeout: 180s` |
   | `service.additionalServices.nextcloud` | `type: NodePort`、`spec.externalTrafficPolicy: Local` |
+  | `logs.access.enabled` | true (全エントリポイントに効く。送信元の検証に使う。出力先は標準出力のみ) |
 
 - 既存の `web` / `websecure` と既存の LoadBalancer Service には値を足さない (4.8)。
 
