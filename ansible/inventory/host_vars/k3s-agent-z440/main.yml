@@ -35,3 +35,8 @@ agent_data_disks:
     partition_number: 1
     filesystem_type: "xfs"
     mount_path: "/var/lib/garage-data"
+
+# rsync は VM 105 から /var/lib/nextcloud への Nextcloud の取り出しと切り替え時の差分同期に使う。
+storage_disk_base_packages:
+  - parted
+  - rsync
