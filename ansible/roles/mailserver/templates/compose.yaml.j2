@@ -69,6 +69,8 @@ services:
       ENABLE_AMAVIS: "{{ 1 if mailserver_enable_amavis else 0 }}"
       # 認証済みの送信への検査適用可否の明示的な宣言。
       RSPAMD_CHECK_AUTHENTICATED: "{{ 1 if mailserver_rspamd_check_authenticated else 0 }}"
+      # Dovecot の master 用 passdb (dovecot.cf) が import_environment 経由で参照する。
+      MASTER_PASSWORD: {{ mailserver_master_password | replace('$', '$$') | to_json }}
     volumes:
       - {{ mailserver_data_dir }}/mail-data:/var/mail/
       - {{ mailserver_data_dir }}/mail-state:/var/mail-state/
@@ -77,5 +79,6 @@ services:
       - {{ mailserver_ldap_config_dir }}/ldap.conf:/etc/ldap/ldap.conf:ro
       # live/ の中身は archive/ を指すシンボリックリンクのため、live 配下だけを
       # 切り出さずディレクトリ全体を読み取り専用でマウントする (DMS 公式手順どおり)。
+      - {{ mailserver_base_dir }}/noreply.passwd:/etc/dovecot/noreply.passwd:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /etc/localtime:/etc/localtime:ro

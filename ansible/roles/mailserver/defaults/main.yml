@@ -125,3 +125,10 @@ mailserver_rspamd_check_authenticated: true
 # (ansible/roles/mailserver/tasks/main.yml, templates/rspamd-dkim-signing.conf.j2)。
 mailserver_dkim_domain: "{{ vps_proxy_domain_main }}"
 mailserver_dkim_selector: mail
+
+# 通知メール (Nextcloud) の送信アカウント。Kanidm に service account を作れない
+# (アプリケーションパスワードは person 専用) ため、passwd-file の passdb で認証する。
+mailserver_noreply_address: "noreply@{{ vps_proxy_domain_main }}"
+# コンテナ内の dovecot グループの gid。auth プロセスは dovecot ユーザーで動くため、
+# bind mount したパスワードファイルをこの gid で読めるようにする。
+mailserver_dovecot_gid: 111

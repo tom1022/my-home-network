@@ -7,6 +7,9 @@ vps_proxy_mydns_master_password: "{{ lookup('env', 'MYDNS_MASTER_PASSWORD') }}"
 
 mailserver_ldap_search_password: "{{ lookup('env', 'MAIL_LDAP_SEARCH_PASSWORD') }}"
 mailserver_dkim_private_key: "{{ lookup('env', 'MAIL_DKIM_PRIVATE_KEY') }}"
+mailserver_noreply_password: "{{ lookup('env', 'NEXTCLOUD_MAIL_SMTP_PASSWORD') }}"
+mailserver_noreply_salt: "{{ lookup('env', 'NEXTCLOUD_MAIL_SMTP_SALT') }}"
+mailserver_master_password: "{{ lookup('env', 'MAIL_MASTER_PASSWORD') }}"
 
 vps_proxy_domain_main: fickledev.com
 vps_proxy_domain_www: www.fickledev.com

@@ -5,9 +5,13 @@
     that:
       - mailserver_ldap_search_password | default('') | length > 0
       - mailserver_dkim_private_key | default('') | length > 0
+      - mailserver_noreply_password | default('') | length > 0
+      - mailserver_noreply_salt | default('') | length > 0
+      - mailserver_master_password | default('') | length > 0
     fail_msg: >-
       Mail platform credentials are missing. Supply them via Infisical
-      (MAIL_LDAP_SEARCH_PASSWORD, MAIL_DKIM_PRIVATE_KEY) and run this
+      (MAIL_LDAP_SEARCH_PASSWORD, MAIL_DKIM_PRIVATE_KEY, NEXTCLOUD_MAIL_SMTP_PASSWORD,
+      NEXTCLOUD_MAIL_SMTP_SALT, MAIL_MASTER_PASSWORD) and run this
       playbook through `infisical run --env=prod -- ansible-playbook ...`.
 
 # 受信/送信の待受に用いる証明書は本ロールでは発行しない。vps_proxy ロールが管理する
@@ -116,6 +120,19 @@
     path: "{{ mailserver_dms_config_dir }}/postfix-accounts.cf"
     state: absent
 
+# salt を固定するため、再実行しても内容は変わらない。auth プロセスは dovecot ユーザー
+# (root:root 0600 だと認証サーバーとの接続断で失敗する) なので root:dovecot の gid で 0640。
+- name: Deploy the noreply passwd-file (contains a password hash)
+  become: true
+  ansible.builtin.copy:
+    content: "{{ mailserver_noreply_address }}:{{ mailserver_noreply_password | password_hash('sha512', mailserver_noreply_salt) }}\n"
+    dest: "{{ mailserver_base_dir }}/noreply.passwd"
+    owner: root
+    group: "{{ mailserver_dovecot_gid }}"
+    mode: "0640"
+  register: mailserver_noreply_passwd_file
+  no_log: true
+
 - name: Deploy the mailserver compose file (contains the LDAP search bind password)
   become: true
   ansible.builtin.template:
@@ -185,7 +202,7 @@
   ansible.builtin.command:
     cmd: >-
       docker compose up -d
-      {{ '--force-recreate' if (mailserver_config_files.changed or mailserver_dkim_key_file.changed) else '' }}
+      {{ '--force-recreate' if (mailserver_config_files.changed or mailserver_dkim_key_file.changed or mailserver_noreply_passwd_file.changed) else '' }}
     chdir: "{{ mailserver_base_dir }}"
   register: mailserver_compose_up
   changed_when: >-
