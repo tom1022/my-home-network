@@ -217,3 +217,56 @@ deck 1.19.1 は App Store から消えているため、gitops-apps の `configu
 ### 所要時間
 
 SHA-256 の一覧の作成は移行元側・移行先側とも約 37 分 (並行)。比較は数秒。
+
+## 公開経路と管理画面の状態 (タスク 7.3、2026-11-08)
+
+これはリハーサルの実測で、切り替え前の状態を対象にした。リクエストは宅内のワークステーションから送ったが、公開 DNS が VPS に解決されるため、VPS を経由する宅外と同じ経路を通った (送信元は宅のグローバル IP)。
+
+### 公開経路
+
+| 項目 | 結果 |
+|-----|-----|
+| `https://cloud.fickledev.com/status.php` | HTTP 200、証明書の検証結果 0 (成功)。本文は `installed: true`、`maintenance: false`、`versionstring: 35.0.2` |
+| `http://cloud.fickledev.com/` | 301、`Location: https://cloud.fickledev.com/` (応答の `Server` は nginx) |
+| 証明書 | SAN は `*.fickledev.com`、発行者は Let's Encrypt (CN=YR1)、有効期間は 2026-11-02 から 2027-01-31 |
+
+### Traefik のアクセスログの送信元
+
+| エントリポイント | リクエスト | ログの送信元 | 判定 |
+|-----|-----|-----|-----|
+| `nextcloud` | `GET /status.php` (ルータ `nextcloud-nextcloud`) | 利用者のアドレス (リクエスト元のグローバル IP と一致) | 4.7 を満たす。VPS の tailnet アドレスに置き換わっていない |
+| `websecure` | `GET /healthz` (`argocd.fickledev.com`、認証不要) | k3s-server 上の `svclb-traefik` の Pod アドレス (10.42.0.76)。LAN 内から LoadBalancer 経由で入ったため | 既存の挙動。HelmChartConfig が `websecure` に値を足していないこと (`forwardedHeaders.trustedIPs: []` は `nextcloud` ポートの設定) を確認した |
+| `websecure` (Cloudflare Tunnel 経由) | `hermes` ルータの複数行 | cloudflared の Pod アドレス (10.42.2.22) | 既存の挙動 |
+
+design.md には `websecure` の送信元の期待値が具体値で書かれていない (「変わらないこと」だけ)。導入前のログは取得していないため、「導入前と同じ形」は、`websecure` の設定に差分が無いことと、送信元がクラスタ内のプロキシ (svclb、cloudflared) のアドレスであることから判断した。導入前後のログの直接比較は未実施。
+
+### セキュリティと設定の警告 (`occ setupchecks`)
+
+69 項目中 success 62、info 5、warning 2。error は 0。
+
+| 区分 | 項目 | 内容 | 原因の見立て |
+|-----|-----|-----|-----|
+| warning | MimeTypeMigrationAvailable | mimetype の移行が可能 | 移行したデータに対する通常の保守項目。プロキシ・ホスト名とは無関係 |
+| warning | DatabaseHasMissingIndices | 省略可能なインデックスが未作成 | アップグレード後の保守項目 (`occ db:add-missing-indices`)。プロキシ・ホスト名とは無関係 |
+| info | DaemonCheck (AppAPI) | 既定のデプロイデーモン未登録 | 外部アプリを使わないため該当しない |
+| info | TwoFactorConfiguration | 2 要素認証が強制されていない | 運用方針の項目 |
+| info | ServerIdConfig | `serverid` 未設定 | 単一 PHP サーバーのため不要 |
+| info | BruteForceThrottler | リモートアドレスを判定できない | CLI にはクライアントの接続が無いための表示 |
+| info | ForwardedForHeaders | リモートアドレスを判定できない | 同上 |
+
+リバースプロキシとホスト名の設定: `trusted_proxies` は `10.42.0.0/16`、`forwarded_for_headers` は `HTTP_X_FORWARDED_FOR`、`overwriteprotocol` は `https`、`overwrite.cli.url` は `https://cloud.fickledev.com`、`trusted_domains` は `cloud.fickledev.com` のみ。`overwritehost` は未設定。
+
+CLI で判定できない項目: BruteForceThrottler と ForwardedForHeaders はブラウザからのリクエストの `REMOTE_ADDR` で判定されるため、CLI では info になる。この 2 項目と、ブラウザのリクエストで判定される他の項目 (HTTPS 判定、ヘッダ、WebDAV 等) は、管理画面での表示を確認していないので、リバースプロキシ起因の警告が無いことは CLI の範囲では確認できたが、管理画面では未検証。
+
+### 背景ジョブ
+
+- `backgroundjobs_mode`: `cron`
+- `lastcron`: 1794119703 (2026-11-08 15:35:03 JST)。確認時刻 15:36 の約 1 分前で、定期的に実行されている。
+- 管理画面での表示は未検証 (ブラウザのログインが必要なため)。
+
+### 未検証の項目
+
+- 管理画面の「セキュリティと設定の警告」の表示 (ブラウザのログインが必要)。CLI の `setupchecks` で代替した範囲は上記のとおり。
+- 管理画面での背景ジョブの最終実行時刻の表示。
+- `websecure` の送信元の導入前後の直接比較。
+- 実際の宅外の回線 (携帯回線等) からの接続。今回は宅内のワークステーションから VPS を経由した。
