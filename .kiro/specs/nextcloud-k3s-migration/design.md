@@ -974,7 +974,7 @@ stateDiagram-v2
   1. 新 uid が無ければ `occ user:add <新uid> --password-from-env` で作る。パスワードは `OC_PASS` にランダム値を生成して渡す (画面ログインは `hide_login_form` と `token_auth_enforced` で使わない)。表示名とメールアドレスは旧 uid から `occ user:info` で読み、`--display-name` と `occ user:setting <新uid> settings email` に入れる (Mail の `%EMAIL%` が要る)。存在は `occ user:info` で確かめる。
   2. `occ dav:list-calendars <旧uid>` で得たカレンダー (自動生成の `contact_birthdays` を除く) を、`occ dav:move-calendar <uri> <旧uid> <新uid>` で移す。新 uid の初回ログインで既定のカレンダーが作られて衝突するため、初回ログインより前に行う。残りは `list-calendars` で確かめる。
   3. `occ deck:transfer-ownership <旧uid> <新uid> --remap` を実行する。確認のプロンプトには標準入力で `y` を渡す。
-  4. `occ files:transfer-ownership <旧uid> <新uid> --move` を実行する。`--include-external-storage` は付けない (`/SMB` は全員向けの外部ストレージのため)。新 uid のホームが空でないと失敗するため、`skeletondirectory` を空にしておく (Configure (a))。リンク共有の URL は変わらない。
+  4. `occ files:transfer-ownership <旧uid> <新uid> --move` を実行する。`--include-external-storage` は付けない (`/SMB` は全員向けの外部ストレージのため)。新 uid のホームが空でないと失敗する。`occ user:add` はスケルトンを置かず、スケルトンは初回ログイン時に置かれるため、この時点のホームは空である。初回ログインは Configure (a) が `skeletondirectory` を空にした後なので、移したファイルにスケルトンは重ならない。リンク共有の URL は変わらない。
   5. `occ group:adduser admin <新uid>` で admin グループへ入れる。
   6. 検証してから `occ user:delete <旧uid>` を実行する。検証項目は、旧 uid のファイルとバージョン履歴が新 uid に揃っていること、共有の owner、カレンダーと Deck の owner。`--move` でバージョン履歴が追従するかはリハーサルで実測する。追従しなければ `user:delete` で失われるため、削除せず止まる。
   - 製品に移す機能が無いもの: アドレス帳、アクティビティ履歴、アプリパスワードとセッション (端末は再ログインする)、アバター、ユーザーステータス、Circles の所属、2 要素認証の状態、手で登録した Mail アカウント (パスワード認証)。
