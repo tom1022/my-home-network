@@ -218,7 +218,7 @@
   - _Requirements: 6.2, 6.3_
 
 - [ ] 6.7 アカウントの付け替えスクリプトを作り、移行先へ適用する
-  - gitops-apps の `apps/nextcloud/scripts/reassign-account.sh` を設計の Reassign の順に作る。`configure.sh` と同じ置き場所・同じ実行 (www-data で runuser) にする。旧 uid と新 uid は環境変数で渡し、各手順は済んでいれば飛ばす
+  - gitops-apps の `apps/nextcloud/scripts/reassign-account.sh` を設計の Reassign の順に作る。`configure.sh` と同じ置き場所・同じ実行 (www-data で runuser) にする。旧 uid と新 uid は環境変数で渡し、各手順は済んでいれば飛ばす。ユーザー設定は設計の除外分を除いて `occ user:setting` で 1 件ずつ移す
   - `configure.sh` (a) に `skeletondirectory` (空文字)、`default_language` (`ja`)、`default_locale` (`ja_JP`)、`default_timezone` (`Asia/Tokyo`) を足す
   - 移行先へ適用し、`--move` でバージョン履歴が追従するかと所要時間を実測して記録する。追従しなければ旧アカウントを削除せず止まって報告する
   - 2 回続けて実行して結果が変わらないことを確かめる
