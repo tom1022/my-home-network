@@ -951,6 +951,9 @@ stateDiagram-v2
   | `apps_paths` | 公式イメージの `apps` と `custom_apps` (NextcloudApp) |
   | `datadirectory` | `/media/hdd0` のまま |
 | `logfile` | 削除する。移行元の `/var/log/nextcloud.log` はコンテナ内で www-data が書けない。未設定なら `log_type` が `file` のまま `datadirectory` 直下の `nextcloud.log` (hostPath 上) に書かれ、管理画面のログ表示 (logreader) も使える。`log_type`・`log_rotate_size`・`loglevel` は移行元のまま |
+| `app_install_overwrite` | 削除する。移行元の値は継続しないアプリだけで、残すとそのコードが入ったときに max-version を無視して有効化される |
+
+- **Stage のアプリの扱い**: `occ upgrade` の前に、分類表で継続しないアプリを `occ app:disable` で `enabled=no` にする (コードが無くても DB の値だけが変わる)。Updater は `enabled=yes` のままコードが無いアプリを非互換として無効化した後、同じ実行の中で App Store から新しい版の対応版を取って有効に戻す (`Updater::upgradeAppStoreApps` の auto-disabled の経路)。これを放置すると継続しないアプリが入り、後の段で旧 API のコードが読み込まれて upgrade が致命的エラーで止まる。`enabled=no` のアプリはこの経路に乗らない。継続するアプリは `enabled=yes` のままなので、各段の upgrade で App Store の対応版に更新される。`occ upgrade` の後に `occ app:list` で、有効な非同梱アプリが継続するアプリだけであることを確かめる。
   | `secret`、`passwordsalt`、`instanceid` | 移行元のまま保つ (2.9) |
 
 - **段の表** (各段の組み合わせは公式の対応範囲内、12.9):

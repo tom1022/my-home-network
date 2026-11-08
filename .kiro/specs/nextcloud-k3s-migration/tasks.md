@@ -171,7 +171,7 @@
   - _Requirements: 1.2, 2.2, 2.3, 2.4, 2.9, 9.2_
 
 - [ ] 6. 移行先での段階更新と変換 (リハーサル)
-- [x] 6.1 Stage: 一時 MariaDB と `config.php` を用意し、30.0.17 で起動する
+- [ ] 6.1 Stage: 一時 MariaDB と `config.php` を用意し、30.0.17 で起動する
   - ダンプを一時 MariaDB に読み込む
   - `config.php` の DB の接続先・Redis・ローカルキャッシュ・`apps_paths` を設計の表どおりに書き換え、`datadirectory`・`secret`・`passwordsalt`・`instanceid` は移行元のまま `html/config/` に置き、公式イメージの `apps.config.php` を置く
   - `replicas: 1` にする commit を積む
