@@ -24,6 +24,5 @@ argocd_oidc_client_id: argocd
 # RBAC group-to-role mapping (argocd-rbac-cm, requirement 26.22). The exact string Kanidm
 # puts in the ID token's `groups` claim is the group's SPN (`<name>@<domain>`), not its bare
 # name -- confirmed against a real token obtained via the deployed argocd Kanidm client.
-# Must match terraform-kanidm/identities.tf (kanidm_group.argocd_admins / argocd_viewers).
+# Must match terraform-kanidm/identities.tf (kanidm_group.argocd_admins).
 argocd_oidc_admin_group: "argocd_admins@kanidm.fickledev.com"
-argocd_oidc_viewer_group: "argocd_viewers@kanidm.fickledev.com"

@@ -32,7 +32,6 @@ spec:
         policy.default: ''
         policy.csv: |
           g, {{ argocd_oidc_admin_group }}, role:admin
-          g, {{ argocd_oidc_viewer_group }}, role:readonly
       params:
         server.insecure: true
     server:
