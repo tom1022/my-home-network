@@ -140,3 +140,39 @@ user_oidc は `occ app:install user_oidc` で 8.13.0 が入った (App Store の
 | oc_mail_messages | 一致 |
 | oc_deck_assigned_labels、oc_deck_assigned_users、oc_deck_attachment、oc_deck_board_acl、oc_deck_boards、oc_deck_cards、oc_deck_labels、oc_deck_sessions、oc_deck_stacks | 一致 (存在する 9 テーブルを個別に比較) |
 | oc_files_versions | 一致 |
+
+## 32 から 35 への段階更新 (タスク 6.3、2026-11-08)
+
+32.0.15、33.0.10、34.0.5、35.0.2 の順にイメージのタグを変える commit を 1 段ずつ積んだ。4 段とも upgrade は成功し、Pod は再起動せず、各段の後に `cron.php` を 3 回実行して終了コードはすべて 0 だった。`occ app:update --all` は実行していない。
+
+### 段ごとの結果
+
+| 段 | イメージ (index digest) | upgrade の所要時間 (起動ログの `Initializing` から `Update successful`) | upgrade で無効化 → 同じ実行で更新されたアプリ | 同じ実行で App Store から更新されたアプリ |
+|-----|-----|-----|-----|-----|
+| 32.0.15 | `nextcloud:32.0.15-apache@sha256:68feaa8992524ac26b4c00194b81c1ae6dc8e9f412ac82de0c5f4d4a2ee4bbcd` | 約 52 秒 | deck | calendar、contacts、mail、deck |
+| 33.0.10 | `nextcloud:33.0.10-apache@sha256:1a18e5248b836a2f925ce553bd28d7dd69b0205632372f4c506356342182be8e` | 約 35 秒 | deck | contacts、deck |
+| 34.0.5 | `nextcloud:34.0.5-apache@sha256:b89746a4febc93de82141921417f43b0d5ce69c3746feb485372559e9fbeec3f` | 約 42 秒 | deck | deck |
+| 35.0.2 | `nextcloud:35.0.2-apache@sha256:d88929dc8386420b8963f86cabb667fdaf733eef9dcf8fc98e226801a32c023c` | 約 41 秒 | deck | deck |
+
+各段で `occ status` は目標の版、`needsDbUpgrade` false、`maintenance` false を返した。継続しないアプリ (drawio、extract、maps、metadata、recognize、richdocuments、richdocumentscode) は、各段で `occ app:list --shipped=false` に有効としても無効としても現れず、`custom_apps/` にもディレクトリが無い (calendar、contacts、deck、mail、tasks、user_oidc の 6 つだけ)。files_external は各段で有効 (32 は 1.24.1、33 は 1.25.1、34 は 1.26.0、35 は 2.0.0)。
+
+### 継続アプリと user_oidc が導入された版
+
+| アプリ | 31 | 32 | 33 | 34 | 35 | 版の表の 35 列 |
+|-----|-----|-----|-----|-----|-----|-----|
+| calendar | 5.5.24 | 6.6.5 | 6.6.5 | 6.6.5 | 6.6.5 | 6.6.4 |
+| contacts | 7.3.19 | 8.3.21 | 8.9.5 | 8.9.5 | 8.9.5 | 8.9.3 |
+| deck | 1.15.12 | 1.16.9 | 1.17.8 | 1.18.6 | 1.19.2 | 1.19.2 |
+| tasks | 0.18.1 | 0.18.1 | 0.18.1 | 0.18.1 | 0.18.1 | 0.18.1 |
+| mail | 5.6.21 | 5.13.1 | 5.13.1 | 5.13.1 | 5.13.1 | 5.12.6 |
+| user_oidc | 8.13.0 | 8.13.0 | 8.13.0 | 8.13.0 | 8.13.0 | 8.11.0 |
+
+6 つとも 35 で版の表の 35 列以上であり、すべて有効。
+
+### Mail の版
+
+32 の段で mail は 5.6.21 から 5.13.1 に更新され、要件の 5.10.14 以上を満たした。33・34・35 でも 5.13.1 のまま有効で、35.0.2 の有効化時の DB 移行を含む upgrade は成功している。
+
+### Configure への反映
+
+deck 1.19.1 は App Store から消えているため、gitops-apps の `configure.sh` の `KEEP_APPS` を `deck:1.19.2` に直した。
