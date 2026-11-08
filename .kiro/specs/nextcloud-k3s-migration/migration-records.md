@@ -291,3 +291,11 @@ CLI で判定できない項目: BruteForceThrottler と ForwardedForHeaders は
 
 - Configure (e) が新 uid でアプリパスワードを発行し、Infisical の `NEXTCLOUD_MAIL_PROVISIONING_AUTH` を値を表示せずに登録し直した。登録した値と k8s の Secret の値が一致することをハッシュで確かめた。
 - `mail-provisioning-rehearsal-2` (gitops-apps `7228754`) が成功し、新 uid に provisioning の Mail アカウントが付いた。
+
+## 管理画面での確認 (タスク 7.3 の残り、2026-11-08)
+
+- Kanidm でログインした管理者の画面で、「セキュリティ&セットアップ警告」を確かめた。
+  - ブルートフォース対策制限のエラーは、識別された接続アドレスが利用者の実際の送信元で、リバースプロキシ起因ではなかった。付け替え前のログイン失敗で記録された試行によるもので、`occ security:bruteforce:reset` で解除した。
+  - 「データベースに存在しないインデックス」と「Mimetype の移行が可能」は、Configure (f) の 2 コマンド (gitops-apps `d2412b6`) を移行先で実行し、`occ setupchecks` で success になった。
+  - 残りは情報の表示 (AppAPI のデプロイデーモン未設定、第二要素の強制なし、サーバー ID 未設定) で、リバースプロキシ起因の警告は無い。
+- 「バックグラウンドジョブ」は Cron が選ばれ、最終ジョブ実行は 3 分前と表示された。
