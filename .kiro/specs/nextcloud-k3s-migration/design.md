@@ -950,6 +950,7 @@ stateDiagram-v2
   | `memcache.local` | APCu |
   | `apps_paths` | 公式イメージの `apps` と `custom_apps` (NextcloudApp) |
   | `datadirectory` | `/media/hdd0` のまま |
+| `logfile` | 削除する。移行元の `/var/log/nextcloud.log` はコンテナ内で www-data が書けない。未設定なら `log_type` が `file` のまま `datadirectory` 直下の `nextcloud.log` (hostPath 上) に書かれ、管理画面のログ表示 (logreader) も使える。`log_type`・`log_rotate_size`・`loglevel` は移行元のまま |
   | `secret`、`passwordsalt`、`instanceid` | 移行元のまま保つ (2.9) |
 
 - **段の表** (各段の組み合わせは公式の対応範囲内、12.9):
