@@ -192,6 +192,7 @@ gitops-apps/
 │   ├── infisical-secrets.yaml         # アプリ用と退避用の InfisicalStaticSecret
 │   ├── php-apache-config.yaml         # PHP と Apache の上限の明示 (ConfigMap)
 │   ├── configure-configmap.yaml       # Configure の段の冪等スクリプト configure.sh (ConfigMap)
+│   ├── scripts/reassign-account.sh    # Reassign の段のスクリプト。occ を順に呼ぶ (configure.sh と同じ置き場所・同じ実行)
 │   ├── mail-provisioning-job.yaml     # Nextcloud Mail のプロビジョニング設定を REST API に投入する Job (jq を含むイメージ)。Job は不変のため、名前に連番を付けて足し直す
 │   ├── backup-cronjob.yaml            # 退避の CronJob と手順スクリプトの ConfigMap
 │   └── migration-mariadb.yaml         # 一時 MariaDB。変換の完了後に削除する
@@ -269,12 +270,13 @@ flowchart TB
     Count[Row count comparison]
     Up35[Upgrade 32 to 33 to 34 to 35 one major at a time]
     Clean[Trash cleanup and excluded account deletion]
+    Reassign[Reassign operator account to the Kanidm uid via occ]
     Configure[Run configure.sh and add mail provisioning job]
     Verify[File count size and checksum comparison]
     Gate{All checks match}
     Retry[Discard target state and restart from extract]
     Done[Ready]
-    Extract --> Stage --> Point --> Up31 --> Convert --> Count --> Up35 --> Clean --> Configure --> Verify --> Gate
+    Extract --> Stage --> Point --> Up31 --> Convert --> Count --> Up35 --> Clean --> Reassign --> Configure --> Verify --> Gate
     Gate -->|yes| Done
     Gate -->|no| Retry
     Retry --> Stage
@@ -282,7 +284,8 @@ flowchart TB
 
 - このパイプラインは同じ手順で 2 回走らせる。1 回目は移行元を動かしたままのリハーサルで、各段の所要時間を実測し、公開経路・認証・大きなファイルの実測 (5.8、7.4) もこの状態で行う。2 回目は切り替えで、移行元を保守モードにして取り直したダンプと差分から走らせる。
 - 各段の後に `cron.php` を 2〜3 回実行して背景の移行を終わらせてから次の段へ進む。
-- パイプラインは切り替え時に移行元の DB ダンプと `config.php` から移行先を作り直すため、移行先で足した設定 (user_oidc の provider、appconfig、files_external の接続先、Mail のプロビジョニング、管理者のアプリパスワード、`config.php` の値) は残らない。Configure はこれらを毎回入れ直す段で、Clean の後・Verify の前に置く。内容は MigrationRunbook に定める。
+- パイプラインは切り替え時に移行元の DB ダンプと `config.php` から移行先を作り直すため、移行先で足した設定 (user_oidc の provider、appconfig、files_external の接続先、Mail のプロビジョニング、管理者のアプリパスワード、`config.php` の値) は残らない。Configure はこれらを毎回入れ直す段で、Reassign の後・Verify の前に置く。内容は MigrationRunbook に定める。
+- Reassign は運用者の移行元アカウントを Kanidm の人のアカウント名と同じ uid の新しいアカウントへ付け替える段で、Clean と Configure の間に置く。中身は `occ` を順に呼ぶスクリプト `reassign-account.sh` (gitops-apps の `apps/nextcloud/scripts/`) で、`configure.sh` と同じく `kubectl exec` で `app` コンテナ内 (www-data) に `runuser` で実行し、リハーサルでも切り替えでも同じものを流す。Configure より前に置くのは、`configure.sh` (e) が「admin グループの唯一のメンバー」を前提にするため。内容は MigrationRunbook に定める。
 - Configure は冪等な 1 本のスクリプト `configure.sh` で、`apps/nextcloud/` の ConfigMap に置く。他の段と同じく `kubectl exec` で `app` コンテナ内 (www-data) で実行し、リハーサルでも切り替えでも同じものを実行する。
 - `mail-provisioning` Job は不変のため、Configure の後に Job 名に連番を付けた新しい Job を commit して投入する (リハーサル用と切り替え用で別名)。
 - どの段で失敗しても、移行先の DB とコードを捨てて Stage からやり直す。移行元には再度の書き込みを要しない (12.6)。
@@ -326,7 +329,7 @@ stateDiagram-v2
 | 2.1 | 運用者のアカウントだけを移し、対象外を削除して残存を確かめる | MigrationRunbook | `occ user:delete` と残存の照会 | 移行のパイプライン |
 | 2.2 | バージョン履歴を保持 | MigrationRunbook | rsync に `files_versions` を含める | 移行のパイプライン |
 | 2.3 | ゴミ箱を除き、移行先は空で始める | MigrationRunbook | rsync の除外と `occ trashbin:cleanup --all-users` | 移行のパイプライン |
-| 2.4 | 共有・カレンダー・連絡先・アプリのデータ | MigrationRunbook | DB のダンプ全体を移す | 移行のパイプライン |
+| 2.4 | 共有・カレンダー・連絡先・アプリのデータ | MigrationRunbook | DB のダンプ全体を移し、Reassign の `occ` で新 uid へ付け替える (アドレス帳は移せない) | 移行のパイプライン |
 | 2.5 | 件数と合計サイズの突き合わせ | MigrationVerification | 件数・サイズの記録 | 移行のパイプライン |
 | 2.6 | 内容の一致 | MigrationVerification | SHA-256 の一覧の突き合わせ | 移行のパイプライン |
 | 2.7 | 差異があれば切り替えない | MigrationVerification, CutoverRunbook | 関門の判定 | 移行のパイプライン |
@@ -349,7 +352,7 @@ stateDiagram-v2
 | 4.8 | 既存経路に影響させない | TraefikEntrypoint, NextcloudIngress | 専用エントリポイント、`websecure` は不変 | — |
 | 5.1 | Kanidm の OIDC | NextcloudAuth, KanidmClient | user_oidc の provider | — |
 | 5.2 | クライアントとグループを宣言 | KanidmClient | `terraform-kanidm` | — |
-| 5.3 | 短い名前と既存 uid の照合 | NextcloudAuth, KanidmClient | `prefer_short_username`、`mapping-uid=preferred_username` | — |
+| 5.3 | 短い名前と uid の照合、運用者のアカウントの付け替え | NextcloudAuth, KanidmClient, MigrationRunbook | `prefer_short_username`、`mapping-uid=preferred_username`、Reassign (`reassign-account.sh`) | — |
 | 5.5 | Kanidm 障害時は kubectl から occ | NextcloudApp, MigrationRunbook | `kubectl --context default exec` | — |
 | 5.6 | アプリパスワードで同期 | NextcloudAuth | `token_auth_enforced=true` | — |
 | 5.7 | ローカルパスワードの Web ログインを拒否 | NextcloudAuth, NextcloudIngress | `/login` POST の拒否ほか | — |
@@ -526,7 +529,7 @@ stateDiagram-v2
 
 **Responsibilities & Constraints**
 
-- user_oidc の provider を 1 つ登録する。発見文書は `https://kanidm.fickledev.com/oauth2/openid/nextcloud/.well-known/openid-configuration`。provider の設定は `mapping-uid=preferred_username`、`unique-uid=0`、`mapping-email=email`、スコープに `email`。Kanidm の小文字の名前は、大文字小文字だけが異なる既存の uid に対応づき、利用者は増えない (ローカル検証で実測)。
+- user_oidc の provider を 1 つ登録する。発見文書は `https://kanidm.fickledev.com/oauth2/openid/nextcloud/.well-known/openid-configuration`。provider の設定は `mapping-uid=preferred_username`、`unique-uid=0`、`mapping-email=email`、スコープに `email`。Kanidm の人のアカウント名と同じ uid のアカウントが Reassign で作られているため、初回のログインは user_oidc の `ProvisioningService` がそのアカウントを先に使って結びつき、`disable_account_creation` の判定には届かず、利用者は増えない。
 - システム設定: `user_oidc.auto_provision` と `soft_auto_provision` は既定 (true)、`disable_account_creation=true`。照合に失敗したら空のアカウントを作らずログインを拒否する。
 - `allow_multiple_user_backends=0` で Kanidm へ自動転送する。`hide_login_form=true`、`lost_password_link=disabled`。
 - パスワードログインの受け付けは NextcloudIngress で止める (`?direct=1` は本体の設定では止められない)。DAV と OCS への利用者パスワードでの基本認証は `token_auth_enforced=true` で止める。
@@ -574,8 +577,8 @@ stateDiagram-v2
   | masterPasswordEnabled | true |
   | masterPassword | Infisical の値 (`MAIL_MASTER_PASSWORD`) |
 
-- `emailTemplate` を `%EMAIL%` にするのは、`%USERID%@...` だと大文字始まりの uid でアドレスが大文字始まりになるため。`%EMAIL%` は user_oidc がログイン時に Kanidm の email claim で上書きする Nextcloud の email を使い、小文字の正しいアドレスになる。Kanidm に mail 属性が無い利用者では `%EMAIL%` がリテラルのまま入る (エラーにならない)。メールボックスを持つ利用者は docker-mailserver の宛先照合 `(&(mail=%s)(class=person))` のため必ず mail 属性を持つので、該当しない。
-- Dovecot の userdb が `lower` を適用するため、大文字始まりの uid (`Alice*mailmaster`) でも同じメールボックスに入る。
+- `emailTemplate` を `%EMAIL%` にするのは、アドレスを uid から組み立てず Nextcloud の email から取るため。`%EMAIL%` は Reassign が移行元から新 uid に移した email を使い、ログイン時に user_oidc が Kanidm の email claim で上書きする。Kanidm に mail 属性が無い利用者では `%EMAIL%` がリテラルのまま入る (エラーにならない)。メールボックスを持つ利用者は docker-mailserver の宛先照合 `(&(mail=%s)(class=person))` のため必ず mail 属性を持つので、該当しない。
+- Dovecot の userdb が `lower` を適用するため、uid の大文字小文字に関わらず同じメールボックスに入る。
 - Mail はアカウントを利用者が初めて開いた時点で作る。プロビジョニングの作成後は、OIDC でない既存の利用者 (管理者など) にもアカウントが作られる。
 
 - プロビジョニングの設定は gitops-apps の Job `mail-provisioning-<連番>` として宣言し、Mail の管理者用 REST API に投入する。Job は不変のため、Configure の後に連番を進めた名前で足し直す (リハーサル用と切り替え用で別名)。Job のイメージには `jq` が要る。
@@ -928,7 +931,7 @@ stateDiagram-v2
 | Field | Detail |
 |-------|--------|
 | Intent | 移行元から読み取りだけで取り出し、移行先で段階更新と変換を行う |
-| Requirements | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4, 5.5, 12.2, 12.3, 12.6, 12.9 |
+| Requirements | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4, 5.3, 5.5, 12.2, 12.3, 12.6, 12.9 |
 
 **Responsibilities & Constraints**
 
@@ -967,12 +970,21 @@ stateDiagram-v2
 
 - **変換**: 直前に `occ app:list` で deck と mail を含む継続するアプリが有効であることを確かめ、無効なら止める。31 の段で `occ db:convert-type --all-apps` により `nextcloud-db-rw` の DB `nextcloud` (利用者 `nextcloud`) へ変換する。パスワードは Infisical 由来の Secret から与え、コマンド行に書かない。失敗したら `--clear-schema` を付けて再実行する。
 - **後処理**: 35 に到達した後、`occ trashbin:cleanup --all-users` でゴミ箱の DB の記録を消し、ゴミ箱が空であることを確かめる (2.3)。移行対象外のアカウントを `occ user:delete` で消し、`oc_share`・`oc_calendars`・`oc_addressbooks`・`oc_filecache` (該当ストレージ) にそのアカウントの行が残らないことを照会して記録する (2.1)。
-- **Configure** (Clean の後・Verify の前): 移行先で足した設定は DB と `config.php` を作り直すたびに消えるため、冪等な `configure.sh` (`apps/nextcloud/` の ConfigMap) を `kubectl exec` で `app` コンテナ内 (www-data) で実行して入れ直す。リハーサルでも切り替えでも同じものを実行する。資格情報は Secret の環境変数から読み、コマンド行に書かない。
-  - (a) NextcloudApp の config.php の表の値 (`trusted_domains`、`overwrite.cli.url`、`overwriteprotocol`、`trusted_proxies`、`forwarded_for_headers`、`htaccess.RewriteBase`、`maintenance_window_start`、`token_auth_enforced`) と、NextcloudAuth の `hide_login_form`、`lost_password_link`、NextcloudMail の通知メールの `mail_smtp*` を `occ config:system:set` で入れる。
+- **Reassign** (Clean の後・Configure の前): `reassign-account.sh` が `occ` だけで運用者の移行元アカウント (旧 uid) を、Kanidm の人のアカウント名と同じ uid (新 uid) のアカウントへ付け替える。入力は旧 uid と新 uid で、環境変数で渡す。user_oidc の設定 (`mapping-uid=preferred_username`、`unique-uid=0`、`disable_account_creation=true`) は変えない。独自の claim や実装は使わず、DB の直接更新や自前のデータ変換もしない。手順は次の順で、各手順は「既に済んでいれば飛ばす」形にする。旧 uid が無ければ全体を飛ばす。
+  1. 新 uid が無ければ `occ user:add <新uid> --password-from-env` で作る。パスワードは `OC_PASS` にランダム値を生成して渡す (画面ログインは `hide_login_form` と `token_auth_enforced` で使わない)。表示名とメールアドレスは旧 uid から `occ user:info` で読み、`--display-name` と `occ user:setting <新uid> settings email` に入れる (Mail の `%EMAIL%` が要る)。存在は `occ user:info` で確かめる。
+  2. `occ dav:list-calendars <旧uid>` で得たカレンダー (自動生成の `contact_birthdays` を除く) を、`occ dav:move-calendar <uri> <旧uid> <新uid>` で移す。新 uid の初回ログインで既定のカレンダーが作られて衝突するため、初回ログインより前に行う。残りは `list-calendars` で確かめる。
+  3. `occ deck:transfer-ownership <旧uid> <新uid> --remap` を実行する。確認のプロンプトには標準入力で `y` を渡す。
+  4. `occ files:transfer-ownership <旧uid> <新uid> --move` を実行する。`--include-external-storage` は付けない (`/SMB` は全員向けの外部ストレージのため)。新 uid のホームが空でないと失敗するため、`skeletondirectory` を空にしておく (Configure (a))。リンク共有の URL は変わらない。
+  5. `occ group:adduser admin <新uid>` で admin グループへ入れる。
+  6. 検証してから `occ user:delete <旧uid>` を実行する。検証項目は、旧 uid のファイルとバージョン履歴が新 uid に揃っていること、共有の owner、カレンダーと Deck の owner。`--move` でバージョン履歴が追従するかはリハーサルで実測する。追従しなければ `user:delete` で失われるため、削除せず止まる。
+  - 製品に移す機能が無いもの: アドレス帳、アクティビティ履歴、アプリパスワードとセッション (端末は再ログインする)、アバター、ユーザーステータス、Circles の所属、2 要素認証の状態、手で登録した Mail アカウント (パスワード認証)。
+  - 失敗したら、やり直しの手順どおり DB と `html/` を捨てて Stage から再実行する。
+- **Configure** (Reassign の後・Verify の前): 移行先で足した設定は DB と `config.php` を作り直すたびに消えるため、冪等な `configure.sh` (`apps/nextcloud/` の ConfigMap) を `kubectl exec` で `app` コンテナ内 (www-data) で実行して入れ直す。リハーサルでも切り替えでも同じものを実行する。資格情報は Secret の環境変数から読み、コマンド行に書かない。
+  - (a) NextcloudApp の config.php の表の値 (`trusted_domains`、`overwrite.cli.url`、`overwriteprotocol`、`trusted_proxies`、`forwarded_for_headers`、`htaccess.RewriteBase`、`maintenance_window_start`、`token_auth_enforced`) と、NextcloudAuth の `hide_login_form`、`lost_password_link`、NextcloudMail の通知メールの `mail_smtp*` を `occ config:system:set` で入れる。あわせて `skeletondirectory` を空文字、`default_language` を `ja`、`default_locale` を `ja_JP`、`default_timezone` を `Asia/Tokyo` にする。`skeletondirectory` を空にしないと、新 uid の初回ログインで既定のスケルトンがホームに置かれ、付け替えたファイルと名前が衝突する。
   - (b) NextcloudAuth の appconfig (`allow_multiple_user_backends` ほか)、システム設定の `user_oidc` 配列の `disable_account_creation=true` (user_oidc 8.11.0 の `ProvisioningService` はシステム設定から読む。`occ config:system:set user_oidc disable_account_creation --type=boolean --value=true`) と、`occ user_oidc:provider` による provider の登録 (既にあれば更新)。クライアントシークレットは `NEXTCLOUD_OIDC_CLIENT_SECRET`。
   - (c) files_external の `/SMB` を Local (`datadir` = `/mnt/smb`) にする。`files_external_allow_create_new_local` を true にし、`/SMB` が Local 以外 (移行元の SMB) ならそのマウントを消して Local で作り直す。既に Local で `/mnt/smb` なら何もしない。
   - (d) MigrationRecords の分類表で継続しないアプリと、分類に無いアプリを `occ app:disable` で無効にして記録し、継続するアプリが有効で、版の表の 35 の版以上であることを確かめる (下回れば失敗で終える)。
-  - (e) プロビジョニングの REST を呼ぶ管理者のアプリパスワードを `occ user:auth-tokens:add` で発行する。既存の同名のトークンは消して作り直す。
+  - (e) プロビジョニングの REST を呼ぶ管理者のアプリパスワードを `occ user:auth-tokens:add` で発行する。発行先は admin グループの唯一のメンバー (Reassign が入れた新 uid) で、Reassign を先に置くことでこの前提が保たれる。既存の同名のトークンは消して作り直す。
 - **Configure の後の登録**: 実装する側が、(e) で発行した値を表示せずに Infisical の `NEXTCLOUD_MAIL_PROVISIONING_AUTH` に登録する (Infisical は Terraform の管理外)。登録の後、連番を進めた名前の `mail-provisioning` Job を commit して投入する。リハーサル用と切り替え用で別の名前にする。
 - **やり直し**: どの段で失敗しても、`html/` と `data/appdata_*` の移行先での変更と PostgreSQL の DB を捨て、Stage から再実行する (12.6)。順序は宣言の commit で進める: `replicas: 0` → 捨てる → イメージのタグを 30.0.17 に戻す → Stage → `replicas: 1`。35 のコードが残る `html/` に 30.0.17 を当てるとエントリポイントがダウングレードとして起動を拒否するため、`html/` を捨てる前にタグを戻して起動しない。リハーサルから切り替えへ移るときも同じ順序で始める。ファイル本体は rsync でもう一度揃える。
 
@@ -987,10 +999,10 @@ stateDiagram-v2
 
 **Responsibilities & Constraints**
 
-- **件数と合計サイズ** (2.5): 移行対象のアカウントの `files/` と `files_versions/` について、移行元と移行先それぞれでファイル件数とバイト数を数える。
-- **内容** (2.6): リハーサルの取り出し後に、両側で全ファイルの SHA-256 の一覧を作って突き合わせる。切り替えでは、最終差分の rsync が転送・削除したファイルだけを両側で再計算して突き合わせる。
+- **件数と合計サイズ** (2.5): 移行対象のアカウントの `files/` と `files_versions/` について、移行元の旧 uid のパスと移行先の新 uid のパスを対応させ、それぞれでファイル件数とバイト数を数える。
+- **内容** (2.6): リハーサルの取り出し後に、両側で全ファイルの SHA-256 の一覧を、旧 uid のパスと新 uid のパスを対応させて作り、突き合わせる。切り替えでは、最終差分の rsync が転送・削除したファイルだけを両側で再計算して突き合わせる。
 - **行数** (12.5): 変換の直前 (MariaDB) と直後 (PostgreSQL) で、`oc_filecache`、`oc_share`、`oc_calendarobjects`、`oc_calendars`、`oc_cards`、`oc_addressbooks`、`oc_users`、`oc_accounts`、`oc_preferences`、`oc_appconfig`、`oc_mail_accounts`、`oc_mail_messages`、`oc_deck_*`、`oc_files_versions` の行数を比べる。
-- **認証** (5.8): リハーサルの移行先で Kanidm からログインし、移行したファイルが見えること、`oc_users` と `oc_user_oidc` の件数が変わらないことを確かめる。ローカルパスワードのログイン (`POST /login` と利用者パスワードでの WebDAV) が拒否されることも確かめる。切り替えでは、保守モード中は Web ログインが 503 になるため、移行先の保守モードの解除 (Live) の直後にもう一度行う (Configure が入れ直した設定の実測)。`disable_account_creation=true` により、対応づけに失敗しても新しいアカウントは作られない。失敗したら保守モードに戻して Configure を直し、再実行する。
+- **認証** (5.8): リハーサルの移行先で Kanidm からログインし、移行したファイルが見えること、`oc_users` と `oc_user_oidc` の件数が Reassign の後から変わらないことを確かめる。ローカルパスワードのログイン (`POST /login` と利用者パスワードでの WebDAV) が拒否されることも確かめる。切り替えでは、保守モード中は Web ログインが 503 になるため、移行先の保守モードの解除 (Live) の直後にもう一度行う (Configure が入れ直した設定の実測)。`disable_account_creation=true` により、対応づけに失敗しても新しいアカウントは作られない。失敗したら保守モードに戻して Configure を直し、再実行する。
 - **大きなファイル** (7.4): リハーサルの移行先に、宅外の回線から実際のクライアント (Web とデスクトップ) で 49GB 以上のファイルをアップロードし、ダウンロードする。完了したことを合否とし、所要時間は記録だけする。テスト用のファイルは実測の後に消す。
 - 1 つでも差異があれば切り替えない。差異の内容を `migration-records.md` に記録する (2.7)。
 
@@ -1009,7 +1021,7 @@ stateDiagram-v2
 - **前提**: `backup-durability-and-alerting` の 4.15 が完了し、k3s の Job の失敗が通知先へ届くことが確かめられている。未完了なら関門 A1 に進まない。
 - **手順** (移行先の保守モードの状態を併記):
   1. 関門 A1 で移行元を保守モードにし、同じ config.php への書き込みで `trusted_domains` に `192.168.1.11` を足す (対象・影響範囲・戻し方を記録する)。
-  2. 最終ダンプと最終差分 → パイプラインの再実行 (Configure を含む)。移行先は保守モード解除 (段階更新の後)。
+  2. 最終ダンプと最終差分 → パイプラインの再実行 (Reassign と Configure を含む)。移行先は保守モード解除 (段階更新の後)。
   3. `mail-provisioning` Job を連番を進めて投入する (REST を呼ぶため保守モード解除が要る)。
   4. 移行先で `occ maintenance:mode --on`。
   5. 突き合わせ (2.5、2.6。静止した状態で行う)。
@@ -1154,6 +1166,7 @@ stateDiagram-v2
 - **宣言の検査**: `kustomize build apps/nextcloud` と `apps/traefik-config` が通ること。`terraform validate` (terraform、terraform-kanidm)。`ansible-lint` (vps_proxy、beszel_agent)。`pytest scripts/` (乖離検出の変更後)。
 - **経路の実測**: VPS から各ノードの 30443 への接続、宅外の回線から `https://cloud.fickledev.com/status.php` の応答、`http://` からの 301、Traefik のアクセスログの送信元、`websecure` の既存経路の送信元が変わらないこと (4.1、4.4、4.7、4.8)。
 - **認証の実測**: Kanidm 経由のログインで既存の利用者に結びつくこと、`?direct=1` の POST が 403、利用者パスワードでの WebDAV の拒否、デスクトップとモバイルのクライアントのログインフロー (4.3、5.3、5.6〜5.8)。リハーサルに加え、切り替えの Configure の後・移行先の保守モードの解除 (Live) の直後にも (保守モード中は Web ログインが 503 になるため)、OIDC で既存のアカウントに結びつき新しいアカウントが作られないことと、ローカルパスワードログインの拒否をもう一度確かめる。
+- **Reassign**: リハーサルで `reassign-account.sh` を実行し、旧 uid のファイルとバージョン履歴・カレンダー・Deck・共有が新 uid に揃うこと、バージョン履歴が `--move` で追従すること、所要時間を実測する。2 回続けて実行して 2 回目が何も変えないこと。
 - **Configure**: `configure.sh` を 2 回続けて実行して結果が変わらないこと。実行後に config.php の表の値、provider、`/SMB` が Local の `/mnt/smb` で読み書きできること (`occ files_external:verify`)、継続しないアプリの無効化、アプリパスワードの発行を照会して確かめる。
 - **大きなファイル**: 宅外から Web とデスクトップで 49GB 以上のアップロードとダウンロード (7.1、7.4)。
 - **退避**: 毎晩の実行の成功、失敗を注入した実行での保守モードの解除と Job の失敗終了、宅外からの全量復元 (8.2、8.9、8.10)。

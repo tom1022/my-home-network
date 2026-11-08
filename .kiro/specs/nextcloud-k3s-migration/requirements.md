@@ -97,11 +97,11 @@ Nextcloud は Proxmox VM 105 上で、宣言の管理外のまま稼働してい
 
 1. The Nextcloud shall Kanidm を IdP とする OIDC でログインを受け付ける。
 2. The Kanidm の OAuth2 クライアント shall `terraform-kanidm/` に宣言される。
-3. When Kanidm で認証された利用者が初めてログインした場合, the Nextcloud shall その利用者を移行元の既存アカウントに対応づけ、移行したデータを引き継がせる。対応づけは Kanidm の短い名前と既存のユーザー ID の照合 (大文字小文字を区別しない) で行い、独自の claim やユーザー ID の付け替えを要しない。
+3. When Kanidm で認証された利用者が初めてログインした場合, the Nextcloud shall その利用者を移行元の既存アカウントに対応づけ、移行したデータを引き継がせる。対応づけは Kanidm の短い名前とユーザー ID の照合で行い、独自の claim を要しない。移行作業は、運用者の移行元アカウントを Kanidm の人のアカウント名と同じユーザー ID の新しいアカウントへ付け替えて、このユーザー ID に移行したデータを結びつけておく。
 5. If Kanidm が利用できない場合, then the 運用者 shall クラスタの管理経路 (kubectl) から Nextcloud の管理コマンドを実行して復旧作業を行う。Web にはパスワードでログインできる非常口を設けない。
 6. Where 同期クライアントがアプリパスワードで接続する, the Nextcloud shall Kanidm を経由せずにアプリパスワードで認証できる。
 7. The Nextcloud shall 利用者のローカルパスワードによる Web へのログインを受け付けない。
-8. The 移行作業 shall 5.3 の対応づけで既存のアカウントに結びつき、新しいアカウントが作られないことを、切り替えの前に移行先で実測する。
+8. The 移行作業 shall 5.3 の対応づけで付け替え後のアカウントに結びつき、新しいアカウントが作られないことを、切り替えの前に移行先で実測する。
 
 ### Requirement 6: Web メール
 
