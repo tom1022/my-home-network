@@ -228,7 +228,8 @@ my-home-network/
 - `ansible/inventory/host_vars/k3s-agent-z440/main.yml` — Beszel の追加ファイルシステム。関門 A4 の実施後に `agent_data_disks` の退避先
 - `ansible/inventory/group_vars/console/main.yml` — `gatus_endpoints` に `nextcloud`
 - `ansible/inventory/host_vars/pbs/main.yml` — `scsi2` の除外理由の改訂と、退避先ディスクの除外
-- `ansible/roles/nas/` と `host_vars/nas` — samba の共有とローカル利用者
+- `ansible/roles/nas/` と `host_vars/nas` — samba の共有とローカル利用者、同じディレクトリの k3s-agent-z440 向け NFS export
+- `ansible/inventory/host_vars/k3s-agent-z440/main.yml` — NFS のクライアント (`nfs-common`)
 - `scripts/check_host_address_drift.py`、`scripts/test_check_host_address_drift.py` — VM 105 撤去後に `nextcloud` を `STATIC_UNMANAGED_HOSTS` から外す
 - `.kiro/steering/tech.md`、`product.md` — Nextcloud の所在、移行先の予約、PBS の除外、Proxmox Guests 表の記述
 
@@ -387,7 +388,7 @@ stateDiagram-v2
 | 10.2 | 参照があれば既存の DNS へ | DecommissionRunbook | 参照元の設定変更 | — |
 | 10.3 | 代替を新設しない | DecommissionRunbook | — | — |
 | 10.4 | samba を NAS で代替 | NasSmbShare | NAS の samba、ローカル利用者 | — |
-| 10.5 | 外部ストレージの接続先は NAS | NextcloudApp, NasSmbShare | files_external の `/SMB` の接続先を NAS の samba に替える | — |
+| 10.5 | 外部ストレージの接続先は NAS | NextcloudApp, NasSmbShare | files_external の `/SMB` を、NAS の共有ディレクトリを NFS でマウントした Local に替える | — |
 | 11.1 | steering の更新 | RecordsAlignment | `tech.md`、`product.md` | — |
 | 11.2 | 退避除外の見直し | RecordsAlignment | `host_vars/pbs`、`locals.tf` | — |
 | 11.3 | 乖離検出への反映 | RecordsAlignment | `check_host_address_drift.py` | — |
@@ -495,7 +496,7 @@ stateDiagram-v2
 
 - 公式イメージの `remoteip` 設定 (`X-Real-IP` を私設アドレス帯から信頼) はそのまま使う。Traefik は `X-Real-Ip` を利用者のアドレスで上書きする。
 - Kanidm が使えないときの管理は `kubectl --context default -n nextcloud exec deploy/nextcloud -c app -- runuser -u www-data -- php occ ...` で行う。パスワードでログインできる Web の非常口は作らない (5.5)。
-- 外部ストレージ (files_external) は継続し、移行元の SMB マウント (`/SMB`) の接続先を NAS の samba に替える (10.5)。資格情報は Infisical から与える。
+- 外部ストレージ (files_external) は継続し、移行元の SMB マウント (`/SMB`) を、NAS の共有ディレクトリ (`/srv/nas-data/smb`) を NFS でマウントした Local のストレージに替える (10.5)。公式イメージには SMB のクライアント (`smbclient` / `php-smbclient`) が無い。samba は Windows の機器のための共有で、Nextcloud は同じディレクトリを NFS で見る。Pod の NFS ボリューム (サーバー `192.168.1.201`、パス `/srv/nas-data/smb`) を app と cron の両コンテナの `/mnt/smb` にマウントする。
 
 **Dependencies**
 
@@ -715,7 +716,7 @@ stateDiagram-v2
   | `NEXTCLOUD_MAIL_SMTP_SALT` | 同アカウントのハッシュの salt | VPS の passwd-file の生成 (Ansible) のみ |
   | `MAIL_MASTER_PASSWORD` | Dovecot の master user `mailmaster` のパスワード | k3s の Dovecot (Secret から環境変数 `MASTER_PASSWORD`)、VPS の compose の環境変数 `MASTER_PASSWORD`、プロビジョニングの Job |
   | `NEXTCLOUD_MAIL_PROVISIONING_AUTH` | プロビジョニングの REST API を呼ぶ管理者のアプリパスワード (Basic 認証) | `mail-provisioning-<連番>` Job。値は `configure.sh` が発行し、実装する側が値を表示せずに登録する |
-  | `NEXTCLOUD_SMB_USER` / `NEXTCLOUD_SMB_PASSWORD` | NAS の samba のローカル利用者 | NAS の samba の設定、`configure.sh` の files_external の接続情報 |
+  | `NEXTCLOUD_SMB_USER` / `NEXTCLOUD_SMB_PASSWORD` | NAS の samba のローカル利用者 | NAS の samba の設定 (Nextcloud は使わない) |
   | `NEXTCLOUD_BACKUP_RESTIC_PASSWORD` | 宅外のリポジトリの鍵 | BackupJob |
   | `NEXTCLOUD_BACKUP_RCLONE_CONFIG` | GDrive の rclone 設定。既存のキー `GARAGE_BACKUP_RCLONE_CONFIG` (gitops-apps の `apps/garage` が `gdrive:backup/garage` へ送るのに使う) の値を、実装する側が表示せずに写して登録する。ブラウザでの OAuth は行わない | BackupJob |
 
@@ -973,7 +974,7 @@ stateDiagram-v2
 - **Configure** (Clean の後・Verify の前): 移行先で足した設定は DB と `config.php` を作り直すたびに消えるため、冪等な `configure.sh` (`apps/nextcloud/` の ConfigMap) を `kubectl exec` で `app` コンテナ内 (www-data) で実行して入れ直す。リハーサルでも切り替えでも同じものを実行する。資格情報は Secret の環境変数から読み、コマンド行に書かない。
   - (a) NextcloudApp の config.php の表の値 (`trusted_domains`、`overwrite.cli.url`、`overwriteprotocol`、`trusted_proxies`、`forwarded_for_headers`、`htaccess.RewriteBase`、`maintenance_window_start`、`token_auth_enforced`) と、NextcloudAuth の `hide_login_form`、`lost_password_link`、NextcloudMail の通知メールの `mail_smtp*` を `occ config:system:set` で入れる。
   - (b) NextcloudAuth の appconfig (`allow_multiple_user_backends` ほか)、システム設定の `user_oidc` 配列の `disable_account_creation=true` (user_oidc 8.11.0 の `ProvisioningService` はシステム設定から読む。`occ config:system:set user_oidc disable_account_creation --type=boolean --value=true`) と、`occ user_oidc:provider` による provider の登録 (既にあれば更新)。クライアントシークレットは `NEXTCLOUD_OIDC_CLIENT_SECRET`。
-  - (c) files_external の `/SMB` の接続先を NAS の samba に更新する (`occ files_external:config` ほか)。資格情報は `NEXTCLOUD_SMB_USER` / `NEXTCLOUD_SMB_PASSWORD`。
+  - (c) files_external の `/SMB` を Local (`datadir` = `/mnt/smb`) にする。`files_external_allow_create_new_local` を true にし、`/SMB` が Local 以外 (移行元の SMB) ならそのマウントを消して Local で作り直す。既に Local で `/mnt/smb` なら何もしない。
   - (d) MigrationRecords の分類表で継続しないアプリと、分類に無いアプリを `occ app:disable` で無効にして記録し、継続するアプリが有効で、版の表の 35 の版以上であることを確かめる (下回れば失敗で終える)。
   - (e) プロビジョニングの REST を呼ぶ管理者のアプリパスワードを `occ user:auth-tokens:add` で発行する。既存の同名のトークンは消して作り直す。
 - **Configure の後の登録**: 実装する側が、(e) で発行した値を表示せずに Infisical の `NEXTCLOUD_MAIL_PROVISIONING_AUTH` に登録する (Infisical は Terraform の管理外)。登録の後、連番を進めた名前の `mail-provisioning` Job を commit して投入する。リハーサル用と切り替え用で別の名前にする。
@@ -1075,7 +1076,8 @@ stateDiagram-v2
 #### NasSmbShare
 
 - samba の代替を NAS の `ansible/roles/nas` に置く (10.4)。認証は samba のローカル利用者で、資格情報は Infisical から供給する (Kanidm は SMB の認証を提供しない)。移行元の samba の共有先は未マウントで中身が空のため、移すデータは無い。NAS は現在 NFS の共有だけを持つ。
-- Nextcloud の外部ストレージ (files_external) の `/SMB` の接続先をこの共有に替える (10.5)。
+- 同じディレクトリを k3s-agent-z440 (`192.168.1.152`) にだけ NFS で export する (`/etc/exports.d/nextcloud-smb.exports`、既存の Gitea の export と同じ作り)。オプションは `rw,sync,no_subtree_check,all_squash` と、`anonuid` / `anongid` に NAS のローカル利用者 (samba の利用者) の uid / gid を `getent` で引いて入れる。Nextcloud (www-data) の書き込みが samba の利用者の所有になり、Windows の機器からも同じ権限で扱える。
+- Nextcloud の外部ストレージ (files_external) の `/SMB` はこの NFS をマウントした Local にする (10.5)。k3s-agent-z440 には NFS のクライアント (`nfs-common`) を入れる。
 
 ### 記録
 
@@ -1091,7 +1093,7 @@ stateDiagram-v2
   | deck | 継続 | 1.19.2 |
   | tasks | 継続 | 0.18.1 |
   | mail | 継続 | 5.12.6 |
-  | files_external | 継続 | `/SMB` の接続先を NAS の samba に替える |
+  | files_external | 継続 | `/SMB` を NAS の共有の NFS マウント (Local) に替える |
   | user_oidc | 新規 | 8.11.0 (8.9.0 は 35 非対応) |
   | extract | 継続しない | 31 以降の対応版が無い。利用者のファイルは残る |
   | metadata | 継続しない | 34・35 の対応版が無い。利用者のファイルは残る |
@@ -1156,7 +1158,7 @@ stateDiagram-v2
 - **宣言の検査**: `kustomize build apps/nextcloud` と `apps/traefik-config` が通ること。`terraform validate` (terraform、terraform-kanidm)。`ansible-lint` (vps_proxy、beszel_agent)。`pytest scripts/` (乖離検出の変更後)。
 - **経路の実測**: VPS から各ノードの 30443 への接続、宅外の回線から `https://cloud.fickledev.com/status.php` の応答、`http://` からの 301、Traefik のアクセスログの送信元、`websecure` の既存経路の送信元が変わらないこと (4.1、4.4、4.7、4.8)。
 - **認証の実測**: Kanidm 経由のログインで既存の利用者に結びつくこと、`nextcloud_access` に属さない利用者が拒否されること、`?direct=1` の POST が 403、利用者パスワードでの WebDAV の拒否、デスクトップとモバイルのクライアントのログインフロー (4.3、5.3、5.4、5.6〜5.8)。リハーサルに加え、切り替えの Configure の後・移行先の保守モードの解除 (Live) の直後にも (保守モード中は Web ログインが 503 になるため)、OIDC で既存のアカウントに結びつき新しいアカウントが作られないことと、ローカルパスワードログインの拒否をもう一度確かめる。
-- **Configure**: `configure.sh` を 2 回続けて実行して結果が変わらないこと。実行後に config.php の表の値、provider、`/SMB` の接続先、継続しないアプリの無効化、アプリパスワードの発行を照会して確かめる。
+- **Configure**: `configure.sh` を 2 回続けて実行して結果が変わらないこと。実行後に config.php の表の値、provider、`/SMB` が Local の `/mnt/smb` で読み書きできること (`occ files_external:verify`)、継続しないアプリの無効化、アプリパスワードの発行を照会して確かめる。
 - **大きなファイル**: 宅外から Web とデスクトップで 49GB 以上のアップロードとダウンロード (7.1、7.4)。
 - **退避**: 毎晩の実行の成功、失敗を注入した実行での保守モードの解除と Job の失敗終了、宅外からの全量復元 (8.2、8.9、8.10)。
 - **Web メール**: Mail を開いた時点でアカウントが作られ、パスワード入力なしに受信・送信ができること。メールクライアントがアプリケーションパスワードで従来どおり接続できること (6.2、6.3)。Mail 5.12.6 の有効化が NC 35.0.2 で成功すること。プロビジョニングの Job を 2 回続けて実行して重複しないこと。
