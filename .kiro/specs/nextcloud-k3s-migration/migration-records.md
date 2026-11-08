@@ -176,3 +176,18 @@ user_oidc は `occ app:install user_oidc` で 8.13.0 が入った (App Store の
 ### Configure への反映
 
 deck 1.19.1 は App Store から消えているため、gitops-apps の `configure.sh` の `KEEP_APPS` を `deck:1.19.2` に直した。
+
+## ゴミ箱の削除と対象外のアカウントの削除 (タスク 6.4、2026-11-08)
+
+### 判定の基準と結果
+
+- 基準: 運用者本人のアカウントだけを残す (2.1)。もう一方が、`files/` にファイルを持たず、カレンダー・連絡先の中身とメール設定を持たず、最終ログインが 1 年以上前であれば対象外とする。アカウント作成時に自動で入る初期ファイル (mtime が作成時刻の数秒内) だけのものはデータを持たないとみなした。自動生成の空のカレンダー・アドレス帳だけを持つ場合も、データを持たないに含める。
+- 結果: 照会した各項目 (ファイル、共有、カレンダーとその中身、アドレス帳とその中身、メール設定、最終ログイン) で、片方だけがデータを持ち、もう片方は上の基準を満たした。基準を満たした側を対象外と判定し、`occ user:delete` で削除した。
+
+### ゴミ箱 (2.3)
+
+`occ trashbin:cleanup --all-users` を実行した。`oc_files_trash` の行数は 0 になり、各アカウントの `files_trashbin/files` は空か存在しない。
+
+### 削除後の照会
+
+次の表に、削除した対象外のアカウントの行が残っていない (0 行) ことを確かめた: `oc_users`、`oc_share` (uid_owner・uid_initiator・share_with)、`oc_calendars`・`oc_addressbooks` (principaluri)、`oc_filecache` (`home::<uid>` のストレージ ID)、`oc_storages`、`oc_mounts`、`oc_preferences`、`oc_accounts`、`oc_mail_accounts`。データディレクトリ `/media/hdd0/<uid>` も消えた。`oc_users` の行は運用者のアカウントだけになった。
