@@ -216,3 +216,20 @@ resource "kanidm_oauth2_basic" "nextcloud" {
     scopes = ["openid", "profile", "email"]
   }
 }
+
+# hermes ダッシュボード自身が OIDC (PKCE) で認証する。上流はプロキシのヘッダ認証に
+# 非対応のため、前段の forward auth とは別にクライアントが要る。
+resource "kanidm_oauth2_public" "hermes_dashboard" {
+  name        = "hermes-dashboard"
+  displayname = "Hermes Dashboard"
+  origin      = "https://hermes.fickledev.com/"
+
+  redirect_uris = [
+    "https://hermes.fickledev.com/auth/callback",
+  ]
+
+  scope_map {
+    group  = kanidm_group.forward_auth_access.id
+    scopes = ["openid", "profile", "email"]
+  }
+}
