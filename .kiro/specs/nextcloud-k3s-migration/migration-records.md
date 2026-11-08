@@ -299,3 +299,12 @@ CLI で判定できない項目: BruteForceThrottler と ForwardedForHeaders は
   - 「データベースに存在しないインデックス」と「Mimetype の移行が可能」は、Configure (f) の 2 コマンド (gitops-apps `d2412b6`) を移行先で実行し、`occ setupchecks` で success になった。
   - 残りは情報の表示 (AppAPI のデプロイデーモン未設定、第二要素の強制なし、サーバー ID 未設定) で、リバースプロキシ起因の警告は無い。
 - 「バックグラウンドジョブ」は Cron が選ばれ、最終ジョブ実行は 3 分前と表示された。
+
+## 認証の実測 (タスク 7.2、2026-11-08、デスクトップの同期クライアントは未実測)
+
+- Kanidm からの Web ログインとモバイルのクライアントのログインが通り、移行したファイルが見えた。
+- `oc_users` は Reassign の後と同じ件数で、Kanidm のログインで新しいアカウントは作られていない。`oc_user_oidc` は 0 件のまま (既存のアカウントに結びつくログインは user_oidc の行を作らない)。
+- パスワードログインの POST (`/login`、`/login?direct=1`、`/index.php/login`、`/index.php/login?direct=1`) はすべて 403。
+- 利用者の正しいパスワードを一時的に設定して公開経路から WebDAV の PROPFIND を送ると 401 (`token_auth_enforced`)。測定後にパスワードを誰も知らないランダム値に戻した。
+- ログインフロー v2 の入口 (`POST /index.php/login/v2`) は 200 で、`login` と `poll` を返す。
+- 未実測: デスクトップの同期クライアントのログインフロー v2 での接続とアプリパスワードでの同期。
