@@ -602,6 +602,8 @@ stateDiagram-v2
   }
   ```
 
+  k3s の Dovecot は 2.4.2 以上とする。公式イメージは UTF8=ACCEPT を広告し、Mail (Horde) はそれを ENABLE して送信済みフォルダへの APPEND を `UTF8 (~{n}` で送る。2.4.0 と 2.4.1 の APPEND はこの書式を扱えず、継続応答を返さないため、コピーがタイムアウトし、送信トレイの行が残って再送が繰り返される。
+
   組み合わせは Dovecot が同梱する設定例と同じ 4 つ。`auto = subscribe` は、ないときに作って購読状態にする。イメージ既定の `namespace inbox` (`inbox = yes`、`separator = /`) に合成されることを、稼働中のイメージ (2.4.0) の `doveconf -n` で確認済み。VPS の docker-mailserver はメールボックスを持たないため変更しない。
 - Mail はアカウントを利用者が初めて開いた時点で作る。プロビジョニングの作成後は、OIDC でない既存の利用者 (管理者など) にもアカウントが作られる。
 
