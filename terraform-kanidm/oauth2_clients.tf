@@ -52,6 +52,8 @@ resource "kanidm_oauth2_basic" "gitea" {
   displayname = "Gitea"
   origin      = "https://gitea.fickledev.com/"
 
+  allow_insecure_client_disable_pkce = true
+
   redirect_uris = [
     "https://gitea.fickledev.com/user/oauth2/kanidm/callback",
   ]
@@ -92,6 +94,7 @@ resource "kanidm_oauth2_public" "argocd" {
     "https://argocd.fickledev.com/auth/callback",
     # `argocd login --sso` の既定ローカルコールバック (--sso-port 既定値 8085)。
     "http://localhost:8085/auth/callback",
+    "https://argocd.fickledev.com/pkce/verify",
   ]
 
   scope_map {
