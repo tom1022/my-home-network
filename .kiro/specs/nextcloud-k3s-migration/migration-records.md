@@ -191,3 +191,29 @@ deck 1.19.1 は App Store から消えているため、gitops-apps の `configu
 ### 削除後の照会
 
 次の表に、削除した対象外のアカウントの行が残っていない (0 行) ことを確かめた: `oc_users`、`oc_share` (uid_owner・uid_initiator・share_with)、`oc_calendars`・`oc_addressbooks` (principaluri)、`oc_filecache` (`home::<uid>` のストレージ ID)、`oc_storages`、`oc_mounts`、`oc_preferences`、`oc_accounts`、`oc_mail_accounts`。データディレクトリ `/media/hdd0/<uid>` も消えた。`oc_users` の行は運用者のアカウントだけになった。
+
+## ファイルの突き合わせ (タスク 7.1、2026-11-08)
+
+移行対象のアカウント 1 つについて、移行元 (VM 105 の `/media/hdd0/<uid>/`、稼働中、読み取りのみ) と移行先 (k3s-agent-z440 の `/var/lib/nextcloud/data/<uid>/`、2026-11-08 未明の rsync の写し) の `files/` と `files_versions/` を突き合わせた。
+
+### 方法
+
+- 件数と合計サイズ: 両側で `find <dir> -type f -printf '%s\n'` の件数と合計を数えた。
+- 内容: 両側で `find files files_versions -type f -print0 | sort -z | xargs -0 sha256sum` の一覧を作り、パスをキーに比べた。2 本は z440 の `systemd-run` で並行に走らせた (移行元側は ssh で VM 105 から標準出力で受けた)。一覧と差異のパス一覧は z440 の `/var/lib/nextcloud/migration-staging/` に root 0600 で残している。パスは個人情報を含みうるためこの記録には書かない。
+
+### 結果
+
+| 項目 | 結果 |
+|-----|-----|
+| `files/` の件数・合計サイズ | 一致 (差 0 件、0 バイト) |
+| `files_versions/` の件数・合計サイズ | 一致 (差 0 件、0 バイト) |
+| SHA-256 (a) 両側にありハッシュ一致 | 全件 (両側の一覧は同数) |
+| (b) ハッシュ不一致 | 0 件 |
+| (c) 移行元にだけある | 0 件 |
+| (d) 移行先にだけある | 0 件 |
+
+差異が 0 件のため、取り出し後の変更で説明できる差異も、説明できない差異も無い。要件 2.5〜2.7 の突き合わせは、この時点の写しについて満たされた。移行元は稼働を続けているため、切り替え時の最終差分の後に再度突き合わせる必要がある。
+
+### 所要時間
+
+SHA-256 の一覧の作成は移行元側・移行先側とも約 37 分 (並行)。比較は数秒。
