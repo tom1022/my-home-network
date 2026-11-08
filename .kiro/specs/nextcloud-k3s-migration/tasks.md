@@ -12,13 +12,12 @@
 ## Phase 1: 宣言と公開経路
 
 - [ ] 1. 認証とシークレットの土台
-- [ ] 1.1 Kanidm の OAuth2 クライアントと利用許可グループを宣言する
-  - `terraform-kanidm` に利用許可グループ `nextcloud_access` を足す。所属は宣言しない
-  - OAuth2 クライアント `nextcloud` を、origin・2 つの redirect URI・短い名前の優先・許可グループへの scope map (`openid`、`profile`、`email`) で宣言する
+- [ ] 1.1 Kanidm の OAuth2 クライアントを宣言する
+  - OAuth2 クライアント `nextcloud` を、origin・2 つの redirect URI・短い名前の優先・組み込みグループ idm_all_persons への scope map (`openid`、`profile`、`email`) で宣言する
   - クライアントシークレットを sensitive な出力として足す
   - `terraform validate` と plan で追加だけの差分であることを確かめてから適用する
-  - 完了時、Kanidm の発見文書 `https://kanidm.fickledev.com/oauth2/openid/nextcloud/.well-known/openid-configuration` が応答し、許可グループに属さない利用者には認可が出ない設定になっている
-  - _Requirements: 5.1, 5.2, 5.3, 5.4_
+  - 完了時、Kanidm の発見文書 `https://kanidm.fickledev.com/oauth2/openid/nextcloud/.well-known/openid-configuration` が応答する
+  - _Requirements: 5.1, 5.2, 5.3_
 
 - [x] 1.2 Nextcloud とメール基盤が使うシークレットを Infisical に登録する
   - 設計のキー一覧のうち、この時点で値を用意できるもの (DB のパスワード、OIDC のクライアントシークレット、通知メールの送信アカウントのパスワードと salt、master パスワード、samba の資格情報、宅外のリポジトリの鍵、GDrive の rclone 設定) を登録する
@@ -229,10 +228,9 @@
 - [ ] 7.2 認証の結びつきと拒否を実測する
   - Kanidm からログインし、移行したファイルが見えること、`oc_users` と `oc_user_oidc` の件数が変わらないことを確かめる
   - `?direct=1` を含むパスワードログインの POST が 403 になり、利用者パスワードでの WebDAV が拒否されることを確かめる
-  - 許可グループに属さない Kanidm の利用者のログインが拒否されることを確かめる
   - デスクトップとモバイルの同期クライアントがログインフロー v2 で接続し、アプリパスワードで同期できることを確かめる
   - 完了時、各項目の実測結果が記録に残り、新しいアカウントが作られていない
-  - _Requirements: 4.3, 5.3, 5.4, 5.6, 5.7, 5.8_
+  - _Requirements: 4.3, 5.3, 5.6, 5.7, 5.8_
 
 - [ ] 7.3 公開経路と管理画面の状態を実測する
   - 宅外の回線から `https://cloud.fickledev.com/status.php` が応答し、`http://` が 301 を返すことを確かめる

@@ -33,7 +33,7 @@
 - Traefik の `nextcloud` エントリポイントと、それを出す追加 Service の宣言 (`gitops-apps/apps/traefik-config/`)
 - VPS の HAProxy の `cloud.fickledev.com` の SNI 振り分けと、80 番の HTTPS 転送
 - `cloud.fickledev.com` の DNS レコード
-- Kanidm の OAuth2 クライアント `nextcloud` と利用許可グループ `nextcloud_access`
+- Kanidm の OAuth2 クライアント `nextcloud`
 - Nextcloud のデータの restic リポジトリ 2 つ (宅内・宅外) と、その世代の方針
 - 移行・切り替え・切り戻し・撤去の手順と、各段の検証の記録
 - VM 105 の撤去、同居する Pi-hole の撤去、samba の NAS による代替 (`ansible/roles/nas` の samba)、`/dev/sdb` の転用 (hp-z440 の ZFS プール、Proxmox ストレージの登録、VM 152 の仮想ディスク、scrub 対象への追加)
@@ -216,7 +216,6 @@ my-home-network/
 - `terraform/locals.tf` — `zfs_pools.nextcloud` の注記を「PBS ではなく restic で別媒体へ退避する」に改める。k3s-agent-z440 に `datastore_disks.restic_local = { datastore = "zfs-backup", size = <関門 A4 で作ったプールの `zpool list` の FREE の 90% を 100G 単位で切り捨てた値 (試算上 1600 前後)>, scsi = 4, backup = false }` を宣言する
 - `terraform/modules/vm/main.tf`、`variables.tf` — データストアをエントリごとに指定する map 変数 `datastore_disks` (`{ datastore, size, scsi, backup }`、既定は空) と、それを回す `dynamic "disk"` を既存の `lvm_disks` のブロックの後ろに足す。`zfs_pools` と `lvm_disks` は変えない
 - `terraform/` — 新プールを `proxmox_storage_zfspool` で Proxmox ストレージとして登録する
-- `terraform-kanidm/identities.tf` — `kanidm_group.nextcloud_access`
 - `terraform-kanidm/oauth2_clients.tf` — `kanidm_oauth2_basic.nextcloud`
 - `terraform-kanidm/outputs.tf` — `nextcloud_client_secret`
 - `ansible/roles/vps_proxy/templates/haproxy.cfg.j2`、`defaults/main.yml` — `cloud.fickledev.com` の SNI 振り分けと `bk_nextcloud`
@@ -351,7 +350,6 @@ stateDiagram-v2
 | 5.1 | Kanidm の OIDC | NextcloudAuth, KanidmClient | user_oidc の provider | — |
 | 5.2 | クライアントとグループを宣言 | KanidmClient | `terraform-kanidm` | — |
 | 5.3 | 短い名前と既存 uid の照合 | NextcloudAuth, KanidmClient | `prefer_short_username`、`mapping-uid=preferred_username` | — |
-| 5.4 | 許可グループ外を拒否 | KanidmClient | scope map | — |
 | 5.5 | Kanidm 障害時は kubectl から occ | NextcloudApp, MigrationRunbook | `kubectl --context default exec` | — |
 | 5.6 | アプリパスワードで同期 | NextcloudAuth | `token_auth_enforced=true` | — |
 | 5.7 | ローカルパスワードの Web ログインを拒否 | NextcloudAuth, NextcloudIngress | `/login` POST の拒否ほか | — |
@@ -421,7 +419,7 @@ stateDiagram-v2
 | InitialOffsiteBackup | クラスタ | 宅外のリポジトリの作成と最初の世代 | 8.2〜8.4, 8.9, 8.15 | NextcloudStorage (P0), NextcloudDatabase (P0), GDrive (P0) | Batch |
 | PublicDnsRecord | エッジ | `cloud` の A レコード | 4.1 | Cloudflare (P0) | State |
 | EdgeSniRoute | エッジ | SNI 振り分け、PROXY v2、80 番の転送 | 4.1, 4.4, 4.6, 4.7, 7.2, 7.3 | TraefikEntrypoint (P0), tailnet (P0) | Service |
-| KanidmClient | 認証 | OAuth2 クライアントと許可グループ | 5.2〜5.4 | Kanidm (P0) | State |
+| KanidmClient | 認証 | OAuth2 クライアント | 5.2〜5.3 | Kanidm (P0) | State |
 | ExternalProbe | 監視 | 外形監視 | 8.11 | Gatus (P0) | Event |
 | CapacityMonitor | 監視 | ディスクと GDrive の使用率 | 8.12, 8.13 | Beszel (P0), BackupJob (P1) | Event |
 | MigrationRunbook | 手順 | 取り出しからアップグレード・変換まで | 1.1〜1.3, 2.1〜2.4, 5.5, 12.2, 12.3, 12.6, 12.9 | VM 105 (P0) | Batch |
@@ -899,15 +897,13 @@ stateDiagram-v2
 
 | Field | Detail |
 |-------|--------|
-| Intent | Nextcloud 用の OAuth2 クライアントと利用許可グループを宣言する |
-| Requirements | 5.2, 5.3, 5.4 |
+| Intent | Nextcloud 用の OAuth2 クライアントを宣言する |
+| Requirements | 5.2, 5.3 |
 
 **Responsibilities & Constraints**
 
-- `kanidm_group.nextcloud_access` (所属は宣言しない。人間の利用者の所属を Terraform の管理対象にしない既存の境界に従う)。
-- `kanidm_oauth2_basic.nextcloud`: `origin = "https://cloud.fickledev.com/"`、`redirect_uris = ["https://cloud.fickledev.com/apps/user_oidc/code", "https://cloud.fickledev.com/index.php/apps/user_oidc/code"]`、`prefer_short_username = true`、`scope_map { group = kanidm_group.nextcloud_access.id, scopes = ["openid", "profile", "email"] }`。
+- `kanidm_oauth2_basic.nextcloud`: `origin = "https://cloud.fickledev.com/"`、`redirect_uris = ["https://cloud.fickledev.com/apps/user_oidc/code", "https://cloud.fickledev.com/index.php/apps/user_oidc/code"]`、`prefer_short_username = true`、`scope_map { group = "idm_all_persons", scopes = ["openid", "profile", "email"] }` (`idm_all_persons` は人のアカウントが自動で属する Kanidm 組み込みの動的グループで、宣言しない)。
 - `outputs.tf` に `nextcloud_client_secret` (sensitive) を足す。
-- scope map を持たない利用者は Kanidm が認可を拒否する (5.4)。
 
 **Contracts**: State [x]
 
@@ -1157,7 +1153,7 @@ stateDiagram-v2
 
 - **宣言の検査**: `kustomize build apps/nextcloud` と `apps/traefik-config` が通ること。`terraform validate` (terraform、terraform-kanidm)。`ansible-lint` (vps_proxy、beszel_agent)。`pytest scripts/` (乖離検出の変更後)。
 - **経路の実測**: VPS から各ノードの 30443 への接続、宅外の回線から `https://cloud.fickledev.com/status.php` の応答、`http://` からの 301、Traefik のアクセスログの送信元、`websecure` の既存経路の送信元が変わらないこと (4.1、4.4、4.7、4.8)。
-- **認証の実測**: Kanidm 経由のログインで既存の利用者に結びつくこと、`nextcloud_access` に属さない利用者が拒否されること、`?direct=1` の POST が 403、利用者パスワードでの WebDAV の拒否、デスクトップとモバイルのクライアントのログインフロー (4.3、5.3、5.4、5.6〜5.8)。リハーサルに加え、切り替えの Configure の後・移行先の保守モードの解除 (Live) の直後にも (保守モード中は Web ログインが 503 になるため)、OIDC で既存のアカウントに結びつき新しいアカウントが作られないことと、ローカルパスワードログインの拒否をもう一度確かめる。
+- **認証の実測**: Kanidm 経由のログインで既存の利用者に結びつくこと、`?direct=1` の POST が 403、利用者パスワードでの WebDAV の拒否、デスクトップとモバイルのクライアントのログインフロー (4.3、5.3、5.6〜5.8)。リハーサルに加え、切り替えの Configure の後・移行先の保守モードの解除 (Live) の直後にも (保守モード中は Web ログインが 503 になるため)、OIDC で既存のアカウントに結びつき新しいアカウントが作られないことと、ローカルパスワードログインの拒否をもう一度確かめる。
 - **Configure**: `configure.sh` を 2 回続けて実行して結果が変わらないこと。実行後に config.php の表の値、provider、`/SMB` が Local の `/mnt/smb` で読み書きできること (`occ files_external:verify`)、継続しないアプリの無効化、アプリパスワードの発行を照会して確かめる。
 - **大きなファイル**: 宅外から Web とデスクトップで 49GB 以上のアップロードとダウンロード (7.1、7.4)。
 - **退避**: 毎晩の実行の成功、失敗を注入した実行での保守モードの解除と Job の失敗終了、宅外からの全量復元 (8.2、8.9、8.10)。

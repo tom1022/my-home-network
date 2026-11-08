@@ -96,9 +96,8 @@ Nextcloud は Proxmox VM 105 上で、宣言の管理外のまま稼働してい
 #### Acceptance Criteria
 
 1. The Nextcloud shall Kanidm を IdP とする OIDC でログインを受け付ける。
-2. The Kanidm の OAuth2 クライアントと、利用を許可するグループ shall `terraform-kanidm/` に宣言される。
+2. The Kanidm の OAuth2 クライアント shall `terraform-kanidm/` に宣言される。
 3. When Kanidm で認証された利用者が初めてログインした場合, the Nextcloud shall その利用者を移行元の既存アカウントに対応づけ、移行したデータを引き継がせる。対応づけは Kanidm の短い名前と既存のユーザー ID の照合 (大文字小文字を区別しない) で行い、独自の claim やユーザー ID の付け替えを要しない。
-4. If 利用を許可するグループに属さない Kanidm の利用者がログインを試みた場合, then the Nextcloud shall ログインを拒否する。
 5. If Kanidm が利用できない場合, then the 運用者 shall クラスタの管理経路 (kubectl) から Nextcloud の管理コマンドを実行して復旧作業を行う。Web にはパスワードでログインできる非常口を設けない。
 6. Where 同期クライアントがアプリパスワードで接続する, the Nextcloud shall Kanidm を経由せずにアプリパスワードで認証できる。
 7. The Nextcloud shall 利用者のローカルパスワードによる Web へのログインを受け付けない。
