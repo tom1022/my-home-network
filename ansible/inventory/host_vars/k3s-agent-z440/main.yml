@@ -37,6 +37,8 @@ agent_data_disks:
     mount_path: "/var/lib/garage-data"
 
 # rsync は VM 105 から /var/lib/nextcloud への Nextcloud の取り出しと切り替え時の差分同期に使う。
+# nfs-common は kubelet が Nextcloud の Pod に NAS の共有を NFS でマウントするために使う。
 storage_disk_base_packages:
   - parted
   - rsync
+  - nfs-common

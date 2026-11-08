@@ -1,0 +1,1 @@
+{{ nas_smb_share_path }} {% for client in nas_smb_nfs_clients %}{{ client }}({{ nas_smb_nfs_export_options }}) {% endfor %}
