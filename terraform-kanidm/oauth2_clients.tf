@@ -52,6 +52,8 @@ resource "kanidm_oauth2_basic" "gitea" {
   displayname = "Gitea"
   origin      = "https://gitea.fickledev.com/"
 
+  allow_insecure_client_disable_pkce = true
+
   redirect_uris = [
     "https://gitea.fickledev.com/user/oauth2/kanidm/callback",
   ]
@@ -92,6 +94,7 @@ resource "kanidm_oauth2_public" "argocd" {
     "https://argocd.fickledev.com/auth/callback",
     # `argocd login --sso` の既定ローカルコールバック (--sso-port 既定値 8085)。
     "http://localhost:8085/auth/callback",
+    "https://argocd.fickledev.com/pkce/verify",
   ]
 
   scope_map {
@@ -190,5 +193,43 @@ resource "kanidm_oauth2_public" "devplatform_gateway" {
   scope_map {
     group  = kanidm_group.dev_platform_workspace_access.id
     scopes = ["openid", "profile", "email", "groups"]
+  }
+}
+
+# Nextcloud (k3s、cloud.fickledev.com) の user_oidc 向け。scope map を持たない利用者は
+# Kanidm が認可を拒否する。prefer_short_username により preferred_username が
+# SPN ではなく短い名前になり、Nextcloud の既存 uid と照合できる。
+# redirect_uris の 2 本目は index.php 付きの URL 書き換え無効の構成で user_oidc が使う形。
+resource "kanidm_oauth2_basic" "nextcloud" {
+  name                  = "nextcloud"
+  displayname           = "Nextcloud"
+  origin                = "https://cloud.fickledev.com/"
+  prefer_short_username = true
+
+  redirect_uris = [
+    "https://cloud.fickledev.com/apps/user_oidc/code",
+    "https://cloud.fickledev.com/index.php/apps/user_oidc/code",
+  ]
+
+  scope_map {
+    group  = kanidm_group.nextcloud_access.id
+    scopes = ["openid", "profile", "email"]
+  }
+}
+
+# hermes ダッシュボード自身が OIDC (PKCE) で認証する。上流はプロキシのヘッダ認証に
+# 非対応のため、前段の forward auth とは別にクライアントが要る。
+resource "kanidm_oauth2_public" "hermes_dashboard" {
+  name        = "hermes-dashboard"
+  displayname = "Hermes Dashboard"
+  origin      = "https://hermes.fickledev.com/"
+
+  redirect_uris = [
+    "https://hermes.fickledev.com/auth/callback",
+  ]
+
+  scope_map {
+    group  = kanidm_group.forward_auth_access.id
+    scopes = ["openid", "profile", "email"]
   }
 }
