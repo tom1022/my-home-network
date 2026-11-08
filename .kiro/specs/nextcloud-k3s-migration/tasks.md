@@ -170,7 +170,7 @@
   - 完了時、移行先にファイルと `config.php` と DB のダンプが揃い、移行元に書き込みが無い
   - _Requirements: 1.2, 2.2, 2.3, 2.4, 2.9, 9.2_
 
-- [ ] 6. 移行先での段階更新と変換 (リハーサル)
+- [x] 6. 移行先での段階更新と変換 (リハーサル)
 - [x] 6.1 Stage: 一時 MariaDB と `config.php` を用意し、30.0.17 で起動する
   - ダンプを一時 MariaDB に読み込む
   - `config.php` の DB の接続先・Redis・ローカルキャッシュ・`apps_paths` を設計の表どおりに書き換え、`datadirectory`・`secret`・`passwordsalt`・`instanceid` は移行元のまま `html/config/` に置き、公式イメージの `apps.config.php` を置く
@@ -210,7 +210,7 @@
   - 完了時、照会した設定がすべて設計どおりで、Infisical に管理者のアプリパスワードが登録されている
   - _Requirements: 4.5, 5.1, 5.3, 5.6, 5.7, 6.4, 10.5_
 
-- [ ] 6.6 Mail のプロビジョニングの Job を宣言して投入する
+- [x] 6.6 Mail のプロビジョニングの Job を宣言して投入する
   - REST API に冪等に投入する Job を、`jq` を含むイメージで宣言する。既存の `provisioningDomain=="*"` の設定があれば更新し、無ければ作成し、毎回 `masterPassword` の実値を送る
   - 認証は管理者のアプリパスワードによる Basic 認証と `OCS-APIRequest` ヘッダで行い、資格情報は Infisical から供給する
   - Job 名の連番の書式はこのタスクで決め、リハーサル用の名前で commit する
