@@ -270,3 +270,24 @@ CLI で判定できない項目: BruteForceThrottler と ForwardedForHeaders は
 - 管理画面での背景ジョブの最終実行時刻の表示。
 - `websecure` の送信元の導入前後の直接比較。
 - 実際の宅外の回線 (携帯回線等) からの接続。今回は宅内のワークステーションから VPS を経由した。
+
+## アカウントの付け替え (タスク 6.7、2026-11-08)
+
+### 実行
+
+- `reassign-account.sh` (gitops-apps `be255d7`・`ad87b16`・`a8b83bf`) を移行先で実行した。最初の実行は `files:transfer-ownership --move` が `Destination path does not exists or is not empty` で止まった。全員向けの外部ストレージ `/SMB` のマウントポイントがホームの中身に数えられたため。直前に `/SMB` の設定を外す処理を足して再実行した。
+- バージョン履歴は新 uid に追従しなかった (occ にユーザーのセッションが無く `files_versions` の移動フックが働かない)。設計どおり引き継がず、旧 uid の削除で消した。
+- 所要時間は、ファイルの移動 (同一ファイルシステム内の rename) を含めて各実行とも 1 分未満。
+- 2 回続けて実行し、2 回目は旧 uid が無いため全体が飛ばされた。
+
+### 照合
+
+- 移す前の旧 uid と移した後の新 uid で、`files/` のファイル数と合計バイト数、カレンダーごとのオブジェクト数、Deck のボード数、共有先のファイルが存在する共有の数がそれぞれ一致した。削除済みのファイルを指していた共有は旧 uid の削除で消えた。
+- 旧 uid は存在せず、admin グループのメンバーは新 uid だけである。
+- ユーザー設定は設計の除外分を除いて移った。
+- `/SMB` は Configure (c) で作り直され、新 uid から見える。
+
+### 資格情報と Mail
+
+- Configure (e) が新 uid でアプリパスワードを発行し、Infisical の `NEXTCLOUD_MAIL_PROVISIONING_AUTH` を値を表示せずに登録し直した。登録した値と k8s の Secret の値が一致することをハッシュで確かめた。
+- `mail-provisioning-rehearsal-2` (gitops-apps `7228754`) が成功し、新 uid に provisioning の Mail アカウントが付いた。
