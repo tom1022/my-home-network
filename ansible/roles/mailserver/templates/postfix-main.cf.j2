@@ -10,3 +10,7 @@
 # ホスト名解決を用いない (defaults/main.yml 参照)。角括弧はネクストホップの MX 参照を
 # 抑止し、直接そのアドレスへ接続させる。
 virtual_transport = lmtp:[{{ mailserver_mailbox_lmtp_host }}]:{{ mailserver_mailbox_lmtp_port }}
+
+# 利用者の mail 属性には外部アドレスも入り、そこからドメインを組み立てると外部宛てが格納側へ
+# 誤配送されるため固定値で与える。DMS の ldap.sh が足す ldap-domains.cf をこの上書きが置き換える。
+virtual_mailbox_domains = {{ vps_proxy_domain_main }}

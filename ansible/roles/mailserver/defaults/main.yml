@@ -46,11 +46,8 @@ mailserver_ldap_search_bind_dn: "dn=token"
 # メール属性 (mail) はインデックスされていないため、必ずインデックス済み属性との論理積で
 # 検索する。class はエントリの型を表す Kanidm の基幹属性であり、
 # person 型の絞り込みに標準的に使われるインデックス済み属性である。宛先ごとの照合
-# (LDAP_QUERY_FILTER_USER) とドメイン単位の照合 (LDAP_QUERY_FILTER_DOMAIN) を同じ形式
-# (mail との論理積) で組み立てる。ドメインの許可集合を別途静的に持たないのは、Kanidm 側の
-# person の mail 属性がそのまま真実の情報源であるため。
+# (LDAP_QUERY_FILTER_USER) をこの形式 (mail との論理積) で組み立てる。
 mailserver_ldap_query_filter_user: "(&(mail=%s)(class=person))"
-mailserver_ldap_query_filter_domain: "(&(mail=*@%s)(class=person))"
 
 # メーリングリストとエイリアスは非対象だが、ACCOUNT_PROVISIONER=LDAP を有効化すると DMS は
 # virtual_alias_domains/virtual_alias_maps を無条件に
