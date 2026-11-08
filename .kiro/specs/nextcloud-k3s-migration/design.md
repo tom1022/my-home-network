@@ -579,7 +579,7 @@ stateDiagram-v2
 
 - `emailTemplate` を `%EMAIL%` にするのは、アドレスを uid から組み立てず Nextcloud の email から取るため。`%EMAIL%` は Reassign が移行元から新 uid に移した email を使い、ログイン時に user_oidc が Kanidm の email claim で上書きする。Kanidm に mail 属性が無い利用者では `%EMAIL%` がリテラルのまま入る (エラーにならない)。メールボックスを持つ利用者は docker-mailserver の宛先照合 `(&(mail=%s)(class=person))` のため必ず mail 属性を持つので、該当しない。
 - Dovecot の userdb が `lower` を適用するため、uid の大文字小文字に関わらず同じメールボックスに入る。
-- Mail は送信済みフォルダが割り当てられていないアカウントの送信を、SMTP に接続する前に止める (`Configuration error: Cannot send message without sent mailbox.`)。Mail は IMAP 上の既存の `\Sent` フォルダを割り当てるだけで、自分では作らない。そのため k3s の Dovecot の `10-mailbox.conf` で、特別用途のフォルダを宣言してメールボックスに必ず存在させる。Mail は次の同期で割り当てる。
+- Mail は送信済みフォルダが割り当てられていないアカウントの送信を、SMTP に接続する前に止める (`Configuration error: Cannot send message without sent mailbox.`)。Mail は IMAP 上の既存の `\Sent` フォルダを割り当てるだけで、自分では作らない。そのため k3s の Dovecot の `10-mailbox.conf` で、特別用途のフォルダを宣言してメールボックスに必ず存在させる。既にあるアカウントには、Mail がフォルダ一覧を取り直したときに割り当てられる。Mail はフォルダ一覧を 2 時間に 1 度だけ取り直す (`MailboxSync` の `getLastMailboxSync`)。すぐ割り当てるには `occ mail:account:sync -f <id>` を使う。
 
   ```
   namespace inbox {
