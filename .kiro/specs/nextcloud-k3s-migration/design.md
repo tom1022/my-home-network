@@ -715,7 +715,7 @@ stateDiagram-v2
   | `NEXTCLOUD_MAIL_SMTP_PASSWORD` | 通知メールの送信アカウント `noreply@fickledev.com` のパスワード | `NC_mail_smtppassword`、VPS の passwd-file の生成 (Ansible) |
   | `NEXTCLOUD_MAIL_SMTP_SALT` | 同アカウントのハッシュの salt | VPS の passwd-file の生成 (Ansible) のみ |
   | `MAIL_MASTER_PASSWORD` | Dovecot の master user `mailmaster` のパスワード | k3s の Dovecot (Secret から環境変数 `MASTER_PASSWORD`)、VPS の compose の環境変数 `MASTER_PASSWORD`、プロビジョニングの Job |
-  | `NEXTCLOUD_MAIL_PROVISIONING_AUTH` | プロビジョニングの REST API を呼ぶ管理者のアプリパスワード (Basic 認証) | `mail-provisioning-<連番>` Job。値は `configure.sh` が発行し、実装する側が値を表示せずに登録する |
+  | `NEXTCLOUD_MAIL_PROVISIONING_AUTH` | プロビジョニングの REST API を呼ぶ管理者の Basic 認証の資格情報。値は `<管理者の uid>:<アプリパスワード>` (公開リポジトリに利用者名を書かないため uid も Infisical に置く) | `mail-provisioning-<連番>` Job (`curl --user` に渡す)。値は `configure.sh` が `<uid>:<アプリパスワード>` の形で標準出力に出し、実装する側が値を表示せずに登録する |
   | `NEXTCLOUD_SMB_USER` / `NEXTCLOUD_SMB_PASSWORD` | NAS の samba のローカル利用者 | NAS の samba の設定 (Nextcloud は使わない) |
   | `NEXTCLOUD_BACKUP_RESTIC_PASSWORD` | 宅外のリポジトリの鍵 | BackupJob |
   | `NEXTCLOUD_BACKUP_RCLONE_CONFIG` | GDrive の rclone 設定。既存のキー `GARAGE_BACKUP_RCLONE_CONFIG` (gitops-apps の `apps/garage` が `gdrive:backup/garage` へ送るのに使う) の値を、実装する側が表示せずに写して登録する。ブラウザでの OAuth は行わない | BackupJob |
