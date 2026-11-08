@@ -220,11 +220,11 @@
 - [ ] 6.7 アカウントの付け替えスクリプトを作り、移行先へ適用する
   - gitops-apps の `apps/nextcloud/scripts/reassign-account.sh` を設計の Reassign の順に作る。`configure.sh` と同じ置き場所・同じ実行 (www-data で runuser) にする。旧 uid と新 uid は環境変数で渡し、各手順は済んでいれば飛ばす。ユーザー設定は設計の除外分を除いて `occ user:setting` で 1 件ずつ移す
   - `configure.sh` (a) に `skeletondirectory` (空文字)、`default_language` (`ja`)、`default_locale` (`ja_JP`)、`default_timezone` (`Asia/Tokyo`) を足す
-  - 移行先へ適用し、`--move` でバージョン履歴が追従するかと所要時間を実測して記録する。追従しなければ旧アカウントを削除せず止まって報告する
+  - 移行先へ適用し、所要時間を実測して記録する。共有の検証は共有先のファイルが存在する共有だけを数える
   - 2 回続けて実行して結果が変わらないことを確かめる
   - `configure.sh` を再実行する。管理者のアプリパスワードは新 uid で発行されるため、Infisical の `NEXTCLOUD_MAIL_PROVISIONING_AUTH` を値を表示せずに登録し直し、`mail-provisioning` の Job を連番を進めて再実行する
   - 結果をアカウント名を書かずに記録する
-  - 完了時、旧 uid のファイル・バージョン履歴・カレンダー・Deck・共有が新 uid に揃い、旧アカウントが無く、`NEXTCLOUD_MAIL_PROVISIONING_AUTH` が新 uid のものになっている
+  - 完了時、旧 uid のファイル・カレンダー・Deck・共有が新 uid に揃い、旧アカウントが無く、`NEXTCLOUD_MAIL_PROVISIONING_AUTH` が新 uid のものになっている
   - _Requirements: 2.1, 2.2, 2.4, 5.3, 6.3_
   - _Depends: 6.4, 6.6_
 

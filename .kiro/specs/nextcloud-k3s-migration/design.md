@@ -11,7 +11,7 @@
 ### Goals
 
 - Nextcloud を k3s-agent-z440 の専用ディスク上で、保守期間内の 35 で稼働させ、構成をすべて `gitops-apps` と本リポジトリに宣言する
-- 移行元のファイル・バージョン履歴・共有・カレンダー・連絡先・アプリの利用者データを欠落なく移し、件数・大きさ・内容の一致を記録する
+- 移行元のファイル・共有・カレンダー・連絡先・アプリの利用者データを欠落なく移し、件数・大きさ・内容の一致を記録する
 - `cloud.fickledev.com` を、ファイルの大きさによらず 1 つの経路で、中継で復号せず、利用者の送信元 IP を保ったまま提供する
 - Kanidm の OIDC だけで Web にログインさせ、移行元のアカウントへ設定だけで結びつける
 - 本体と物理的に異なる宅内と宅外の 2 か所に、整合した時点の世代を退避し、失敗・応答停止・使用率超過を既存の通知経路へ流す
@@ -327,7 +327,7 @@ stateDiagram-v2
 | 1.4 | 8.2 の完了まで消去しない | DecommissionRunbook | 関門 A2 / A3 の前提条件 | 切り替えから撤去まで |
 | 1.5 | 切り替え前に VM 105 を止めず、同居サービスに影響させない | CutoverRunbook | 保守モードは Nextcloud だけに効く | 切り替えから撤去まで |
 | 2.1 | 運用者のアカウントだけを移し、対象外を削除して残存を確かめる | MigrationRunbook | `occ user:delete` と残存の照会 | 移行のパイプライン |
-| 2.2 | バージョン履歴を保持 | MigrationRunbook | rsync に `files_versions` を含める | 移行のパイプライン |
+| 2.2 | バージョン履歴を引き継がない | MigrationRunbook | Reassign の `occ user:delete` で旧 uid の `files_versions` が消える | 移行のパイプライン |
 | 2.3 | ゴミ箱を除き、移行先は空で始める | MigrationRunbook | rsync の除外と `occ trashbin:cleanup --all-users` | 移行のパイプライン |
 | 2.4 | 共有・カレンダー・連絡先・アプリのデータ | MigrationRunbook | DB のダンプ全体を移し、Reassign の `occ` で新 uid へ付け替える (アドレス帳は移せない) | 移行のパイプライン |
 | 2.5 | 件数と合計サイズの突き合わせ | MigrationVerification | 件数・サイズの記録 | 移行のパイプライン |
@@ -976,8 +976,8 @@ stateDiagram-v2
   3. `occ deck:transfer-ownership <旧uid> <新uid> --remap` を実行する。確認のプロンプトには標準入力で `y` を渡す。
   4. `occ files:transfer-ownership <旧uid> <新uid> --move` を実行する。`--include-external-storage` は付けない (`/SMB` は全員向けの外部ストレージのため)。新 uid のホームが空でないと失敗し、全員向けの外部ストレージ `/SMB` のマウントポイントもホームの中身として数えられる。そのため直前に `occ files_external:delete -y <id>` で `/SMB` の設定を外す (NAS の中身には触れない)。外した `/SMB` は Configure (c) が作り直す。`occ user:add` はスケルトンを置かず、スケルトンは初回ログイン時に置かれるため、この時点のホームは空である。初回ログインは Configure (a) が `skeletondirectory` を空にした後なので、移したファイルにスケルトンは重ならない。リンク共有の URL は変わらない。
   5. `occ group:adduser admin <新uid>` で admin グループへ入れる。
-  6. 検証してから `occ user:delete <旧uid>` を実行する。検証項目は、旧 uid のファイルとバージョン履歴が新 uid に揃っていること、共有の owner、カレンダーと Deck の owner。`--move` でバージョン履歴が追従するかはリハーサルで実測する。追従しなければ `user:delete` で失われるため、削除せず止まる。
-  - 製品に移す機能が無いもの: アドレス帳、アクティビティ履歴、アプリパスワードとセッション (端末は再ログインする)、アバター、ユーザーステータス、Circles の所属、2 要素認証の状態、手で登録した Mail アカウント (パスワード認証)。
+  6. 検証してから `occ user:delete <旧uid>` を実行する。検証項目は、旧 uid のファイルが新 uid に揃っていること、共有の owner (共有先のファイルが存在する共有だけを数える。削除済みのファイルを指す共有は `user:delete` で消える)、カレンダーと Deck の owner。
+  - 製品に移す機能が無いもの: バージョン履歴 (`files:transfer-ownership` の rename は occ にユーザーのセッションが無いため `files_versions` の移動フックを通らず、旧 uid に残って `user:delete` で消える)、アドレス帳、アクティビティ履歴、アプリパスワードとセッション (端末は再ログインする)、アバター、ユーザーステータス、Circles の所属、2 要素認証の状態、手で登録した Mail アカウント (パスワード認証)。
   - 失敗したら、やり直しの手順どおり DB と `html/` を捨てて Stage から再実行する。
 - **Configure** (Reassign の後・Verify の前): 移行先で足した設定は DB と `config.php` を作り直すたびに消えるため、冪等な `configure.sh` (`apps/nextcloud/` の ConfigMap) を `kubectl exec` で `app` コンテナ内 (www-data) で実行して入れ直す。リハーサルでも切り替えでも同じものを実行する。資格情報は Secret の環境変数から読み、コマンド行に書かない。
   - (a) NextcloudApp の config.php の表の値 (`trusted_domains`、`overwrite.cli.url`、`overwriteprotocol`、`trusted_proxies`、`forwarded_for_headers`、`htaccess.RewriteBase`、`maintenance_window_start`、`token_auth_enforced`) と、NextcloudAuth の `hide_login_form`、`lost_password_link`、NextcloudMail の通知メールの `mail_smtp*` を `occ config:system:set` で入れる。あわせて `skeletondirectory` を空文字、`default_language` を `ja`、`default_locale` を `ja_JP`、`default_timezone` を `Asia/Tokyo` にする。`skeletondirectory` を空にしないと、新 uid の初回ログインで既定のスケルトンがホームに置かれ、付け替えたファイルと名前が衝突する。
@@ -1166,7 +1166,7 @@ stateDiagram-v2
 - **宣言の検査**: `kustomize build apps/nextcloud` と `apps/traefik-config` が通ること。`terraform validate` (terraform、terraform-kanidm)。`ansible-lint` (vps_proxy、beszel_agent)。`pytest scripts/` (乖離検出の変更後)。
 - **経路の実測**: VPS から各ノードの 30443 への接続、宅外の回線から `https://cloud.fickledev.com/status.php` の応答、`http://` からの 301、Traefik のアクセスログの送信元、`websecure` の既存経路の送信元が変わらないこと (4.1、4.4、4.7、4.8)。
 - **認証の実測**: Kanidm 経由のログインで既存の利用者に結びつくこと、`?direct=1` の POST が 403、利用者パスワードでの WebDAV の拒否、デスクトップとモバイルのクライアントのログインフロー (4.3、5.3、5.6〜5.8)。リハーサルに加え、切り替えの Configure の後・移行先の保守モードの解除 (Live) の直後にも (保守モード中は Web ログインが 503 になるため)、OIDC で既存のアカウントに結びつき新しいアカウントが作られないことと、ローカルパスワードログインの拒否をもう一度確かめる。
-- **Reassign**: リハーサルで `reassign-account.sh` を実行し、旧 uid のファイルとバージョン履歴・カレンダー・Deck・共有が新 uid に揃うこと、バージョン履歴が `--move` で追従すること、所要時間を実測する。2 回続けて実行して 2 回目が何も変えないこと。
+- **Reassign**: リハーサルで `reassign-account.sh` を実行し、旧 uid のファイル・カレンダー・Deck・共有が新 uid に揃うことと、所要時間を実測する。2 回続けて実行して 2 回目が何も変えないこと。
 - **Configure**: `configure.sh` を 2 回続けて実行して結果が変わらないこと。実行後に config.php の表の値、provider、`/SMB` が Local の `/mnt/smb` で読み書きできること (`occ files_external:verify`)、継続しないアプリの無効化、アプリパスワードの発行を照会して確かめる。
 - **大きなファイル**: 宅外から Web とデスクトップで 49GB 以上のアップロードとダウンロード (7.1、7.4)。
 - **退避**: 毎晩の実行の成功、失敗を注入した実行での保守モードの解除と Job の失敗終了、宅外からの全量復元 (8.2、8.9、8.10)。
