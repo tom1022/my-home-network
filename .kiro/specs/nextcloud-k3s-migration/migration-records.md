@@ -97,3 +97,46 @@ files_external は同梱のアプリで、移行元で有効だった。user_oid
 | user_oidc | 8.11.0 | `>=29.0.0 <36.0.0` |
 
 deck 1.19.1 は一覧から消えており、1.19.2 に置き換わっている。
+
+## 31.0.14 への更新と PostgreSQL への変換 (タスク 6.2、2026-11-08)
+
+イメージ: `nextcloud:31.0.14-apache@sha256:07ec73cc816e58d6f45a162cd53ef886462c29271a23fc68d0124cec276e3767` (index digest。Docker Hub のレジストリ API で確認)。
+
+### 1 回目の失敗とやり直し
+
+1 回目の 31 の upgrade は、継続しないアプリが `enabled=yes` のまま残っていたため、Updater が非互換として無効化した後に App Store から入れ直し、max-version 30 の recognize が psr/log 3 の 31 で Fatal となって止まった。対策として Stage で upgrade 前に継続しないアプリを `occ app:disable` で `enabled=no` にし (design 更新済み)、Stage をやり直して再実行した。やり直した実行では `Disabled incompatible app` は deck の 1 行だけで、upgrade は成功した。
+
+### upgrade で無効化され更新されたアプリ
+
+| アプリ | 30.0.17 | 31.0.14 での扱い | 更新後の版 |
+|-----|-----|-----|-----|
+| deck | 1.14.12 | 非互換として無効化 → 同じ実行で更新され有効 | 1.15.12 |
+| mail | 5.5.17 | 更新 | 5.6.21 |
+| tasks | 0.16.1 | 更新 | 0.18.1 |
+| calendar | 5.5.24 | 変わらず | 5.5.24 |
+| contacts | 7.3.19 | 変わらず | 7.3.19 |
+
+user_oidc は `occ app:install user_oidc` で 8.13.0 が入った (App Store の最新の 31 対応版)。`occ app:update --all` は実行していない。変換直前に継続アプリ 5 つ、user_oidc、files_external が有効なことを確かめた。
+
+### 変換
+
+保守モードを ON にしてから、`occ db:convert-type --no-interaction --all-apps --port 5432 pgsql nextcloud nextcloud-db-rw nextcloud` を実行した。パスワードは app コンテナ内で `umask 077` の一時ファイルに改行なしで書き (`printf "%s"`)、標準入力へリダイレクトして渡し、終了後に消した。`readPassword` は標準入力を非ブロッキングで読み trim せずに使うため、パイプや改行付きでは認証に失敗する。`--no-interaction` は「変換されないテーブル (無効アプリのもの) があっても続ける」確認に必要。`HOME=/var/www` は libpq が `/root/.postgresql` を読む権限エラーを避けるため。変換後は `dbtype` が `pgsql`、`dbhost` が `nextcloud-db-rw:5432`。所要時間は変換が約 12 分、upgrade のロールアウトが約 1 分。
+
+### 行数の突き合わせ
+
+| テーブル | 結果 |
+|-----|-----|
+| oc_filecache | 一致 |
+| oc_share | 一致 |
+| oc_calendarobjects | 一致 |
+| oc_calendars | 一致 |
+| oc_cards | 一致 |
+| oc_addressbooks | 一致 |
+| oc_users | 一致 |
+| oc_accounts | 一致 |
+| oc_preferences | 一致 |
+| oc_appconfig | 一致 (変換直前の計測の後に MariaDB の行が増えたため、変換後に両側を再計測して一致を確認) |
+| oc_mail_accounts | 一致 |
+| oc_mail_messages | 一致 |
+| oc_deck_assigned_labels、oc_deck_assigned_users、oc_deck_attachment、oc_deck_board_acl、oc_deck_boards、oc_deck_cards、oc_deck_labels、oc_deck_sessions、oc_deck_stacks | 一致 (存在する 9 テーブルを個別に比較) |
+| oc_files_versions | 一致 |
