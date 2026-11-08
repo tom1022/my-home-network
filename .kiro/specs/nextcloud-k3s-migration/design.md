@@ -212,7 +212,7 @@ my-home-network/
 ### Modified Files
 
 - `gitops-apps/apps/cluster-issuer/wildcard-certificate.yaml` — reflector の複製先 2 つの一覧に `nextcloud` を足す
-- `gitops-apps/apps/mailbox/configmap.yaml` と Dovecot の Deployment — master 用 passdb (`master_static`)、`auth_master_user_separator`、`import_environment`。master パスワードは環境変数 `MASTER_PASSWORD` として Secret から渡す
+- `gitops-apps/apps/mailbox/configmap.yaml` と Dovecot の Deployment — master 用 passdb (`master_static`)、`auth_master_user_separator`、`import_environment`。master パスワードは環境変数 `MASTER_PASSWORD` として Secret から渡す。`10-mailbox.conf` に特別用途のフォルダ (NextcloudMail)
 - `terraform/cloudflare_dns.tf` — `vps_hosts` に `cloud` (`proxied = false`、`aaaa = false`) を足す
 - `terraform/locals.tf` — `zfs_pools.nextcloud` の注記を「PBS ではなく restic で別媒体へ退避する」に改める。k3s-agent-z440 に `datastore_disks.restic_local = { datastore = "zfs-backup", size = <関門 A4 で作ったプールの `zpool list` の FREE の 90% を 100G 単位で切り捨てた値 (試算上 1600 前後)>, scsi = 4, backup = false }` を宣言する
 - `terraform/modules/vm/main.tf`、`variables.tf` — データストアをエントリごとに指定する map 変数 `datastore_disks` (`{ datastore, size, scsi, backup }`、既定は空) と、それを回す `dynamic "disk"` を既存の `lvm_disks` のブロックの後ろに足す。`zfs_pools` と `lvm_disks` は変えない
@@ -579,6 +579,30 @@ stateDiagram-v2
 
 - `emailTemplate` を `%EMAIL%` にするのは、アドレスを uid から組み立てず Nextcloud の email から取るため。`%EMAIL%` は Reassign が移行元から新 uid に移した email を使い、ログイン時に user_oidc が Kanidm の email claim で上書きする。Kanidm に mail 属性が無い利用者では `%EMAIL%` がリテラルのまま入る (エラーにならない)。メールボックスを持つ利用者は docker-mailserver の宛先照合 `(&(mail=%s)(class=person))` のため必ず mail 属性を持つので、該当しない。
 - Dovecot の userdb が `lower` を適用するため、uid の大文字小文字に関わらず同じメールボックスに入る。
+- Mail は送信済みフォルダが割り当てられていないアカウントの送信を、SMTP に接続する前に止める (`Configuration error: Cannot send message without sent mailbox.`)。Mail は IMAP 上の既存の `\Sent` フォルダを割り当てるだけで、自分では作らない。そのため k3s の Dovecot の `10-mailbox.conf` で、特別用途のフォルダを宣言してメールボックスに必ず存在させる。Mail は次の同期で割り当てる。
+
+  ```
+  namespace inbox {
+    mailbox Drafts {
+      special_use = \Drafts
+      auto = subscribe
+    }
+    mailbox Junk {
+      special_use = \Junk
+      auto = subscribe
+    }
+    mailbox Trash {
+      special_use = \Trash
+      auto = subscribe
+    }
+    mailbox Sent {
+      special_use = \Sent
+      auto = subscribe
+    }
+  }
+  ```
+
+  組み合わせは Dovecot が同梱する設定例と同じ 4 つ。`auto = subscribe` は、ないときに作って購読状態にする。イメージ既定の `namespace inbox` (`inbox = yes`、`separator = /`) に合成されることを、稼働中のイメージ (2.4.0) の `doveconf -n` で確認済み。VPS の docker-mailserver はメールボックスを持たないため変更しない。
 - Mail はアカウントを利用者が初めて開いた時点で作る。プロビジョニングの作成後は、OIDC でない既存の利用者 (管理者など) にもアカウントが作られる。
 
 - プロビジョニングの設定は gitops-apps の Job `mail-provisioning-<連番>` として宣言し、Mail の管理者用 REST API に投入する。Job は不変のため、Configure の後に連番を進めた名前で足し直す (リハーサル用と切り替え用で別名)。Job のイメージには `jq` が要る。
