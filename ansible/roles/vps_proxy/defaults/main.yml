@@ -59,6 +59,7 @@ vps_proxy_filter_allow_tcp_ports:
 
 vps_proxy_filter_allow_udp_ports:
   - 19132  # Minecraft Bedrock passthrough (nginx stream)
+  - 24454  # Minecraft Simple Voice Chat passthrough (nginx stream)
   # tailscaled's direct P2P WireGuard port; without this open on the public
   # interface too, this node falls back to DERP-relayed connectivity only.
   # Sourced from tailscale_node (single source of truth for the port
