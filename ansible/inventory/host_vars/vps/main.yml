@@ -20,6 +20,14 @@ vps_proxy_tcp_upstreams:
         port: 19132
       - host: 192.168.1.152
         port: 19132
+  - name: minecraft_java_backend
+    members:
+      - host: 192.168.1.150
+        port: 25565
+      - host: 192.168.1.151
+        port: 25565
+      - host: 192.168.1.152
+        port: 25565
   # 取得 (IMAPS/993) の格納側中継先。格納側 Dovecot の NodePort
   # 30993 は externalTrafficPolicy: Local (gitops-apps/apps/mailbox/service.yaml) の
   # ため、Pod を実際にホストするノード (mailserver ロールの LMTP 配送先と同じ
@@ -36,6 +44,10 @@ vps_proxy_tcp_listeners:
     bind_address: 0.0.0.0
     udp: true
     upstream: minecraft_bedrock_backend
+  - name: minecraft_java_listener
+    listen_port: 25565
+    bind_address: 0.0.0.0
+    upstream: minecraft_java_backend
   # TLS を終端しない TCP パススルー (tls キー省略 = 既定 false)。ssl_preread も SNI
   # ルーティングも行わず、内容を解さずバイト列をそのまま中継する。TLS の終端は
   # 格納側 (k3s の Dovecot) が行う。

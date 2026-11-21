@@ -49,6 +49,7 @@ vps_proxy_filter_allow_tcp_ports:
   - 465
   - 587
   - 993
+  - 25565  # Minecraft Java passthrough (nginx stream)
 
 vps_proxy_filter_allow_udp_ports:
   - 19132  # Minecraft Bedrock passthrough (nginx stream)
