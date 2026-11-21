@@ -284,6 +284,7 @@
     owner: root
     group: root
     mode: '0644'
+    validate: haproxy -c -f %s
   notify: Restart haproxy service
 
 - name: Ensure nginx service is enabled and started

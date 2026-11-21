@@ -6,9 +6,9 @@
 # Web UI / CLI で運用者が直接管理する。
 #
 # 各グループの `members` 属性を省略しているのはこの境界を反映したものであり、
-# kanidm_group.argocd_viewers で先に踏んだ provider 0.1.10 の挙動 (Optional+Computed の
-# `members` を省略すると、サーバ側の実際の所属を変更せずに Terraform の管理対象からも
-# 外れる。明示的な空集合 `[]` は逆に収束しない差分を出し続ける) をそのまま利用している。
+# provider 0.1.10 の挙動 (Optional+Computed の `members` を省略すると、サーバ側の実際の
+# 所属を変更せずに Terraform の管理対象からも外れる。明示的な空集合 `[]` は逆に収束しない
+# 差分を出し続ける) をそのまま利用している。
 
 # 開発基盤 (autonomous-parallel-dev-platform) そのものへ到達できる利用者の集合。
 # ワークスペース (Sandbox Pod の IDE/端末) への直接到達を許可する対象であり、
@@ -42,29 +42,12 @@ resource "kanidm_account_policy" "dev_platform_service_access" {
   authsession_expiry      = 86400 # 24h
 }
 
-# Gitea (gitea.fickledev.com) へ OIDC でログインできる利用者の集合。
-resource "kanidm_group" "gitea_access" {
-  name        = "gitea_access"
-  description = "Gitea (gitea.fickledev.com) へ OIDC でログインできる利用者"
-}
-
 # ArgoCD (argocd.fickledev.com) の RBAC (argocd-rbac-cm) にグループ名で対応付ける
-# 2 グループ。グループ名は policy.csv 側の g 行と大文字小文字を含め
+# グループ。グループ名は policy.csv 側の g 行と大文字小文字を含め
 # 完全一致させること。
 resource "kanidm_group" "argocd_admins" {
   name        = "argocd_admins"
   description = "ArgoCD で role:admin (フル権限) を持つ利用者"
-}
-
-# role:readonly に対応する検証用グループ。常時は空メンバーで宣言する。
-# members を明示的な空集合 ([]) にすると、apply 直後は成功することもあるが
-# 後続の plan/refresh でサーバ側の読み取りが null を返し際限なく
-# "+ members = []" の差分を出し続ける (provider 0.1.10 で実測、収束しない)。
-# members 属性自体を省略するとこの差分は消えるが、その場合メンバーの逸脱を
-# Terraform が検知・是正しなくなる (このグループは検証専用で実害が小さいため許容する)。
-resource "kanidm_group" "argocd_viewers" {
-  name        = "argocd_viewers"
-  description = "ArgoCD で role:readonly (読み取り専用) を持つ利用者"
 }
 
 # forward auth 判定ワークロード (apps/oauth2-proxy) の OIDC クライアントに

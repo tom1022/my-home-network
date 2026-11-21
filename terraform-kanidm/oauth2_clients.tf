@@ -1,3 +1,9 @@
+# 全クライアントの scope_map は idm_all_persons に結ぶ。人のアカウントが自動で属する
+# Kanidm 組み込みの動的グループ。provider が UUID で読み戻すため UUID で書く。
+locals {
+  idm_all_persons = "00000000-0000-0000-0000-000000000035"
+}
+
 # 開発基盤 (autonomous-parallel-dev-platform) 向けの OIDC クライアント 2 件。
 # 開発環境の構築自体は本モジュールのスコープ外。origin/redirect_uris は当該基盤がまだ
 # 存在しないため暫定値であり、実際の Ingress ホスト名確定時に更新する前提で宣言する。
@@ -17,17 +23,15 @@ resource "kanidm_oauth2_basic" "dev_platform_workspace" {
     "https://dev.fickledev.com/oauth2/callback",
   ]
 
-  # scope_map.group は provider 0.1.10 の読み取り後 state 上では UUID として保持される。
-  # グループ名を渡すと apply のたびに差分が出る (provider 0.1.10 で実測) ため id (UUID) を渡す。
   scope_map {
-    group  = kanidm_group.dev_platform_workspace_access.id
+    group  = local.idm_all_persons
     scopes = ["openid", "profile", "email", "groups"]
   }
 }
 
 # 開発環境が公開するサービス (ワークスペース内で稼働するアプリケーションのプレビュー) への
-# 到達を制御するクライアント。許可グループ・認証情報種別・セッション有効期限を
-# dev_platform_workspace とは独立に設定する。
+# 到達を制御するクライアント。認証情報種別・セッション有効期限は
+# dev_platform_workspace_access / dev_platform_service_access の account_policy で独立に設定する。
 resource "kanidm_oauth2_basic" "dev_platform_services" {
   name        = "dev-platform-services"
   displayname = "Dev Platform Services"
@@ -38,7 +42,7 @@ resource "kanidm_oauth2_basic" "dev_platform_services" {
   ]
 
   scope_map {
-    group  = kanidm_group.dev_platform_service_access.id
+    group  = local.idm_all_persons
     scopes = ["openid", "profile", "email", "groups"]
   }
 }
@@ -52,12 +56,14 @@ resource "kanidm_oauth2_basic" "gitea" {
   displayname = "Gitea"
   origin      = "https://gitea.fickledev.com/"
 
+  allow_insecure_client_disable_pkce = true
+
   redirect_uris = [
     "https://gitea.fickledev.com/user/oauth2/kanidm/callback",
   ]
 
   scope_map {
-    group  = kanidm_group.gitea_access.id
+    group  = local.idm_all_persons
     scopes = ["openid", "profile", "email", "groups"]
   }
 }
@@ -92,15 +98,11 @@ resource "kanidm_oauth2_public" "argocd" {
     "https://argocd.fickledev.com/auth/callback",
     # `argocd login --sso` の既定ローカルコールバック (--sso-port 既定値 8085)。
     "http://localhost:8085/auth/callback",
+    "https://argocd.fickledev.com/pkce/verify",
   ]
 
   scope_map {
-    group  = kanidm_group.argocd_admins.id
-    scopes = ["openid", "profile", "email", "groups"]
-  }
-
-  scope_map {
-    group  = kanidm_group.argocd_viewers.id
+    group  = local.idm_all_persons
     scopes = ["openid", "profile", "email", "groups"]
   }
 }
@@ -109,8 +111,7 @@ resource "kanidm_oauth2_public" "argocd" {
 # 認証基盤は OIDC のみを提供し forward auth の終端を提供しないため、
 # Traefik の forwardAuth middleware の転送先となる oauth2-proxy をこのクライアントで
 # 認証させる。confidential クライアント (client_secret あり) とする。
-# origin は末尾スラッシュ付きで宣言し、scope_map.group には kanidm_group.<name>.id
-# (UUID) を渡す (provider 0.1.10 の実装バグ回避策)。
+# origin は末尾スラッシュ付きで宣言する。
 resource "kanidm_oauth2_basic" "forward_auth" {
   name        = "forward-auth"
   displayname = "Forward Auth"
@@ -121,7 +122,7 @@ resource "kanidm_oauth2_basic" "forward_auth" {
   ]
 
   scope_map {
-    group  = kanidm_group.forward_auth_access.id
+    group  = local.idm_all_persons
     scopes = ["openid", "profile", "email", "groups"]
   }
 }
@@ -145,7 +146,7 @@ resource "kanidm_oauth2_basic" "guacamole" {
   ]
 
   scope_map {
-    group  = kanidm_group.guacamole_access.id
+    group  = local.idm_all_persons
     scopes = ["openid", "profile", "email", "groups"]
   }
 }
@@ -173,10 +174,6 @@ resource "kanidm_oauth2_basic" "guacamole" {
 # ポートを bind すること。localhost と 127.0.0.1 の双方を登録するのは、名前解決が
 # ::1 を返す環境で前者が成立しないため。
 #
-# 許可グループは dev_platform_workspace_access を共用する。この API はワークスペースの
-# 払い出し・破棄・証明書発行そのものであり、到達可否の判断対象が
-# 「ワークスペースへ到達してよい利用者」と一致する。別グループを作っても所属は
-# 常に同一になる。
 resource "kanidm_oauth2_public" "devplatform_gateway" {
   name        = "devplatform-gateway"
   displayname = "Dev Platform Gateway"
@@ -188,7 +185,45 @@ resource "kanidm_oauth2_public" "devplatform_gateway" {
   ]
 
   scope_map {
-    group  = kanidm_group.dev_platform_workspace_access.id
+    group  = local.idm_all_persons
     scopes = ["openid", "profile", "email", "groups"]
+  }
+}
+
+# Nextcloud (k3s、cloud.fickledev.com) の user_oidc 向け。scope map に結ばれていない
+# 利用者は Kanidm が認可を拒否する。prefer_short_username により preferred_username が
+# SPN ではなく短い名前になり、Nextcloud の既存 uid と照合できる。
+# redirect_uris の 2 本目は index.php 付きの URL 書き換え無効の構成で user_oidc が使う形。
+resource "kanidm_oauth2_basic" "nextcloud" {
+  name                  = "nextcloud"
+  displayname           = "Nextcloud"
+  origin                = "https://cloud.fickledev.com/"
+  prefer_short_username = true
+
+  redirect_uris = [
+    "https://cloud.fickledev.com/apps/user_oidc/code",
+    "https://cloud.fickledev.com/index.php/apps/user_oidc/code",
+  ]
+
+  scope_map {
+    group  = local.idm_all_persons
+    scopes = ["openid", "profile", "email"]
+  }
+}
+
+# hermes ダッシュボード自身が OIDC (PKCE) で認証する。上流はプロキシのヘッダ認証に
+# 非対応のため、前段の forward auth とは別にクライアントが要る。
+resource "kanidm_oauth2_public" "hermes_dashboard" {
+  name        = "hermes-dashboard"
+  displayname = "Hermes Dashboard"
+  origin      = "https://hermes.fickledev.com/"
+
+  redirect_uris = [
+    "https://hermes.fickledev.com/auth/callback",
+  ]
+
+  scope_map {
+    group  = local.idm_all_persons
+    scopes = ["openid", "profile", "email"]
   }
 }

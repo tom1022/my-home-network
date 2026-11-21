@@ -40,7 +40,7 @@ services:
       # (check-for-changes.sh に LDAP 分岐は存在しない、2026-09-03 に実装元を確認済み)。
       SSL_TYPE: letsencrypt
       SSL_DOMAIN: "{{ vps_proxy_domain_main }}"
-      # 宛先照合。Postfix 側の virtual_mailbox_domains/virtual_mailbox_maps を
+      # 宛先照合。Postfix 側の virtual_mailbox_maps を
       # LDAP 検索で組み立てる。LDAP_BIND_DN 等を与えずに有効化すると DMS 既定のダミー
       # bind DN (cn=admin,dc=example,dc=com) が使われ、resultCode 80 で submission ごと
       # 機能しなくなるため、検索用サービスアカウントの bind DN とフィルタを明示して与える。
@@ -50,7 +50,6 @@ services:
       LDAP_BIND_DN: "{{ mailserver_ldap_search_bind_dn }}"
       LDAP_BIND_PW: "{{ mailserver_ldap_search_password }}"
       LDAP_QUERY_FILTER_USER: "{{ mailserver_ldap_query_filter_user }}"
-      LDAP_QUERY_FILTER_DOMAIN: "{{ mailserver_ldap_query_filter_domain }}"
       # メーリングリストとエイリアスは非対象だが、空文字列のままだと不正な LDAP フィルタ
       # として検索が失敗し宛先照合全体が道連れで壊れる (defaults/main.yml のコメント参照)。
       # 常に0件を返す構文的に有効なフィルタを与える。
@@ -69,6 +68,8 @@ services:
       ENABLE_AMAVIS: "{{ 1 if mailserver_enable_amavis else 0 }}"
       # 認証済みの送信への検査適用可否の明示的な宣言。
       RSPAMD_CHECK_AUTHENTICATED: "{{ 1 if mailserver_rspamd_check_authenticated else 0 }}"
+      # Dovecot の master 用 passdb (dovecot.cf) が import_environment 経由で参照する。
+      MASTER_PASSWORD: {{ mailserver_master_password | replace('$', '$$') | to_json }}
     volumes:
       - {{ mailserver_data_dir }}/mail-data:/var/mail/
       - {{ mailserver_data_dir }}/mail-state:/var/mail-state/
@@ -77,5 +78,6 @@ services:
       - {{ mailserver_ldap_config_dir }}/ldap.conf:/etc/ldap/ldap.conf:ro
       # live/ の中身は archive/ を指すシンボリックリンクのため、live 配下だけを
       # 切り出さずディレクトリ全体を読み取り専用でマウントする (DMS 公式手順どおり)。
+      - {{ mailserver_base_dir }}/noreply.passwd:/etc/dovecot/noreply.passwd:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /etc/localtime:/etc/localtime:ro

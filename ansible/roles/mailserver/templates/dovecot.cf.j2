@@ -7,6 +7,17 @@
 # "ldap: unknown user" になるため)。
 # submission の認証もこの passdb を経由する。
 
+# noreply は LDAP より前に置き、result_failure = return-fail で誤パスワード時に LDAP へ
+# 落とさない。落とすと 1 回の失敗で LDAP 側の失敗行も出て、fail2ban の dovecot フィルタが
+# 2 回数える。passdb 名とファイルパスは docker-mailserver 標準のものと衝突させない。
+passdb noreply {
+  driver = passwd-file
+  passwd_file_path = /etc/dovecot/noreply.passwd
+  username_filter = {{ mailserver_noreply_address }}
+  default_password_scheme = SHA512-CRYPT
+  result_failure = return-fail
+}
+
 passdb ldap {
   ldap_uris = ldaps://{{ mailserver_kanidm_ldaps_host }}:{{ mailserver_kanidm_ldaps_port }}
   ldap_base = {{ mailserver_kanidm_base_dn }}
@@ -16,6 +27,22 @@ passdb ldap {
   # bind 方式では値自体は評価されないが、Dovecot 2.4 は非空の値を要求する
   # (空だと "No passdb_ldap_filter given" で起動に失敗する。未文書化の制約)。
   passdb_ldap_filter = (spn=%{user})
+}
+
+# Nextcloud Mail が `<利用者>*mailmaster` でパスワードなしに利用者名義で接続するための
+# master user。passdb 名のハイフンは、fail2ban の dovecot フィルタが passdb 名に
+# [a-z\-]+ しか許さず、アンダースコアだと失敗行を拾わないため。
+# import_environment が無いと %{env:MASTER_PASSWORD} が空に展開され照合に失敗する。
+auth_master_user_separator = *
+passdb master-static {
+  driver = static
+  master = yes
+  username_filter = mailmaster
+  passdb_static_password = {PLAIN}%{env:MASTER_PASSWORD}
+}
+
+import_environment {
+  MASTER_PASSWORD = %{env:MASTER_PASSWORD}
 }
 
 # submission の認証結果 (成否) のみを用いる。VPS はメールボックスの実体を持たないため

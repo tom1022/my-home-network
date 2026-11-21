@@ -37,6 +37,8 @@ locals {
     # xrayvpn は停止中 (vps_proxy_xray_sni を空にして SNI 分岐も無効化済み)。
     # 復帰時は enabled を true に戻して apply するのみ。
     appflowy = { name = "appflowy.${var.managed_domain}", proxied = false, aaaa = false, enabled = false }
+    # *.fickledev.com のトンネル向け CNAME より明示レコードが優先される。HAProxy は IPv4 のみ待ち受ける。
+    cloud = { name = "cloud.${var.managed_domain}", proxied = false, aaaa = false, enabled = true }
   }
 
   vps_a_records = {

@@ -15,3 +15,8 @@
   ansible.builtin.import_tasks: gitea_share.yml
   when: nas_gitea_share_enabled | default(false)
   tags: [gitea_share]
+
+- name: Configure SMB share on NAS
+  ansible.builtin.import_tasks: smb_share.yml
+  when: nas_smb_share_enabled | default(false)
+  tags: [smb_share]

@@ -22,3 +22,8 @@ output "guacamole_client_secret" {
   value     = kanidm_oauth2_basic.guacamole.client_secret
   sensitive = true
 }
+
+output "nextcloud_client_secret" {
+  value     = kanidm_oauth2_basic.nextcloud.client_secret
+  sensitive = true
+}

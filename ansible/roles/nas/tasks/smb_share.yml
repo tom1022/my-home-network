@@ -1,0 +1,114 @@
+---
+- name: Ensure SMB credentials are provided
+  ansible.builtin.assert:
+    that:
+      - nas_smb_user | length > 0
+      - nas_smb_password | length > 0
+    fail_msg: >-
+      nas_smb_user and nas_smb_password are required.
+      Supply them via Infisical (NEXTCLOUD_SMB_USER, NEXTCLOUD_SMB_PASSWORD).
+  no_log: true
+
+- name: Ensure samba packages are installed
+  ansible.builtin.apt:
+    name:
+      - samba
+      - smbclient
+    state: present
+    update_cache: true
+
+- name: Ensure SMB local user exists
+  ansible.builtin.user:
+    name: "{{ nas_smb_user }}"
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Ensure SMB share directory
+  ansible.builtin.file:
+    path: "{{ nas_smb_share_path }}"
+    state: directory
+    owner: "{{ nas_smb_user }}"
+    group: "{{ nas_smb_user }}"
+    mode: '0750'
+
+- name: Render smb.conf
+  ansible.builtin.template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: testparm -s %s
+  notify: Restart smbd
+
+- name: Ensure smbd is running and enabled
+  ansible.builtin.service:
+    name: smbd
+    state: started
+    enabled: true
+
+- name: Flush handlers so smbd serves the new share before the credential probe
+  ansible.builtin.meta: flush_handlers
+
+# The samba password DB cannot be diffed against a plaintext value, so probe
+# with a real login: this keeps reruns at changed=0 and still applies rotation.
+- name: Probe SMB login with the supplied credentials
+  ansible.builtin.command:
+    cmd: smbclient //localhost/{{ nas_smb_share_name }} -U {{ nas_smb_user }} -c exit
+  environment:
+    PASSWD: "{{ nas_smb_password }}"
+  register: nas_smb_probe
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Set samba password for the local user
+  ansible.builtin.shell:
+    cmd: set -o pipefail; printf '%s\n%s\n' "$SMB_PW" "$SMB_PW" | smbpasswd -a -s {{ nas_smb_user }}
+    executable: /bin/bash
+  environment:
+    SMB_PW: "{{ nas_smb_password }}"
+  when: nas_smb_probe.rc != 0
+  changed_when: true
+  no_log: true
+
+- name: Ensure NFS server package is installed
+  ansible.builtin.apt:
+    name: nfs-kernel-server
+    state: present
+    update_cache: true
+
+- name: Look up the SMB local user ids
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ nas_smb_user }}"
+  no_log: true
+
+- name: Resolve NFS client addresses for the SMB share
+  ansible.builtin.set_fact:
+    nas_smb_nfs_clients: "{{ nas_smb_nfs_allowed_hosts | map('extract', hostvars, 'ansible_host') | list }}"
+    # all_squash to the samba user: Nextcloud (www-data) writes land owned by
+    # that user, so Windows clients over SMB see the same ownership and rights.
+    nas_smb_nfs_export_options: "rw,sync,no_subtree_check,all_squash,anonuid={{ getent_passwd[nas_smb_user][1] }},anongid={{ getent_passwd[nas_smb_user][2] }}"
+
+- name: Ensure /etc/exports.d directory exists
+  ansible.builtin.file:
+    path: /etc/exports.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Render SMB share NFS export file
+  ansible.builtin.template:
+    src: nextcloud-smb.exports.j2
+    dest: /etc/exports.d/nextcloud-smb.exports
+    mode: '0644'
+  notify: Reload nfs exports
+
+- name: Ensure nfs-server is running and enabled
+  ansible.builtin.service:
+    name: nfs-kernel-server
+    state: started
+    enabled: true
