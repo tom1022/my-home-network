@@ -58,15 +58,25 @@ infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- terraform
 `prod` の `NAS_SMB_SYNC_KANIDM_TOKEN` へ登録する。値は端末に出さず、権限 0600 の
 一時ファイルを経由する。
 
+トークンの発行は `nas_smb_sync` の管理者である `idm_admins` の主体で行う。`idm_admin` の
+パスワードは保存しておらず、必要になるたびに
+`kubectl -n kanidm exec deploy/kanidm -c kanidmd -- /sbin/kanidmd recover-account idm_admin -c /etc/kanidm/server.toml`
+で発行し直す（出力にパスワードが含まれるのでファイルへリダイレクトする）。
+
 ```sh
 umask 077
 f=$(mktemp)
-kanidm service-account api-token generate nas_smb_sync nas-smb-sync > "$f"
-# 出力から値だけを取り出して "$f" を整える (ラベル行がある場合は値の行だけを残す)
+kanidm login --name idm_admin
+# 出力の 1 行目は「Success: ...」のラベルで、2 行目がトークン
+kanidm service-account api-token generate --name idm_admin nas_smb_sync nas-smb-sync \
+  | sed -n 2p | sed 's/^/NAS_SMB_SYNC_KANIDM_TOKEN=/' > "$f"
 infisical secrets set --token="$INFTOK" --projectId=<project-id> --env=prod \
-  NAS_SMB_SYNC_KANIDM_TOKEN=@"$f" > /dev/null
+  --file "$f" > /dev/null
 shred -u "$f"
 ```
+
+`infisical secrets set` の `KEY=@/path` 記法は、CLI 0.43 ではファイルを読まずに
+パス文字列をそのまま値として保存するため使わない。
 
 `api-token generate` は `--rw` を付けない限り読み取り専用で、有効期限も付けない。
 再発行するときは `kanidm service-account api-token destroy nas_smb_sync <token-id>`

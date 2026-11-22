@@ -57,7 +57,7 @@
   - _Depends: 1.3_
 
 - [ ] 4. 実機への適用
-- [ ] 4.1 Kanidm に適用し、トークンを用意する
+- [x] 4.1 Kanidm に適用し、トークンを用意する
   - `terraform-kanidm` を plan で確かめてから apply する。`idm_radius_servers` の既存のメンバーが外れないことを、plan で確かめる
   - 読み取り専用のトークンを CLI で発行し、値は標準出力に出さずに Infisical に登録する
   - トークンで `/v1/self` を読み、所属に `idm_radius_servers` が含まれることを確かめる
