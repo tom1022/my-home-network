@@ -290,7 +290,7 @@ def build_plan(
 
 **Implementation Notes**
 - Integration: tdbsam の操作は、`smbpasswd -a -s <name>`(標準入力に秘密を 2 行)と `pdbedit -x -u <name>` を使う。NT ハッシュは `openssl dgst -md4 -provider legacy` に UTF-16LE の秘密を標準入力で渡して計算する。openssl の出力は `MD4(stdin)= ` の接頭辞付きの小文字なので、接頭辞を除き大文字に正規化してから比べる。
-- Validation: Kanidm の応答は、使うフィールドの存在と型を確かめてから使う。名前は `^[a-z0-9_.-]+$` に合わないものを UNKNOWN とする。
+- Validation: Kanidm の応答は、使うフィールドの存在と型を確かめてから使う。名前は `^[a-z0-9][a-z0-9_.-]*$` に合わないものを UNKNOWN とする。
 - Risks: kanidm-unixd がオフラインでキャッシュも無い場合、smbpasswd の getpwnam が失敗する。これは適用の失敗として扱う。
 
 ### NAS / Samba

@@ -6,8 +6,11 @@ tdbsam (smbpasswd / pdbedit), openssl and NSS are all replaced by fakes.
 
 import importlib.util
 import io
+import http.client
 import json
+import os
 import socket
+import stat
 import sys
 import urllib.error
 from pathlib import Path
@@ -185,6 +188,28 @@ def test_client_sends_bearer_and_timeout_10():
     assert timeout == 10
 
 
+def test_authorization_header_is_not_sent_to_redirect_targets():
+    seen = {}
+
+    def opener(req, timeout=None):
+        seen["unredirected"] = dict(req.unredirected_hdrs)
+        seen["redirected"] = dict(req.headers)
+        return FakeResp({})
+
+    mod.KanidmClient("https://k.example", "tok", opener=opener).call("GET", "/x")
+    assert seen["unredirected"]["Authorization"] == "Bearer tok"
+    assert "Authorization" not in seen["redirected"]
+
+
+@pytest.mark.parametrize(
+    "exc", [http.client.IncompleteRead(b""), http.client.BadStatusLine("x")]
+)
+def test_http_client_exceptions_are_fatal(exc):
+    c, _ = client({("GET", "/v1/self"): exc})
+    with pytest.raises(mod.FatalSyncError):
+        mod.ensure_radius_server(c)
+
+
 def test_ensure_radius_server_ok():
     c, _ = client({("GET", "/v1/self"): SELF_OK})
     mod.ensure_radius_server(c)
@@ -313,20 +338,21 @@ def test_secret_null_is_absent_and_string_is_present():
     assert mod.fetch_secret(c, Member("alice", "u1")) == (
         SecretState.ABSENT,
         None,
+        "",
     )
     assert mod.fetch_secret(c, Member("bob", "u2")) == (
         SecretState.PRESENT,
         "s3cret",
+        "",
     )
 
 
 @pytest.mark.parametrize("status", [404, 500, 502])
 def test_secret_404_5xx_is_unknown(status):
     c, _ = client({("GET", "/v1/person/u1/_radius"): status})
-    assert mod.fetch_secret(c, Member("alice", "u1")) == (
-        SecretState.UNKNOWN,
-        None,
-    )
+    state, secret, reason = mod.fetch_secret(c, Member("alice", "u1"))
+    assert (state, secret) == (SecretState.UNKNOWN, None)
+    assert reason == f"HTTP {status}"
 
 
 @pytest.mark.parametrize("err", [401, 403, urllib.error.URLError("x"), TimeoutError()])
@@ -336,19 +362,28 @@ def test_secret_auth_or_connection_failure_is_fatal(err):
         mod.fetch_secret(c, Member("alice", "u1"))
 
 
-def test_secret_unexpected_type_is_unknown():
-    c, _ = client({("GET", "/v1/person/u1/_radius"): {"a": 1}})
-    assert mod.fetch_secret(c, Member("alice", "u1")) == (
-        SecretState.UNKNOWN,
-        None,
-    )
+@pytest.mark.parametrize("body", [{"a": 1}, 1.5, ["x"]])
+def test_secret_unexpected_type_is_fatal(body):
+    c, _ = client({("GET", "/v1/person/u1/_radius"): body})
+    with pytest.raises(mod.FatalSyncError):
+        mod.fetch_secret(c, Member("alice", "u1"))
 
 
-@pytest.mark.parametrize("name", ["Alice", "a b", "a/b", "", "al@ce", "ａ"])
+@pytest.mark.parametrize(
+    "name", ["Alice", "a b", "a/b", "", "al@ce", "ａ", "-alice", "-o", ".a", "_a"]
+)
 def test_invalid_name_is_unknown_without_request(name):
     c, op = client({})
-    assert mod.fetch_secret(c, Member(name, "u1")) == (SecretState.UNKNOWN, None)
+    state, secret, reason = mod.fetch_secret(c, Member(name, "u1"))
+    assert (state, secret) == (SecretState.UNKNOWN, None)
+    assert reason == "invalid name"
     assert op.calls == []
+
+
+@pytest.mark.parametrize("name", ["alice", "a-b", "a.b_c", "0day"])
+def test_valid_names_are_requested(name):
+    c, op = client({("GET", "/v1/person/u1/_radius"): "pw"})
+    assert mod.fetch_secret(c, Member(name, "u1"))[0] is SecretState.PRESENT
 
 
 # --- NT hash ------------------------------------------------------------
@@ -438,7 +473,16 @@ ENV = {
 }
 
 
-def run_job(tmp_path, routes, tdb, managed=None, local=("nextcloud",), unresolvable=()):
+def run_job(
+    tmp_path,
+    routes,
+    tdb,
+    managed=None,
+    local=("nextcloud",),
+    unresolvable=(),
+    group_lookup=lambda g: None,
+    env=ENV,
+):
     state = tmp_path / "managed"
     if managed is not None:
         state.write_text("".join(f"{n}\n" for n in managed))
@@ -446,11 +490,12 @@ def run_job(tmp_path, routes, tdb, managed=None, local=("nextcloud",), unresolva
     passwd.write_text("".join(f"{n}:x:1:1::/:/bin/sh\n" for n in local))
     op = FakeOpener(routes)
     code = mod.run(
-        ENV,
+        env,
         tdb,
         state_path=state,
         passwd_path=passwd,
         resolve=lambda n: n not in unresolvable,
+        group_lookup=group_lookup,
         hasher=fake_hash,
         opener=op,
     )
@@ -537,6 +582,71 @@ def test_run_fatal_collection_exits_1_without_touching_tdbsam_or_state(
     assert managed_of(state) == {"alice"}
 
 
+def test_run_group_unresolvable_is_fatal_and_deletes_nobody(tmp_path, capsys):
+    def no_group(name):
+        raise KeyError(name)
+
+    tdb = FakeTdb({"alice": fake_hash("pw1")})
+    code, state, op = run_job(
+        tmp_path,
+        full_routes(["alice"], {"alice": "pw1"}),
+        tdb,
+        managed={"alice"},
+        unresolvable={"alice"},
+        group_lookup=no_group,
+    )
+    assert code == 1
+    assert tdb.ops == []
+    assert managed_of(state) == {"alice"}
+    assert capsys.readouterr().err.startswith("fatal:")
+
+
+def test_run_group_lookup_uses_configured_group(tmp_path):
+    seen = []
+    run_job(
+        tmp_path,
+        full_routes([], {}),
+        FakeTdb(),
+        group_lookup=seen.append,
+    )
+    assert seen == ["nas_access"]
+
+
+def test_run_managed_but_absent_from_tdbsam_is_dropped_without_pdbedit(tmp_path):
+    tdb = FakeTdb()
+    code, state, _ = run_job(tmp_path, full_routes([], {}), tdb, managed={"ghost"})
+    assert code == 0
+    assert tdb.ops == [("list",)]
+    assert managed_of(state) == set()
+
+
+def test_run_unresolvable_managed_absent_from_tdbsam_is_dropped(tmp_path):
+    tdb = FakeTdb()
+    code, state, _ = run_job(
+        tmp_path,
+        full_routes(["alice"], {"alice": "pw"}),
+        tdb,
+        managed={"alice"},
+        unresolvable={"alice"},
+    )
+    assert code == 0
+    assert ("delete", "alice") not in tdb.ops
+    assert managed_of(state) == set()
+
+
+@pytest.mark.parametrize(
+    "url", ["http://k.example", "k.example", "ftp://k.example", ""]
+)
+def test_run_non_https_url_exits_1_before_any_request(tmp_path, capsys, url):
+    tdb = FakeTdb()
+    code, _, op = run_job(
+        tmp_path, full_routes([], {}), tdb, env={**ENV, "KANIDM_URL": url}
+    )
+    assert code == 1
+    assert op.calls == [] and tdb.ops == []
+    assert capsys.readouterr().err.startswith("fatal:")
+
+
 def test_run_hold_keeps_entry_continues_others_and_exits_1(tmp_path):
     routes = full_routes(["alice", "bob"], {"alice": 500, "bob": "pw2"})
     tdb = FakeTdb({"alice": fake_hash("old")})
@@ -575,6 +685,24 @@ def test_run_state_written_before_tdbsam_write(tmp_path):
     assert seen["managed_at_write"] == {"alice"}
 
 
+def test_state_dir_is_fsynced_after_rename(tmp_path, monkeypatch):
+    events = []
+    real_fsync, real_replace = os.fsync, os.replace
+
+    def fsync(fd):
+        events.append("fsync-dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "fsync")
+        real_fsync(fd)
+
+    def replace(a, b):
+        events.append("replace")
+        real_replace(a, b)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "replace", replace)
+    mod.save_managed(tmp_path / "managed", {"a"})
+    assert events == ["fsync", "replace", "fsync-dir"]
+
+
 def test_state_file_is_replaced_atomically_with_mode_0600(tmp_path):
     p = tmp_path / "managed"
     mod.save_managed(p, {"b", "a"})
@@ -599,6 +727,31 @@ def test_logs_contain_names_and_actions_only(tmp_path, capsys):
     assert "alice" in text and "add" in text
     for leaked in ("TOPSECRETPW", "tok", fake_hash("TOPSECRETPW")):
         assert leaked not in text.replace("token", "")
+
+
+def test_logs_state_reasons_for_skip_and_hold(tmp_path, capsys):
+    routes = full_routes(
+        ["alice", "bob", "carol", "dave", "nextcloud", "erin", "-x"],
+        {
+            "alice": None,
+            "bob": "pw",
+            "carol": 500,
+            "dave": "pw",
+            "nextcloud": "pw",
+            "erin": "pw",
+        },
+    )
+    tdb = FakeTdb({"erin": fake_hash("pw")})
+    run_job(tmp_path, routes, tdb, managed={"erin"}, unresolvable={"bob"})
+    out = capsys.readouterr()
+    lines = (out.out + out.err).splitlines()
+    assert "skip alice (not issued)" in lines
+    assert "skip bob (unresolvable)" in lines
+    assert "hold carol (HTTP 500)" in lines
+    assert "skip nextcloud (local user)" in lines
+    assert "skip erin (up to date)" in lines
+    assert "hold -x (invalid name)" in lines
+    assert "add dave" in lines
 
 
 def test_missing_env_exits_1(tmp_path):

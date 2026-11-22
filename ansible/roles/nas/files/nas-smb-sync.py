@@ -6,6 +6,8 @@ Dependency direction: types -> plan (pure) -> I/O -> main.
 
 from __future__ import annotations
 
+import grp
+import http.client
 import json
 import os
 import pwd
@@ -15,7 +17,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -23,9 +25,10 @@ HTTP_TIMEOUT = 10
 STATE_PATH = Path("/var/lib/nas-smb-sync/managed")
 PASSWD_PATH = Path("/etc/passwd")
 RADIUS_GROUP = "idm_radius_servers"
-# Names reach tdbsam via argv and Kanidm URLs; anything else is not a Kanidm
-# name we can safely hand to smbpasswd.
-NAME_RE = re.compile(r"^[a-z0-9_.-]+$")
+# Names reach tdbsam via argv and Kanidm URLs; a leading "-" would be read as an
+# smbpasswd / pdbedit option, and anything else is not a Kanidm name we can
+# safely hand over.
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,7 @@ class Desired:
     state: SecretState
     nt_hash: str | None
     resolvable: bool
+    reason: str = field(default="", compare=False)
 
 
 class Action(Enum):
@@ -61,6 +65,7 @@ class Action(Enum):
 class Step:
     name: str
     action: Action
+    reason: str = field(default="", compare=False)
 
 
 class FatalSyncError(Exception):
@@ -76,19 +81,25 @@ def _decide(
     current_hashes: dict[str, str],
     managed: set[str],
     local_users: set[str],
-) -> Action:
+) -> tuple[Action, str]:
     name = d.member.name
     if name in local_users:
-        return Action.SKIP
+        return Action.SKIP, "local user"
     if d.state is SecretState.UNKNOWN:
-        return Action.HOLD
+        return Action.HOLD, d.reason
     if d.state is SecretState.ABSENT or not d.resolvable:
-        return Action.DELETE if name in managed else Action.SKIP
+        if name in managed:
+            return Action.DELETE, ""
+        return Action.SKIP, "not issued" if d.state is SecretState.ABSENT else (
+            "unresolvable"
+        )
     if name not in current_hashes:
-        return Action.ADD
+        return Action.ADD, ""
     if current_hashes[name] != d.nt_hash:
-        return Action.UPDATE
-    return Action.SKIP if name in managed else Action.ADOPT
+        return Action.UPDATE, ""
+    if name in managed:
+        return Action.SKIP, "up to date"
+    return Action.ADOPT, ""
 
 
 def build_plan(
@@ -98,14 +109,16 @@ def build_plan(
     local_users: set[str],
 ) -> list[Step]:
     steps = [
-        Step(d.member.name, _decide(d, current_hashes, managed, local_users))
+        Step(d.member.name, *_decide(d, current_hashes, managed, local_users))
         for d in desired
     ]
     seen = {d.member.name for d in desired}
     for name in sorted(managed - seen):
         # Local users are never deleted, even if a stale state file lists one.
-        action = Action.SKIP if name in local_users else Action.DELETE
-        steps.append(Step(name, action))
+        if name in local_users:
+            steps.append(Step(name, Action.SKIP, "local user"))
+        else:
+            steps.append(Step(name, Action.DELETE))
     return steps
 
 
@@ -127,7 +140,8 @@ class KanidmClient:
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(self._base + path, data=data, method=method)
         # The token is deliberately kept out of every exception message.
-        req.add_header("Authorization", f"Bearer {self._token}")
+        # Unredirected so a redirect cannot carry the token to another host.
+        req.add_unredirected_header("Authorization", f"Bearer {self._token}")
         req.add_header("Accept", "application/json")
         if data is not None:
             req.add_header("Content-Type", "application/json")
@@ -136,7 +150,7 @@ class KanidmClient:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
             raise HttpStatusError(e.code) from None
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError, http.client.HTTPException) as e:
             # URLError (incl. TLS failures) and timeouts are OSError.
             raise FatalSyncError(
                 f"kanidm unreachable or bad response: {type(e).__name__}"
@@ -204,21 +218,23 @@ def search_members(client: KanidmClient, group_uuid: str) -> list[Member]:
 
 def fetch_secret(
     client: KanidmClient, member: Member
-) -> tuple[SecretState, str | None]:
+) -> tuple[SecretState, str | None, str]:
+    """Returns (state, secret, reason); reason is set only for UNKNOWN."""
     if not NAME_RE.match(member.name):
-        return SecretState.UNKNOWN, None
+        return SecretState.UNKNOWN, None, "invalid name"
+
     path = f"/v1/person/{urllib.parse.quote(member.uuid, safe='')}/_radius"
     try:
         body = client.request("GET", path)
     except HttpStatusError as e:
         if e.status in (401, 403):
             raise FatalSyncError(f"GET _radius: HTTP {e.status}") from None
-        return SecretState.UNKNOWN, None
+        return SecretState.UNKNOWN, None, f"HTTP {e.status}"
     if body is None:
-        return SecretState.ABSENT, None
+        return SecretState.ABSENT, None, ""
     if isinstance(body, str):
-        return SecretState.PRESENT, body
-    return SecretState.UNKNOWN, None
+        return SecretState.PRESENT, body, ""
+    raise FatalSyncError("malformed _radius response")
 
 
 def nt_hash(secret: str, run=subprocess.run) -> str:
@@ -286,6 +302,12 @@ def save_managed(path: Path, names: set[str]) -> None:
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
+    # Without this the rename itself can be lost on power failure.
+    dfd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
 
 
 def read_local_users(path: Path) -> set[str]:
@@ -302,6 +324,10 @@ def resolve_nss(name: str) -> bool:
     return True
 
 
+def lookup_group_nss(name: str) -> None:
+    grp.getgrnam(name)
+
+
 def collect(
     client: KanidmClient, group: str, resolve, hasher
 ) -> tuple[list[Desired], dict[str, str]]:
@@ -310,17 +336,18 @@ def collect(
     desired = []
     secrets: dict[str, str] = {}
     for m in members:
-        state, secret = fetch_secret(client, m)
+        state, secret, reason = fetch_secret(client, m)
         h = None
         if state is SecretState.PRESENT:
             secrets[m.name] = secret
             h = hasher(secret)
-        desired.append(Desired(m, state, h, resolve(m.name)))
+        desired.append(Desired(m, state, h, resolve(m.name), reason))
     return desired, secrets
 
 
 def apply_plan(
     steps: list[Step],
+    current_hashes: dict[str, str],
     secrets: dict[str, str],
     tdb,
     managed: set[str],
@@ -330,7 +357,8 @@ def apply_plan(
     failures = 0
     for step in steps:
         name, action = step.name, step.action
-        print(f"{action.value} {name}", flush=True)
+        why = f" ({step.reason})" if step.reason else ""
+        print(f"{action.value} {name}{why}", flush=True)
         try:
             if action in (Action.ADD, Action.UPDATE, Action.ADOPT):
                 # Recorded first so a crash can only widen, never narrow,
@@ -340,7 +368,10 @@ def apply_plan(
                 if action is not Action.ADOPT:
                     tdb.set_password(name, secrets[name])
             elif action is Action.DELETE:
-                tdb.delete(name)
+                # An entry already gone (failed registration, manual removal)
+                # would make pdbedit -x fail every cycle.
+                if name in current_hashes:
+                    tdb.delete(name)
                 managed.discard(name)
                 save_managed(state_path, managed)
             elif action is Action.HOLD:
@@ -357,6 +388,7 @@ def run(
     state_path: Path = STATE_PATH,
     passwd_path: Path = PASSWD_PATH,
     resolve=resolve_nss,
+    group_lookup=lookup_group_nss,
     hasher=nt_hash,
     opener=urllib.request.urlopen,
 ) -> int:
@@ -369,6 +401,16 @@ def run(
     except KeyError as e:
         print(f"fatal: missing env {e.args[0]}", file=sys.stderr)
         return 1
+    if not url.startswith("https://"):
+        print("fatal: KANIDM_URL must start with https://", file=sys.stderr)
+        return 1
+    try:
+        # With kanidm-unixd down every member looks unresolvable, which the
+        # plan would turn into deleting everyone in managed.
+        group_lookup(group)
+    except KeyError:
+        print(f"fatal: group {group} is not resolvable via NSS", file=sys.stderr)
+        return 1
     try:
         desired, secrets = collect(
             KanidmClient(url, token, opener=opener), group, resolve, hasher
@@ -378,16 +420,17 @@ def run(
         return 1
     try:
         managed = load_managed(state_path)
+        current = tdb.list_hashes()
         steps = build_plan(
             desired,
-            tdb.list_hashes(),
+            current,
             managed,
             read_local_users(passwd_path),
         )
     except (ApplyError, OSError) as e:
         print(f"fatal: cannot read local state ({e})", file=sys.stderr)
         return 1
-    return 1 if apply_plan(steps, secrets, tdb, managed, state_path) else 0
+    return 1 if apply_plan(steps, current, secrets, tdb, managed, state_path) else 0
 
 
 def main() -> int:
