@@ -115,15 +115,15 @@
   - _Requirements: 1.1, 1.3, 2.1, 2.4, 3.1, 6.3_
   - _Depends: 6.2_
 
-- [ ] 7. ローカルユーザーと同名の利用者と、POSIX でない利用者を同期する
-- [ ] 7.1 同期ジョブの規則と検索の変更(テスト先行)
+- [x] 7. ローカルユーザーと同名の利用者と、POSIX でない利用者を同期する
+- [x] 7.1 同期ジョブの規則と検索の変更(テスト先行)
   - 先に単体テストを書く。ローカルユーザーと同名で tdbsam 未登録の名前が追加になる試験、tdbsam にあり managed に無くハッシュが異なる名前(`nextcloud`)が `unmanaged entry` で何もせず、更新も削除も出ない試験、ハッシュが一致し managed に無い名前が取り込みになる試験、検索のフィルタが person だけである試験を加える。ローカルユーザーの除外の試験は、`unmanaged entry` の試験に置き換える
   - メンバーの検索のフィルタを `{"filter": {"eq": ["class","person"]}}` にする。POSIX の条件は外す
   - `/etc/passwd` の読み取りと、計画の入力 `local_users` を削除する。計画の規則は設計の 8 つの規則に揃える
   - 単体テストが CI の pytest で通り、ruff check / format が通る
   - _Requirements: 1.1, 1.3, 2.1, 2.3, 2.5, 2.6, 2.7_
 
-- [ ] 7.2 NAS に適用し、`tochi` で接続できることを確かめる
+- [x] 7.2 NAS に適用し、`tochi` で接続できることを確かめる
   - `playbooks/nas.yml` を適用する。2 回目の適用で changed が 0 になる
   - 次の周期の後、Kanidm の person `tochi` が tdbsam に登録され、`/etc/shadow` が変わらない。`tochi` のアカウント名と RADIUS 秘密で `smbclient` から接続できる
   - `nextcloud` の SMB 接続が従来どおり動き、tdbsam の `nextcloud` が変わらない
