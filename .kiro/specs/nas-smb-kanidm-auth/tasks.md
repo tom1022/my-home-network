@@ -27,7 +27,7 @@
   - CI の ruff の対象にこのスクリプトを加え、ruff check / format が通る
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.6, 4.3, 5.1, 5.3_
 
-- [ ] 2. (P) Kanidm の同期用サービスアカウントを宣言する
+- [x] 2. (P) Kanidm の同期用サービスアカウントを宣言する
   - サービスアカウント `nas_smb_sync` を、`entry_managed_by = idm_admins`、provider でのトークン発行なしで宣言する
   - 組み込みグループ `idm_radius_servers` に、このアカウントだけを部分的に追加する
   - 読み取り専用のトークンを CLI で発行し、Infisical の `NAS_SMB_SYNC_KANIDM_TOKEN` に登録する手順を README に書く

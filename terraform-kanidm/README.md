@@ -49,3 +49,25 @@ infisical run --token="$INFTOK" --projectId=<project-id> --env=prod -- terraform
 
 `terraform/` 側の既存の運用（README.md 参照）と同じく、ローカルの `.env` /
 `terraform.tfvars` は使わない。
+
+## NAS の SMB 同期用トークン
+
+`nas.tf` はサービスアカウント `nas_smb_sync` を宣言し、組み込みグループ
+`idm_radius_servers` へ所属させる。provider が発行するトークンは読み書き可能で
+無期限のため使わず、apply の後に CLI で読み取り専用のトークンを発行して Infisical
+`prod` の `NAS_SMB_SYNC_KANIDM_TOKEN` へ登録する。値は端末に出さず、権限 0600 の
+一時ファイルを経由する。
+
+```sh
+umask 077
+f=$(mktemp)
+kanidm service-account api-token generate nas_smb_sync nas-smb-sync > "$f"
+# 出力から値だけを取り出して "$f" を整える (ラベル行がある場合は値の行だけを残す)
+infisical secrets set --token="$INFTOK" --projectId=<project-id> --env=prod \
+  NAS_SMB_SYNC_KANIDM_TOKEN=@"$f" > /dev/null
+shred -u "$f"
+```
+
+`api-token generate` は `--rw` を付けない限り読み取り専用で、有効期限も付けない。
+再発行するときは `kanidm service-account api-token destroy nas_smb_sync <token-id>`
+で旧トークンを失効させる。
