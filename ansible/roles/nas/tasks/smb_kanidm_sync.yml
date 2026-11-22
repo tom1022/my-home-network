@@ -23,7 +23,6 @@
     content: |
       KANIDM_URL={{ kanidm_unixd_uri }}
       KANIDM_TOKEN={{ nas_smb_sync_kanidm_token }}
-      NAS_SMB_SYNC_GROUP={{ nas_smb_kanidm_group }}
     dest: "{{ nas_smb_sync_env_path }}"
     owner: root
     group: root

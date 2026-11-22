@@ -8,13 +8,12 @@
    server min protocol = SMB2_02
    ntlm auth = ntlmv2-only
    lanman auth = no
-   # Only the NAS-local account and Kanidm group members may connect; no printer or home shares.
+   # No printer or home shares.
    load printers = no
    disable spoolss = yes
 
 [{{ nas_smb_share_name }}]
    path = {{ nas_smb_share_path }}
-   valid users = {{ nas_smb_user }} @{{ nas_smb_kanidm_group }}
    # Kanidm members have no local owner of the share directory; act as the
    # share owner so NFS and SMB see the same ownership.
    force user = {{ nas_smb_user }}

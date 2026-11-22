@@ -90,7 +90,7 @@
   - _Requirements: 1.4, 1.5, 3.1, 3.2, 3.3, 3.4, 5.1, 5.2_
 
 - [ ] 6. 同期対象と SMB の許可からグループを外す
-- [ ] 6.1 同期ジョブからグループを外し、kanidm-unixd の稼働確認を `kanidm-unix status` に替える(テスト先行)
+- [x] 6.1 同期ジョブからグループを外し、kanidm-unixd の稼働確認を `kanidm-unix status` に替える(テスト先行)
   - 先に単体テストを書く。`kanidm-unix status` の標準出力に `Kanidm: online` の行が無い場合(`Kanidm: offline`、空の出力を含む)に、tdbsam に触れず終了コード 1 の全体の失敗になる試験を加える。`Kanidm: online` の行がある場合は先へ進む試験も加える
   - グループの取得(`GET /v1/group/<group>`)と、同期対象のグループを getgrnam で引く確認を削除する。グループが `null` で全体の失敗になる試験も削除する
   - メンバーの検索のフィルタを `{"and": [{"eq": ["class","person"]}, {"eq": ["class","posixaccount"]}]}` にする。グループの所属は一切見ない
@@ -99,7 +99,7 @@
   - 単体テストが CI の pytest で通り、ruff check / format が通る
   - _Requirements: 1.1, 1.3, 2.1, 2.3, 2.4, 2.5, 5.1_
 
-- [ ] 6.2 smb.conf の `valid users` 行と、Ansible 変数 `nas_smb_kanidm_group`・env の `NAS_SMB_SYNC_GROUP` を削除する
+- [x] 6.2 smb.conf の `valid users` 行と、Ansible 変数 `nas_smb_kanidm_group`・env の `NAS_SMB_SYNC_GROUP` を削除する
   - 共有 `smb` から `valid users` の行を削除する。`force user` / `force group` / `guest ok = no`、`[global]` の SMB2 以降・NTLMv2 だけ・LANMAN 無効は変えない
   - `ansible/roles/nas/defaults/main.yml` の `nas_smb_kanidm_group` を削除し、env ファイルの内容から `NAS_SMB_SYNC_GROUP` を外す
   - 描画した設定が `testparm -s` の検証を通り、`ansible-lint` が通る
