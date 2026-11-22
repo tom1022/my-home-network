@@ -256,7 +256,7 @@ flowchart TB
 
 **Responsibilities & Constraints**
 
-作業の開始時に `apt-daily-upgrade.timer` を止め、ノードの作業がすべて終わってから戻す。`proxmox_unattended_upgrades` ロールがタイマーを `started` にするため、作業の間は `site.yml` と `proxmox_unattended_upgrades.yml` を実行しない。Proxmox の Origin のパターンには codename の条件が無いため、APT の参照先を trixie に切り替えてから `dist-upgrade` が終わるまでの間に unattended-upgrades が動くと、trixie の Proxmox パッケージが単独で入る。
+作業の開始時に `apt-daily-upgrade.timer` を `systemctl disable --now` で止め、ノードの作業がすべて終わってから戻す。`stop` だけでは enabled のまま残り、作業中の再起動でタイマーが再開する。`proxmox_unattended_upgrades` ロールがタイマーを `started` にするため、作業の間は `site.yml` と `proxmox_unattended_upgrades.yml` を実行しない。Proxmox の Origin のパターンには codename の条件が無いため、APT の参照先を trixie に切り替えてから `dist-upgrade` が終わるまでの間に unattended-upgrades が動くと、trixie の Proxmox パッケージが単独で入る。
 
 両ノード共通:
 1. `apt update && apt full-upgrade` で 8.4 系の最新にする
