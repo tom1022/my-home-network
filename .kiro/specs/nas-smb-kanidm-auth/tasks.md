@@ -89,7 +89,7 @@
   - SMB1 と、ゲストでの接続が拒否される
   - _Requirements: 1.4, 1.5, 3.1, 3.2, 3.3, 3.4, 5.1, 5.2_
 
-- [ ] 6. 同期対象と SMB の許可からグループを外す
+- [x] 6. 同期対象と SMB の許可からグループを外す
 - [x] 6.1 同期ジョブからグループを外し、kanidm-unixd の稼働確認を `kanidm-unix status` に替える(テスト先行)
   - 先に単体テストを書く。`kanidm-unix status` の標準出力に `Kanidm: online` の行が無い場合(`Kanidm: offline`、空の出力を含む)に、tdbsam に触れず終了コード 1 の全体の失敗になる試験を加える。`Kanidm: online` の行がある場合は先へ進む試験も加える
   - グループの取得(`GET /v1/group/<group>`)と、同期対象のグループを getgrnam で引く確認を削除する。グループが `null` で全体の失敗になる試験も削除する
@@ -106,7 +106,7 @@
   - _Requirements: 1.1, 1.3, 1.4, 1.5, 3.1, 6.2_
   - _Depends: 6.1_
 
-- [ ] 6.3 NAS に適用し、実機で確かめる
+- [x] 6.3 NAS に適用し、実機で確かめる
   - `playbooks/nas.yml` を適用する。2 回目の適用で changed が 0 になる
   - 検証用の Kanidm の person を作り、POSIX を有効にして RADIUS 秘密を発行する。次の周期の後、その利用者のアカウント名と秘密で `smbclient` から接続できる
   - 秘密を削除すると、次の周期の後に tdbsam からエントリが消え、接続できなくなる
