@@ -196,6 +196,7 @@ sequenceDiagram
 - 削除の候補は、状態ファイルに記録された名前に限る。
 - `/etc/passwd` に存在する名前(ローカルユーザー)は、Kanidm 側に同名がいても対象にしない(2.6)。kanidm-unixd は `/etc/passwd` を先に引くため、同名の Kanidm の利用者で SMB に登録すると、ローカルユーザーのパスワードを書き換えることになる。
 - NSS(getpwnam)で解決できないメンバーは、tdbsam に登録できない。失敗ではなく「解決不能」として SKIP し、ログに残す。
+- 計画の前に、同期対象のグループ(`nas_access`)を NSS(getgrnam)で引く。引けなければ kanidm-unixd が使えない状態とみなして Fatal とし、tdbsam に触れない。kanidm-unixd が止まると全メンバーが解決不能に見え、規則 3 によって managed の全員を削除してしまうためである。
 - 秘密はプロセスの引数・ログ・ファイルに出さない。smbpasswd と openssl へは標準入力で渡す。ログに出すのは、利用者名と操作の種別(add / update / delete / skip / hold)だけにする。
 
 **Dependencies**
@@ -258,6 +259,7 @@ def build_plan(
   6. desired の PRESENT で、NT ハッシュが一致し、managed に含まれない → ADOPT
   7. desired の PRESENT で、NT ハッシュが一致し、managed に含まれる → SKIP
   8. managed に含まれ、desired に含まれない → DELETE
+- DELETE の対象が tdbsam に無い(current_hashes に含まれない)場合は、`pdbedit -x` を呼ばず、managed から除くだけにする。先行記録の後に登録が失敗した名前や、手作業で消された名前で、存在しないエントリの削除が毎周期失敗し続けないようにするためである。
 - 不変条件: managed に含まれない名前に DELETE を出さない。HOLD の名前の登録には触れない。状態ファイルが欠けても、次の周期で ADOPT によって managed が復元する。
 - 解決不能かつ managed に含まれる名前の DELETE は、`pdbedit -x` が getpwnam を要さずに tdbsam から消せることを前提にする。消せなかった場合は適用の失敗として通知する。
 
@@ -283,7 +285,7 @@ def build_plan(
 
 ##### State Management
 - **State model**: `/var/lib/nas-smb-sync/managed`。同期が登録したユーザー名を 1 行に 1 つ書く。root:root 0600。秘密もハッシュも書かない。
-- **Persistence & consistency**: ADD / UPDATE / ADOPT の名前は tdbsam を書き込む前に加え、DELETE の名前は `pdbedit -x` の成功後に除く(先行記録)。書き込みは一時ファイルに書いてから rename で置き換える。managed が tdbsam の実態より広い分には、該当の名前が tdbsam に無いだけなので害が無い。
+- **Persistence & consistency**: ADD / UPDATE / ADOPT の名前は tdbsam を書き込む前に加え、DELETE の名前は `pdbedit -x` の成功後に除く(先行記録)。書き込みは一時ファイルに書いてから rename で置き換える。managed が tdbsam の実態より広い分は、その名前が DELETE になった時点で、tdbsam に触れずに managed から除かれる。
 - **Concurrency strategy**: oneshot の service なので、systemd が多重起動を防ぐ。
 
 **Implementation Notes**
@@ -349,6 +351,8 @@ def build_plan(
 - managed に無い名前(`nextcloud` を含む)に DELETE を出さないこと。local_users の名前を常に SKIP にすること
 - 状態ファイルが空で、tdbsam にハッシュの一致する登録がある場合に ADOPT になり、その後グループから外すと DELETE になること
 - 解決不能なメンバーが、managed に無ければ SKIP、あれば DELETE になること
+- 同期対象のグループを getgrnam で引けない場合に Fatal になり、tdbsam を書かないこと
+- managed にあり tdbsam に無い名前の DELETE が、pdbedit を呼ばずに managed から除かれ、終了コード 0 になること
 - 自分の所属に `idm_radius_servers` が無い場合、グループが `null` の場合、`entries` の形が不正な場合に、Fatal になること
 - NT ハッシュの計算が既知のベクトルと一致すること(`MD4(UTF-16LE("password"))` = `8846F7EAEE8FB117AD06BDD830B7586C`)
 - Kanidm の応答の解釈で、`null` → ABSENT、文字列 → PRESENT、形の不正 → 例外になること
