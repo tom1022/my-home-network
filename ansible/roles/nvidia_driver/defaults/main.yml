@@ -1,0 +1,22 @@
+---
+# ドライバのブランチを変える操作は日常適用とは別のライフサイクルで、この変数を
+# 変えて行う。CUDA リポジトリは unattended-upgrades の対象外のまま保つ。
+nvidia_driver_branch: "620"
+nvidia_driver_version: "620.70.06"
+
+nvidia_driver_cuda_keyring_url: https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/cuda-keyring_1.1-1_all.deb
+
+# X 関連 (nvidia-open メタパッケージ、nvidia-settings、nvidia-xconfig) は入れない。
+# nvidia-driver-cuda が nvidia-smi と nvidia-persistenced を提供する。
+nvidia_driver_pinning_package: "nvidia-driver-pinning-{{ nvidia_driver_branch }}"
+nvidia_driver_packages:
+  - nvidia-kernel-open-dkms
+  - nvidia-driver-cuda
+
+nvidia_driver_modules:
+  - nvidia
+  - nvidia_uvm
+
+nvidia_driver_guard_script_path: /usr/local/sbin/nvidia-dkms-guard
+nvidia_driver_guard_unit_name: nvidia-dkms-guard.service
+nvidia_driver_guard_state_dir: /var/lib/nvidia-dkms-guard

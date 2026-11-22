@@ -1,0 +1,110 @@
+---
+- name: Install the NVIDIA CUDA repository keyring
+  ansible.builtin.apt:
+    deb: "{{ nvidia_driver_cuda_keyring_url }}"
+    state: present
+
+- name: Install the driver branch pinning package
+  ansible.builtin.apt:
+    name: "{{ nvidia_driver_pinning_package }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install the NVIDIA open kernel module and CUDA user-space driver
+  ansible.builtin.apt:
+    name: "{{ nvidia_driver_packages }}"
+    state: present
+
+# Debian の non-free-firmware にも同名のパッケージ (550 系) があるため、
+# CUDA リポジトリの版が入っていることを確かめる。
+- name: Read the firmware-nvidia-gsp package policy
+  ansible.builtin.command: apt-cache policy firmware-nvidia-gsp
+  register: nvidia_driver_gsp_policy
+  changed_when: false
+
+- name: Ensure firmware-nvidia-gsp comes from the CUDA repository
+  ansible.builtin.assert:
+    that:
+      - "('Installed: ' ~ nvidia_driver_version) in nvidia_driver_gsp_policy.stdout"
+    fail_msg: firmware-nvidia-gsp {{ nvidia_driver_version }} is not the installed version.
+
+# Debian のドライバを purge すると、そのパッケージが置いていたブラックリストも消える。
+- name: Ensure nouveau is blacklisted
+  ansible.builtin.template:
+    src: blacklist-nouveau.conf.j2
+    dest: /etc/modprobe.d/blacklist-nouveau.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Update initramfs for all kernels
+
+- name: Ensure the NVIDIA modules load at boot
+  ansible.builtin.template:
+    src: nvidia-modules-load.conf.j2
+    dest: /etc/modules-load.d/nvidia.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure the DKMS guard script is installed
+  ansible.builtin.copy:
+    src: nvidia-dkms-guard
+    dest: "{{ nvidia_driver_guard_script_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure the DKMS guard unit is installed
+  ansible.builtin.template:
+    src: nvidia-dkms-guard.service.j2
+    dest: "/etc/systemd/system/{{ nvidia_driver_guard_unit_name }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd daemon
+
+- name: Ensure the apt-daily-upgrade drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/apt-daily-upgrade.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure unattended-upgrades triggers the DKMS guard
+  ansible.builtin.template:
+    src: apt-daily-upgrade-guard.conf.j2
+    dest: /etc/systemd/system/apt-daily-upgrade.service.d/nvidia-dkms-guard.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd daemon
+
+- name: Ensure manual apt runs trigger the DKMS guard
+  ansible.builtin.template:
+    src: 99nvidia-dkms-guard.j2
+    dest: /etc/apt/apt.conf.d/99nvidia-dkms-guard
+    owner: root
+    group: root
+    mode: '0644'
+    validate: apt-config -c %s dump
+
+- name: Apply pending handlers before touching the loaded modules
+  ansible.builtin.meta: flush_handlers
+
+- name: List loaded kernel modules
+  ansible.builtin.command: lsmod
+  register: nvidia_driver_lsmod
+  changed_when: false
+
+# 外せなければここで止める。追加の再起動は再起動の前後の確認の対象として別に行う。
+- name: Unload nouveau
+  ansible.builtin.command: modprobe -r nouveau
+  when: nvidia_driver_lsmod.stdout_lines | select('match', '^nouveau\s') | list | length > 0
+  changed_when: true
+
+- name: Load the nvidia module
+  ansible.builtin.command: modprobe nvidia
+  when: nvidia_driver_lsmod.stdout_lines | select('match', '^nvidia\s') | list | length == 0
+  changed_when: true

@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: nvidia_driver
+  author: tom1022
+  description: >-
+    NVIDIA open kernel module driver from the CUDA repository on hp-z440,
+    plus a post-apt guard that keeps a kernel whose DKMS build failed from
+    becoming the default boot target.
+  license: MIT
+  min_ansible_version: '2.9'
+
+dependencies: []

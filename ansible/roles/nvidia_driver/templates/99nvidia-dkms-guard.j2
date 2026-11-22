@@ -1,0 +1,3 @@
+// Managed by Ansible role nvidia_driver. Local edits will be overwritten.
+// 起動に失敗しても apt の終了コードを変えない。
+DPkg::Post-Invoke { "/usr/bin/systemctl start --no-block {{ nvidia_driver_guard_unit_name }} || true"; };

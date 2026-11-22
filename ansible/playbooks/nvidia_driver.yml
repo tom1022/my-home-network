@@ -1,0 +1,9 @@
+---
+# ドライバのブランチを変える操作は日常適用とライフサイクルが異なるため、
+# site.yml に入れない独立したエントリポイントにする。
+# 失敗通知 (notify-failure@.service) は host_health.yml が hp-z440 に配置済みであること。
+- name: Ensure the NVIDIA driver and its DKMS guard are configured on hp-z440
+  hosts: hp-z440
+  become: true
+  roles:
+    - nvidia_driver

@@ -1,0 +1,8 @@
+[Unit]
+Description=Keep a kernel without the NVIDIA DKMS module from becoming the default boot target
+OnFailure=notify-failure@%n.service
+
+[Service]
+Type=oneshot
+Environment=NVIDIA_DKMS_GUARD_STATE_DIR={{ nvidia_driver_guard_state_dir }}
+ExecStart={{ nvidia_driver_guard_script_path }}

@@ -1,0 +1,61 @@
+#!/bin/bash
+# Managed by Ansible role nvidia_driver. Local edits will be overwritten.
+#
+# 判定は apt の実行後に行う。カーネルの postinst フックに置くと、dkms のビルド失敗で
+# run-parts --exit-on-error が後続を止めるため、失敗時に判定へ到達しない。
+set -u
+
+state_dir="${NVIDIA_DKMS_GUARD_STATE_DIR:-/var/lib/nvidia-dkms-guard}"
+marker="$state_dir/pinned"
+pinfile="${NVIDIA_DKMS_GUARD_PINFILE:-/etc/kernel/proxmox-boot-pin}"
+nextpinfile="${NVIDIA_DKMS_GUARD_NEXT_PINFILE:-/etc/kernel/next-boot-pin}"
+boot_dir="${NVIDIA_DKMS_GUARD_BOOT_DIR:-/boot}"
+rc=0
+
+# 判定 1: 構成の終わっていないパッケージ
+audit="$(dpkg --audit)"
+if [ -n "$audit" ]; then
+  echo "dpkg --audit reports unconfigured packages:" >&2
+  echo "$audit" >&2
+  rc=1
+fi
+
+# 判定 2: 次の起動で GRUB が選ぶカーネル
+running="$(uname -r)"
+# 印がある間は自分の固定を無視して導入済みの最新を見る。固定先を見ると、固定の
+# 直後に成功と判定されて解除と再固定を繰り返す。
+# 手動の固定は proxmox-kernel-helper の選択順 (next-boot-pin、proxmox-boot-pin) に従う。
+latest="$(find "$boot_dir" -maxdepth 1 -name 'vmlinuz-*-pve' -printf '%f\n' \
+  | sed 's/^vmlinuz-//' | sort -V | tail -n1)"
+if [ -e "$marker" ]; then
+  target="$latest"
+elif [ -s "$nextpinfile" ]; then
+  target="$(head -n1 "$nextpinfile")"
+elif [ -s "$pinfile" ]; then
+  target="$(head -n1 "$pinfile")"
+else
+  target="$latest"
+fi
+
+if [ -z "$target" ]; then
+  echo "cannot determine the kernel selected at next boot" >&2
+  exit 1
+fi
+
+if dkms status -m nvidia -k "$target" | grep -q 'installed'; then
+  if [ -e "$marker" ]; then
+    proxmox-boot-tool kernel unpin || exit 1
+    rm -f "$marker"
+  fi
+else
+  echo "nvidia module is not installed for next-boot kernel $target" >&2
+  rc=1
+  # 稼働中のカーネルが対象なら固定しても変わらない。印があれば固定済み。
+  if [ "$target" != "$running" ] && [ ! -e "$marker" ]; then
+    proxmox-boot-tool kernel pin "$running" || exit 1
+    mkdir -p "$state_dir"
+    : >"$marker"
+  fi
+fi
+
+exit "$rc"
