@@ -33,3 +33,7 @@ vault_opnsense_api_secret: "CHANGEME_OPNSENSE_API_SECRET"
 # 既存の通知先。systemd_failure_notify ロールが参照しているが、これまでどの
 # vault.yml.example にも記載が無かった (admin-plane-rebuild タスク 1.5 で是正)。
 vault_portfolio_discord_webhook_url: "CHANGEME_DISCORD_WEBHOOK_URL"
+
+# NAS の SMB 認証用。Kanidm の idm_radius_servers に属する読み取り専用の
+# サービスアカウントトークン (nas role の smb_kanidm_sync.yml が参照する)。
+vault_nas_smb_sync_kanidm_token: "CHANGEME_KANIDM_READONLY_API_TOKEN"

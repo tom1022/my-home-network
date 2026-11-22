@@ -1,0 +1,66 @@
+---
+- name: Ensure the Kanidm sync token is provided
+  ansible.builtin.assert:
+    that:
+      - nas_smb_sync_kanidm_token | trim | length > 0
+    fail_msg: >-
+      nas_smb_sync_kanidm_token is empty. Supply it via Infisical
+      (NAS_SMB_SYNC_KANIDM_TOKEN) and run this playbook through
+      `infisical run --env=prod -- ansible-playbook ...`.
+  no_log: true
+
+- name: Ensure the sync script is installed
+  ansible.builtin.copy:
+    src: nas-smb-sync.py
+    dest: "{{ nas_smb_sync_script_path }}"
+    owner: root
+    group: root
+    mode: '0700'
+
+# 0600 / root:root。EnvironmentFile として systemd (PID 1、root) だけが読む。
+- name: Ensure the sync environment file is present
+  ansible.builtin.copy:
+    content: |
+      KANIDM_URL={{ kanidm_unixd_uri }}
+      KANIDM_TOKEN={{ nas_smb_sync_kanidm_token }}
+      NAS_SMB_SYNC_GROUP={{ nas_smb_kanidm_group }}
+    dest: "{{ nas_smb_sync_env_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Ensure the sync state directory exists
+  ansible.builtin.file:
+    path: "{{ nas_smb_sync_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Ensure the sync service unit is installed
+  ansible.builtin.template:
+    src: nas-smb-sync.service.j2
+    dest: /etc/systemd/system/nas-smb-sync.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd daemon
+
+- name: Ensure the sync timer unit is installed
+  ansible.builtin.template:
+    src: nas-smb-sync.timer.j2
+    dest: /etc/systemd/system/nas-smb-sync.timer
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart nas-smb-sync timer
+
+- name: Ensure the sync timer is enabled and started
+  ansible.builtin.systemd:
+    name: nas-smb-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true

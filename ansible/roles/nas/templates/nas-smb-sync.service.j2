@@ -1,0 +1,10 @@
+[Unit]
+Description=Mirror Kanidm RADIUS secrets into Samba tdbsam
+# 失敗は定時実行の中でしか起きず journal に埋もれるため、systemd_failure_notify
+# ロールが置く汎用ハンドラへ失敗したユニット名を渡して通知させる。
+OnFailure=notify-failure@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile={{ nas_smb_sync_env_path }}
+ExecStart={{ nas_smb_sync_script_path }}

@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Kanidm to Samba tdbsam sync
+
+[Timer]
+OnCalendar=*:0/15
+RandomizedDelaySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

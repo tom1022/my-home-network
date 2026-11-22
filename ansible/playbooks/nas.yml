@@ -6,6 +6,8 @@
   hosts: nas
   become: true
   roles:
+    # nas の同期 service が OnFailure で参照するハンドラを先に置く。
+    - systemd_failure_notify
     - nas
     - kanidm_unixd
 

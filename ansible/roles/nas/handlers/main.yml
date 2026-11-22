@@ -11,3 +11,12 @@
   ansible.builtin.service:
     name: smbd
     state: restarted
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart nas-smb-sync timer
+  ansible.builtin.systemd:
+    name: nas-smb-sync.timer
+    state: restarted

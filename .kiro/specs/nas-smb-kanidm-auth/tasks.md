@@ -35,7 +35,7 @@
   - _Requirements: 4.1, 6.1_
   - _Boundary: KanidmServiceAccount_
 
-- [ ] 3. NAS の Samba と同期ジョブの配置
+- [x] 3. NAS の Samba と同期ジョブの配置
 - [x] 3.1 (P) smb.conf で認証方式と共有の許可を宣言する
   - `[global]` に、SMB2 以降・NTLMv2 だけ・LANMAN 無効を明示する
   - 共有 `smb` の許可を、`nextcloud` と `nas_access` のメンバーにする。共有内の操作は `nextcloud` のユーザーとグループで行い、ゲストを拒否する
@@ -44,7 +44,7 @@
   - _Requirements: 1.1, 1.3, 1.4, 1.5, 3.1, 3.2, 3.3_
   - _Boundary: SmbConfig_
 
-- [ ] 3.2 (P) 同期ジョブを NAS に配置し、15 分ごとに動かす
+- [x] 3.2 (P) 同期ジョブを NAS に配置し、15 分ごとに動かす
   - スクリプトを root だけが実行できる形で置く
   - Kanidm の URL、トークン、グループ名を、root だけが読める 0600 の env ファイルに `no_log` で置く。トークンは Infisical から env の lookup で受け取り、空なら適用を止める
   - 状態ファイルのディレクトリを root だけが使える形で作る

@@ -20,3 +20,8 @@
   ansible.builtin.import_tasks: smb_share.yml
   when: nas_smb_share_enabled | default(false)
   tags: [smb_share]
+
+- name: Configure Kanidm to Samba sync job on NAS
+  ansible.builtin.import_tasks: smb_kanidm_sync.yml
+  when: nas_smb_share_enabled | default(false)
+  tags: [smb_kanidm_sync]

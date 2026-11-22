@@ -47,3 +47,10 @@ nas_smb_kanidm_group: nas_access
 # Nextcloud (mounted into the Pod as the Local external storage).
 nas_smb_nfs_allowed_hosts:
   - k3s-agent-z440
+
+# Kanidm -> tdbsam sync job. The read-only token comes from Infisical via
+# `infisical run`; an empty value fails the assert in smb_kanidm_sync.yml.
+nas_smb_sync_kanidm_token: "{{ lookup('env', 'NAS_SMB_SYNC_KANIDM_TOKEN') }}"
+nas_smb_sync_script_path: /usr/local/sbin/nas-smb-sync
+nas_smb_sync_env_path: /etc/nas-smb-sync.env
+nas_smb_sync_state_dir: /var/lib/nas-smb-sync
