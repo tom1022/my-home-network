@@ -5,6 +5,7 @@ tdbsam (smbpasswd / pdbedit), openssl and NSS are all replaced by fakes.
 """
 
 import importlib.util
+import inspect
 import io
 import http.client
 import json
@@ -39,66 +40,64 @@ def desired(name, state=SecretState.PRESENT, nt_hash=H1, resolvable=True):
     return Desired(Member(name, f"uuid-{name}"), state, nt_hash, resolvable)
 
 
-def plan(desired_list, current=None, managed=None, local=None):
-    steps = build_plan(
-        desired_list, current or {}, managed or set(), local or {"nextcloud"}
-    )
+def plan(desired_list, current=None, managed=None):
+    steps = build_plan(desired_list, current or {}, managed or set())
     return {s.name: s.action for s in steps}
 
 
-def test_rule1_local_user_is_skipped_even_when_unknown_or_managed():
-    d = [desired("nextcloud", SecretState.UNKNOWN, None)]
-    assert plan(d, managed={"nextcloud"}) == {"nextcloud": Action.SKIP}
+def test_same_name_as_local_user_unregistered_is_add():
+    assert plan([desired("tochi")]) == {"tochi": Action.ADD}
 
 
-def test_rule1_local_user_absent_from_desired_but_managed_is_not_deleted():
-    assert plan([], managed={"nextcloud"}) == {"nextcloud": Action.SKIP}
+def test_rule7_unmanaged_entry_with_differing_hash_is_skipped_not_updated():
+    steps = build_plan([desired("nextcloud", nt_hash=H2)], {"nextcloud": H1}, set())
+    assert steps == [Step("nextcloud", Action.SKIP)]
+    assert steps[0].reason == "unmanaged entry"
 
 
-def test_rule2_unknown_is_hold_and_registration_untouched():
+def test_unmanaged_entry_absent_from_desired_is_not_deleted():
+    assert plan([], current={"nextcloud": H1}) == {}
+
+
+def test_rule1_unknown_is_hold_and_registration_untouched():
     d = [desired("alice", SecretState.UNKNOWN, None)]
     assert plan(d, current={"alice": H1}, managed={"alice"}) == {"alice": Action.HOLD}
 
 
-def test_rule3_absent_managed_is_delete():
+def test_rule2_absent_managed_is_delete():
     d = [desired("alice", SecretState.ABSENT, None)]
     assert plan(d, current={"alice": H1}, managed={"alice"}) == {"alice": Action.DELETE}
 
 
-def test_rule3_absent_unmanaged_is_skip():
+def test_rule2_absent_unmanaged_is_skip():
     d = [desired("alice", SecretState.ABSENT, None)]
     assert plan(d, current={"alice": H1}) == {"alice": Action.SKIP}
 
 
-def test_rule3_unresolvable_managed_is_delete():
+def test_rule2_unresolvable_managed_is_delete():
     d = [desired("alice", resolvable=False)]
     assert plan(d, managed={"alice"}) == {"alice": Action.DELETE}
 
 
-def test_rule3_unresolvable_unmanaged_is_skip():
+def test_rule2_unresolvable_unmanaged_is_skip():
     d = [desired("alice", resolvable=False)]
     assert plan(d) == {"alice": Action.SKIP}
 
 
-def test_rule4_present_unregistered_is_add():
+def test_rule3_present_unregistered_is_add():
     assert plan([desired("alice")]) == {"alice": Action.ADD}
 
 
-def test_rule5_present_hash_differs_is_update():
+def test_rule6_present_hash_differs_managed_is_update():
     d = [desired("alice", nt_hash=H2)]
     assert plan(d, current={"alice": H1}, managed={"alice"}) == {"alice": Action.UPDATE}
 
 
-def test_rule5_update_even_when_unmanaged():
-    d = [desired("alice", nt_hash=H2)]
-    assert plan(d, current={"alice": H1}) == {"alice": Action.UPDATE}
-
-
-def test_rule6_hash_match_unmanaged_is_adopt():
+def test_rule4_hash_match_unmanaged_is_adopt():
     assert plan([desired("alice")], current={"alice": H1}) == {"alice": Action.ADOPT}
 
 
-def test_rule7_hash_match_managed_is_skip():
+def test_rule5_hash_match_managed_is_skip():
     assert plan([desired("alice")], current={"alice": H1}, managed={"alice"}) == {
         "alice": Action.SKIP
     }
@@ -118,7 +117,7 @@ def test_adopt_then_removed_from_group_is_delete():
 def test_never_delete_unmanaged_name():
     # tdbsam holds entries the job never registered (and nextcloud).
     current = {"nextcloud": H1, "carol": H1}
-    steps = build_plan([], current, set(), {"nextcloud"})
+    steps = build_plan([], current, set())
     assert all(s.action is not Action.DELETE for s in steps)
 
 
@@ -127,7 +126,6 @@ def test_plan_covers_each_name_once():
         [desired("alice"), desired("bob", SecretState.ABSENT, None)],
         {"alice": H1},
         {"alice", "dave"},
-        {"nextcloud"},
     )
     names = [s.name for s in steps]
     assert sorted(names) == sorted(set(names)) == ["alice", "bob", "dave"]
@@ -281,14 +279,7 @@ def test_search_members_builds_filter_and_parses():
         Member("bob", "u2"),
     ]
     sent = json.loads(op.calls[0][1])
-    assert sent == {
-        "filter": {
-            "and": [
-                {"eq": ["class", "person"]},
-                {"eq": ["class", "posixaccount"]},
-            ]
-        }
-    }
+    assert sent == {"filter": {"eq": ["class", "person"]}}
 
 
 def test_search_members_zero_entries_is_ok():
@@ -467,7 +458,6 @@ def run_job(
     routes,
     tdb,
     managed=None,
-    local=("nextcloud",),
     unresolvable=(),
     unixd_status=lambda: "system: online\nKanidm: online\n",
     env=ENV,
@@ -475,14 +465,11 @@ def run_job(
     state = tmp_path / "managed"
     if managed is not None:
         state.write_text("".join(f"{n}\n" for n in managed))
-    passwd = tmp_path / "passwd"
-    passwd.write_text("".join(f"{n}:x:1:1::/:/bin/sh\n" for n in local))
     op = FakeOpener(routes)
     code = mod.run(
         env,
         tdb,
         state_path=state,
-        passwd_path=passwd,
         resolve=lambda n: n not in unresolvable,
         unixd_status=unixd_status,
         hasher=fake_hash,
@@ -526,13 +513,31 @@ def test_run_empty_state_adopts_then_group_removal_deletes(tmp_path):
     assert code == 0 and "alice" not in tdb.hashes and managed_of(state) == set()
 
 
-def test_run_never_touches_nextcloud_even_if_member_and_in_state(tmp_path):
+def test_run_never_touches_unmanaged_entry_even_if_member_with_other_secret(
+    tmp_path,
+):
     tdb = FakeTdb({"nextcloud": fake_hash("nc")})
     routes = full_routes(["nextcloud"], {"nextcloud": "other"})
-    code, state, _ = run_job(tmp_path, routes, tdb, managed={"nextcloud"})
+    code, state, _ = run_job(tmp_path, routes, tdb)
     assert code == 0
     assert tdb.hashes == {"nextcloud": fake_hash("nc")}
     assert all(op[0] == "list" for op in tdb.ops)
+    assert managed_of(state) == set()
+
+
+def test_run_registers_member_named_like_local_user(tmp_path):
+    tdb = FakeTdb()
+    routes = full_routes(["tochi"], {"tochi": "pw"})
+    code, state, _ = run_job(tmp_path, routes, tdb)
+    assert code == 0
+    assert tdb.hashes == {"tochi": fake_hash("pw")}
+    assert managed_of(state) == {"tochi"}
+
+
+def test_passwd_is_not_read():
+    assert not hasattr(mod, "read_local_users")
+    assert not hasattr(mod, "PASSWD_PATH")
+    assert "passwd_path" not in inspect.signature(mod.run).parameters
 
 
 def test_run_unresolvable_member_is_skipped_without_failure(tmp_path):
@@ -737,12 +742,6 @@ def test_state_file_is_replaced_atomically_with_mode_0600(tmp_path):
     assert mod.load_managed(tmp_path / "missing") == set()
 
 
-def test_local_users_reads_passwd_names(tmp_path):
-    p = tmp_path / "passwd"
-    p.write_text("root:x:0:0::/root:/bin/sh\n\nnextcloud:x:33:33::/:/sbin/nologin\n")
-    assert mod.read_local_users(p) == {"root", "nextcloud"}
-
-
 def test_logs_contain_names_and_actions_only(tmp_path, capsys):
     routes = full_routes(["alice"], {"alice": "TOPSECRETPW"})
     run_job(tmp_path, routes, FakeTdb())
@@ -765,24 +764,21 @@ def test_logs_state_reasons_for_skip_and_hold(tmp_path, capsys):
             "erin": "pw",
         },
     )
-    tdb = FakeTdb({"erin": fake_hash("pw")})
+    tdb = FakeTdb({"erin": fake_hash("pw"), "nextcloud": fake_hash("nc")})
     run_job(tmp_path, routes, tdb, managed={"erin"}, unresolvable={"bob"})
     out = capsys.readouterr()
     lines = (out.out + out.err).splitlines()
     assert "skip alice (not issued)" in lines
     assert "skip bob (unresolvable)" in lines
     assert "hold carol (HTTP 500)" in lines
-    assert "skip nextcloud (local user)" in lines
+    assert "skip nextcloud (unmanaged entry)" in lines
     assert "skip erin (up to date)" in lines
     assert "hold -x (invalid name)" in lines
     assert "add dave" in lines
 
 
 def test_missing_env_exits_1(tmp_path):
-    assert (
-        mod.run({}, FakeTdb(), state_path=tmp_path / "m", passwd_path=tmp_path / "p")
-        == 1
-    )
+    assert mod.run({}, FakeTdb(), state_path=tmp_path / "m") == 1
 
 
 # --- real command wrappers (subprocess faked) ---------------------------

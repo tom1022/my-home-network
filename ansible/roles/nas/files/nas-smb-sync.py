@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mirror Kanidm RADIUS secrets of POSIX person accounts into Samba's tdbsam.
+"""Mirror Kanidm RADIUS secrets of person accounts into Samba's tdbsam.
 
 Dependency direction: types -> plan (pure) -> I/O -> main.
 """
@@ -22,7 +22,6 @@ from pathlib import Path
 
 HTTP_TIMEOUT = 10
 STATE_PATH = Path("/var/lib/nas-smb-sync/managed")
-PASSWD_PATH = Path("/etc/passwd")
 RADIUS_GROUP = "idm_radius_servers"
 # Names reach tdbsam via argv and Kanidm URLs; a leading "-" would be read as an
 # smbpasswd / pdbedit option, and anything else is not a Kanidm name we can
@@ -76,14 +75,9 @@ class ApplyError(Exception):
 
 
 def _decide(
-    d: Desired,
-    current_hashes: dict[str, str],
-    managed: set[str],
-    local_users: set[str],
+    d: Desired, current_hashes: dict[str, str], managed: set[str]
 ) -> tuple[Action, str]:
     name = d.member.name
-    if name in local_users:
-        return Action.SKIP, "local user"
     if d.state is SecretState.UNKNOWN:
         return Action.HOLD, d.reason
     if d.state is SecretState.ABSENT or not d.resolvable:
@@ -94,30 +88,24 @@ def _decide(
         )
     if name not in current_hashes:
         return Action.ADD, ""
-    if current_hashes[name] != d.nt_hash:
-        return Action.UPDATE, ""
+    if current_hashes[name] == d.nt_hash:
+        if name in managed:
+            return Action.SKIP, "up to date"
+        return Action.ADOPT, ""
     if name in managed:
-        return Action.SKIP, "up to date"
-    return Action.ADOPT, ""
+        return Action.UPDATE, ""
+    # Entries created outside this job (e.g. nextcloud) are not ours to overwrite.
+    return Action.SKIP, "unmanaged entry"
 
 
 def build_plan(
     desired: list[Desired],
     current_hashes: dict[str, str],
     managed: set[str],
-    local_users: set[str],
 ) -> list[Step]:
-    steps = [
-        Step(d.member.name, *_decide(d, current_hashes, managed, local_users))
-        for d in desired
-    ]
+    steps = [Step(d.member.name, *_decide(d, current_hashes, managed)) for d in desired]
     seen = {d.member.name for d in desired}
-    for name in sorted(managed - seen):
-        # Local users are never deleted, even if a stale state file lists one.
-        if name in local_users:
-            steps.append(Step(name, Action.SKIP, "local user"))
-        else:
-            steps.append(Step(name, Action.DELETE))
+    steps.extend(Step(name, Action.DELETE) for name in sorted(managed - seen))
     return steps
 
 
@@ -194,14 +182,7 @@ def search_members(client: KanidmClient) -> list[Member]:
     body = client.call(
         "POST",
         "/v1/raw/search",
-        {
-            "filter": {
-                "and": [
-                    {"eq": ["class", "person"]},
-                    {"eq": ["class", "posixaccount"]},
-                ]
-            }
-        },
+        {"filter": {"eq": ["class", "person"]}},
     )
     entries = body.get("entries") if isinstance(body, dict) else None
     if not isinstance(entries, list):
@@ -303,12 +284,6 @@ def save_managed(path: Path, names: set[str]) -> None:
         os.close(dfd)
 
 
-def read_local_users(path: Path) -> set[str]:
-    return {
-        line.split(":", 1)[0] for line in path.read_text().splitlines() if line.strip()
-    }
-
-
 def resolve_nss(name: str) -> bool:
     try:
         pwd.getpwnam(name)
@@ -383,7 +358,6 @@ def run(
     env,
     tdb,
     state_path: Path = STATE_PATH,
-    passwd_path: Path = PASSWD_PATH,
     resolve=resolve_nss,
     unixd_status=read_unixd_status,
     hasher=nt_hash,
@@ -417,12 +391,7 @@ def run(
     try:
         managed = load_managed(state_path)
         current = tdb.list_hashes()
-        steps = build_plan(
-            desired,
-            current,
-            managed,
-            read_local_users(passwd_path),
-        )
+        steps = build_plan(desired, current, managed)
     except (ApplyError, OSError) as e:
         print(f"fatal: cannot read local state ({e})", file=sys.stderr)
         return 1
