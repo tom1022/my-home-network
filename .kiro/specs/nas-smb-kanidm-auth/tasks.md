@@ -56,7 +56,7 @@
   - _Boundary: SyncTasks_
   - _Depends: 1.3_
 
-- [ ] 4. 実機への適用
+- [x] 4. 実機への適用
 - [x] 4.1 Kanidm に適用し、トークンを用意する
   - `terraform-kanidm` を plan で確かめてから apply する。`idm_radius_servers` の既存のメンバーが外れないことを、plan で確かめる
   - 読み取り専用のトークンを CLI で発行し、値は標準出力に出さずに Infisical に登録する
@@ -64,7 +64,7 @@
   - _Requirements: 4.1, 4.2, 6.1_
   - _Depends: 2_
 
-- [ ] 4.2 NAS に適用し、冪等性を確かめる
+- [x] 4.2 NAS に適用し、冪等性を確かめる
   - `playbooks/nas.yml` を適用する。2 回目の適用で changed が 0 になる
   - timer が有効で、初回の実行が成功して終わる
   - env ファイルが root:root 0600 であること、journal に秘密が出ていないことを確かめる
