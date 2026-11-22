@@ -38,21 +38,21 @@
   - 稼働中のカーネルが 8.4 系の最新で、NIC が `nicN` の名前で上がり、確認の結果がすべて記録されている
   - _Requirements: 1.1, 2.4, 2.6, 3.4, 4.1, 4.2, 4.4_
 
-- [ ] 3. `TerraformProvisioner` から `VM.Monitor` を外す
+- [x] 3. `TerraformProvisioner` から `VM.Monitor` を外す
   - n100 の再起動後の確認が済んでから行う。この時点から Terraform を実行しない
   - 変更前と変更後の権限の一覧を記録する。他の権限と ACL は変えない
   - `pveum role list` で `TerraformProvisioner` が `VM.Monitor` を含まない
   - _Requirements: 1.2, 1.4_
 
 - [ ] 4. n100 のメジャー更新
-- [ ] 4.1 n100 の事前チェッカーを通し、バックアップを取る
+- [x] 4.1 n100 の事前チェッカーを通し、バックアップを取る
   - 前夜の両ノードのバックアップジョブが成功していることを確かめる
   - `pve8to9 --full` の FAIL を 0 件にする。WARN の各項目について、解消したか、解消しない理由を記録する
   - n100 のゲストのうちバックアップ対象のものを、当日に PBS へ手動でバックアップする
   - `pve8to9 --full` の FAIL が 0 件で、当日のバックアップが PBS の一覧に出る
   - _Requirements: 1.2, 1.3, 1.5, 7.4_
 
-- [ ] 4.2 n100 を 9 へ更新し、再起動の準備をする
+- [x] 4.2 n100 を 9 へ更新し、再起動の準備をする
   - tmux のセッションの中で、APT の参照先を deb822 形式の Debian 13 と PVE 9 の pve-no-subscription だけに置き換え、`dist-upgrade` する。`/etc/default/grub` は既存のファイルを残す
   - `proxmox-default-headers` を入れる。ゲストを hp-z440 へ移さない
   - BootDeadman (15 分 (仮) で 8.4 の検証済みのカーネルに戻す) を置き、タイマーが有効であることを確かめる
