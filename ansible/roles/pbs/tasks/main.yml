@@ -33,12 +33,19 @@
     group: root
     mode: '0644'
 
+- name: Ensure legacy one-line PBS apt repository file is absent
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/proxmox-backup.list
+    state: absent
+
 - name: Ensure PBS apt repository is configured
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by={{ pbs_repo_keyring_path }}] {{ pbs_repo_base_url }} {{ pbs_repo_suite }} {{ pbs_repo_channel }}"
-    state: present
-    filename: proxmox-backup
-    update_cache: "{{ pbs_update_apt_cache }}"
+  ansible.builtin.deb822_repository:
+    name: proxmox
+    types: deb
+    uris: "{{ pbs_repo_base_url }}"
+    suites: "{{ pbs_repo_suite }}"
+    components: "{{ pbs_repo_channel }}"
+    signed_by: "{{ pbs_repo_keyring_path }}"
 
 - name: Ensure PBS packages are installed
   ansible.builtin.apt:

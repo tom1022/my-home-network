@@ -21,8 +21,10 @@
 - name: Ensure Tailscale apt repository is configured
   ansible.builtin.copy:
     dest: /etc/apt/sources.list.d/tailscale.list
-    content: |
-      deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} main
+    content: >
+      deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg]
+      https://pkgs.tailscale.com/stable/{{ ansible_distribution | lower }}
+      {{ ansible_distribution_release }} main
     owner: root
     group: root
     mode: '0644'
