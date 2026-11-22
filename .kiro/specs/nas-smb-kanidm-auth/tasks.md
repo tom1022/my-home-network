@@ -88,3 +88,29 @@
   - Kanidm に届かない URL を与えて同期ジョブを直接実行し、終了コード 1 で終わり、tdbsam が変わらないことを確かめる。本番の Discord に通知を飛ばさないよう、unit 経由では失敗させない。service に `OnFailure=notify-failure@%n.service` が設定されていることは、systemd のプロパティで確かめる
   - SMB1 と、ゲストでの接続が拒否される
   - _Requirements: 1.4, 1.5, 3.1, 3.2, 3.3, 3.4, 5.1, 5.2_
+
+- [ ] 6. 同期対象と SMB の許可からグループを外す
+- [ ] 6.1 同期ジョブからグループを外し、kanidm-unixd の稼働確認を `kanidm-unix status` に替える(テスト先行)
+  - 先に単体テストを書く。`kanidm-unix status` の標準出力に `Kanidm: online` の行が無い場合(`Kanidm: offline`、空の出力を含む)に、tdbsam に触れず終了コード 1 の全体の失敗になる試験を加える。`Kanidm: online` の行がある場合は先へ進む試験も加える
+  - グループの取得(`GET /v1/group/<group>`)と、同期対象のグループを getgrnam で引く確認を削除する。グループが `null` で全体の失敗になる試験も削除する
+  - メンバーの検索のフィルタを `{"and": [{"eq": ["class","person"]}, {"eq": ["class","posixaccount"]}]}` にする。グループの所属は一切見ない
+  - 計画の前に `kanidm-unix status` を実行し、標準出力で判定する(v1.11.1 は失敗時も終了コード 0 を返すため、終了コードでは判定しない)
+  - 入力の env から `NAS_SMB_SYNC_GROUP` を外し、`KANIDM_URL` と `KANIDM_TOKEN` だけにする
+  - 単体テストが CI の pytest で通り、ruff check / format が通る
+  - _Requirements: 1.1, 1.3, 2.1, 2.3, 2.4, 2.5, 5.1_
+
+- [ ] 6.2 smb.conf の `valid users` 行と、Ansible 変数 `nas_smb_kanidm_group`・env の `NAS_SMB_SYNC_GROUP` を削除する
+  - 共有 `smb` から `valid users` の行を削除する。`force user` / `force group` / `guest ok = no`、`[global]` の SMB2 以降・NTLMv2 だけ・LANMAN 無効は変えない
+  - `ansible/roles/nas/defaults/main.yml` の `nas_smb_kanidm_group` を削除し、env ファイルの内容から `NAS_SMB_SYNC_GROUP` を外す
+  - 描画した設定が `testparm -s` の検証を通り、`ansible-lint` が通る
+  - _Requirements: 1.1, 1.3, 1.4, 1.5, 3.1, 6.2_
+  - _Depends: 6.1_
+
+- [ ] 6.3 NAS に適用し、実機で確かめる
+  - `playbooks/nas.yml` を適用する。2 回目の適用で changed が 0 になる
+  - 検証用の Kanidm の person を作り、POSIX を有効にして RADIUS 秘密を発行する。次の周期の後、その利用者のアカウント名と秘密で `smbclient` から接続できる
+  - 秘密を削除すると、次の周期の後に tdbsam からエントリが消え、接続できなくなる
+  - `nextcloud` の SMB 接続が従来どおり動く
+  - 検証が終わったら、検証用の person を削除する。Kanidm のグループには触れない
+  - _Requirements: 1.1, 1.3, 2.1, 2.4, 3.1, 6.3_
+  - _Depends: 6.2_

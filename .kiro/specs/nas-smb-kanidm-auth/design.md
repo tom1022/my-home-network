@@ -1,15 +1,15 @@
 # Design Document
 
 ## Overview
-**Purpose**: NAS(192.168.1.201)の SMB 共有 `smb` に、Kanidm の `nas_access` のメンバーが自分の Kanidm アカウント名で接続できるようにする。パスワードには、Kanidm が利用者ごとに発行する RADIUS 秘密を使う。
+**Purpose**: NAS(192.168.1.201)の SMB 共有 `smb` に、POSIX が有効で RADIUS 秘密を持つ Kanidm の person が自分の Kanidm アカウント名で接続できるようにする。パスワードには、Kanidm が利用者ごとに発行する RADIUS 秘密を使う。
 
-**Users**: `nas_access` のメンバーは、Windows や macOS から `\\192.168.1.201\smb` に接続する。管理者は Kanidm のグループと秘密を操作するだけで、NAS 上では手作業をしない。
+**Users**: POSIX が有効な Kanidm の利用者は、Kanidm の Web UI の RADIUS 画面(`https://kanidm.fickledev.com/ui/radius`)で秘密を発行し、Windows や macOS から `\\192.168.1.201\smb` に接続する。管理者は NAS 上で手作業をしない。
 
-**Impact**: NAS の Samba が `nextcloud` 以外のユーザーも受け付けるようになる。NAS 上の systemd timer が定期的に Kanidm の API から秘密を読み、tdbsam へ反映する。共有内の操作は、誰が接続しても `nextcloud` の権限で行う。
+**Impact**: NAS の Samba が、tdbsam に登録された `nextcloud` 以外のユーザーも受け付けるようになる。NAS 上の systemd timer が定期的に Kanidm の API から秘密を読み、tdbsam へ反映する。共有内の操作は、誰が接続しても `nextcloud` の権限で行う。
 
 ### Goals
-- `nas_access` のメンバーが、Kanidm のアカウント名と RADIUS 秘密で SMB に接続できる(1.1)
-- Kanidm 上の所属と秘密の変化が、15 分の周期内に tdbsam へ反映される(2.1〜2.4)
+- POSIX が有効で RADIUS 秘密を持つ person が、Kanidm のアカウント名と RADIUS 秘密で SMB に接続できる(1.1)
+- Kanidm 上の POSIX の有効・無効と秘密の変化が、15 分の周期内に tdbsam へ反映される(2.1〜2.4)
 - Nextcloud の NFS と `nextcloud` の SMB 接続が、従来どおり動く(3.1〜3.4)
 - 同期の失敗が既存の Discord 通知に届く(5.2)
 
@@ -22,23 +22,24 @@
 
 ### This Spec Owns
 - NAS 上の同期ジョブ `nas-smb-sync`(スクリプト、service、timer、env ファイル、状態ファイル)
-- smb.conf の `[global]` での認証方式の明示と、`[smb]` 共有の `valid users` / `force user` / `force group`
+- smb.conf の `[global]` での認証方式の明示と、`[smb]` 共有の `force user` / `force group`
 - Kanidm のサービスアカウント `nas_smb_sync` と、その `idm_radius_servers` への所属
 - 同期が登録した tdbsam のエントリ(状態ファイルに記録された名前に限る)
 
 ### Out of Boundary
-- `nas_access` への利用者の追加・削除と、RADIUS 秘密の発行(Kanidm 上での運用。Terraform は人間の利用者と所属を宣言しない)
+- 利用者の POSIX の有効化と、RADIUS 秘密の発行(Kanidm 上での運用。Terraform は人間の利用者を宣言しない)
 - tdbsam の `nextcloud` エントリ(既存の `smb_share.yml` が管理する)
 - NFS のエクスポート、`kanidm_unixd` の設定、`systemd_failure_notify` の中身
 
 ### Allowed Dependencies
 - Kanidm の HTTP API(`https://kanidm.fickledev.com`。host_vars の `kanidm_unixd_uri` を使う)
-- NAS の NSS(kanidm-unixd)による、利用者名とグループの解決
+- NAS の NSS(kanidm-unixd)による利用者名の解決と、`kanidm-unix status` による稼働確認
 - `systemd_failure_notify` role の `notify-failure@.service`
 - Infisical(Ansible の適用時に `lookup('env')` で値を受け取る)
 
 ### Revalidation Triggers
 - Kanidm のメジャーアップデート。`/v1/person/{id}/_radius` と `/v1/raw/search` の応答の形、および `idm_acp_radius_servers` の読める属性が変わりうる
+- kanidm-unix の `status` の出力形式(`<name>: online|offline`)や終了コードの変更。稼働確認が成立しなくなる
 - kanidm-unixd の `uid_attr_map` / `gid_attr_map` の変更。SMB のユーザー名とグループ名が変わる
 - NFS の `anonuid` / `anongid`、または `nas_smb_user` の変更
 - `systemd_failure_notify` のユニット名の変更
@@ -47,7 +48,7 @@
 
 ### Existing Architecture Analysis
 - `ansible/roles/nas/tasks/smb_share.yml` が、Samba、ローカルユーザー `nextcloud`、smb.conf、NFS のエクスポートを構成する。tdbsam には `nextcloud` だけが登録されている。
-- `kanidm_unixd` role が NSS と PAM を構成している。`nas_access` は POSIX グループとして NSS で解決できる。
+- `kanidm_unixd` role が NSS と PAM を構成している。`nas_access` は SSH ログインの許可グループとして使われており、この spec は触れない。
 - `systemd_failure_notify` は `host_health.yml` によって NAS に配置済み。ただし `nas.yml` はこの role を当てていない。
 
 ### Architecture Pattern & Boundary Map
@@ -103,7 +104,7 @@ scripts/test_nas_smb_sync.py           # 計画の関数と応答の解釈の単
 ### Modified Files
 - `ansible/roles/nas/tasks/main.yml`: smb_share の後に、既存と同じ `import_tasks` + `when` の形で `smb_kanidm_sync.yml` を取り込む(tag `smb_kanidm_sync`)
 - `.github/workflows/ci.yml`: ruff check / format の対象に `ansible/roles/nas/files/nas-smb-sync.py` を加える(既存の対象は `scripts/` だけ)
-- `ansible/roles/nas/templates/smb.conf.j2`: `[global]` に認証方式を明示し、`[smb]` に `valid users` / `force user` / `force group` を追加する
+- `ansible/roles/nas/templates/smb.conf.j2`: `[global]` に認証方式を明示し、`[smb]` に `force user` / `force group` を追加する(`valid users` は置かない)
 - `ansible/roles/nas/defaults/main.yml`: 同期ジョブの変数を追加する
 - `ansible/playbooks/nas.yml`: `nas` role より前に `systemd_failure_notify` を当てる
 - `ansible/inventory/group_vars/all/vault.yml.example`: `vault_nas_smb_sync_kanidm_token` を追加する
@@ -118,17 +119,17 @@ sequenceDiagram
     participant K as Kanidm
     participant P as Tdbsam
     T->>S: start
+    S->>S: kanidm-unix status
+    Note over S: Kanidm online line missing then Fatal
     S->>K: GET self
     K-->>S: memberof includes idm_radius_servers
-    S->>K: GET group nas_access
-    K-->>S: uuid
-    S->>K: POST raw search posixaccount and memberof uuid
+    S->>K: POST raw search person and posixaccount
     K-->>S: entries
-    loop each member
+    loop each person
         S->>K: GET person uuid radius
         K-->>S: secret or null
     end
-    S->>S: getpwnam each member
+    S->>S: getpwnam each person
     S->>P: pdbedit -L -w
     P-->>S: current entries
     S->>S: build plan
@@ -137,7 +138,7 @@ sequenceDiagram
     S->>S: drop deleted from managed
 ```
 
-- **収集の段階(Kanidm の読み取り)で全体に関わる失敗が起きたら、tdbsam に触れずに中止する。** 全体に関わる失敗とは、接続・TLS・401・403・自分が `idm_radius_servers` に所属していない・グループが `null`・応答の形が不正の場合をいう(5.1)。
+- **収集の段階(Kanidm の読み取り)で全体に関わる失敗が起きたら、tdbsam に触れずに中止する。** 全体に関わる失敗とは、接続・TLS・401・403・自分が `idm_radius_servers` に所属していない・`kanidm-unix status` の標準出力に `Kanidm: online` の行が無い・応答の形が不正の場合をいう(5.1)。
 - 自分の所属を最初に確かめる。`_radius` は ACP によって `RadiusSecret` が見えないときも `null` を返すため、権限を失ったときに「未発行」と誤認して全員を削除しないようにするためである。
 - 状態ファイルは先に記録する。ADD / UPDATE / ADOPT の名前は tdbsam を書き込む前に managed に加え、DELETE の名前は `pdbedit -x` の成功後に managed から除く。途中で落ちても、managed が tdbsam の実態より狭くなることはない。
 - 利用者ごとの取得の失敗は、その利用者の既存のエントリを変更しない「保留」として扱い、残りを続ける(5.3)。
@@ -147,19 +148,19 @@ sequenceDiagram
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1 | メンバーの接続許可 | SmbConfig, SyncJob | `valid users`, tdbsam | 同期フロー |
+| 1.1 | 同期した利用者の接続許可 | SmbConfig, SyncJob | tdbsam(`valid users` は置かない) | 同期フロー |
 | 1.2 | 誤った秘密の拒否 | Smbd(既存) | tdbsam | — |
-| 1.3 | 非メンバーの拒否 | SmbConfig, SyncJob | `valid users = nextcloud @nas_access` | — |
+| 1.3 | 秘密を持たない・POSIX でない利用者の拒否 | SyncJob | tdbsam に登録しない | 同期フロー |
 | 1.4 | SMB2 以降・平文の拒否 | SmbConfig | `[global]` の明示値 | — |
 | 1.5 | ゲストの拒否 | SmbConfig | `map to guest = never`(既存)、`guest ok = no` | — |
 | 2.1 | 追加の反映 | SyncJob, Timer | `build_plan` → add | 同期フロー |
 | 2.2 | 秘密の再発行の反映 | SyncJob | NT ハッシュの比較 → update | 同期フロー |
-| 2.3 | 除外の反映 | SyncJob, StateFile | 状態ファイルにあり、メンバーでない → delete | 同期フロー |
+| 2.3 | POSIX 無効・削除の反映 | SyncJob, StateFile | 状態ファイルにあり、検索結果に無い → delete | 同期フロー |
 | 2.4 | 秘密の削除の反映 | SyncJob | `_radius` が `null` → delete | 同期フロー |
-| 2.5 | 未発行のメンバーを飛ばす | SyncJob | `_radius` が `null` で未登録 → 何もしない | — |
+| 2.5 | 未発行の person を飛ばす | SyncJob | `_radius` が `null` で未登録 → 何もしない | — |
 | 2.6 | `nextcloud` に触れない | SyncJob, StateFile | 削除の候補を状態ファイルに限る、ローカルユーザー名の除外 | — |
 | 2.7 | 変化が無ければ変更しない | SyncJob | NT ハッシュの一致 → 何もしない | — |
-| 3.1 | `nextcloud` の接続を維持 | SmbConfig | `valid users` に `nextcloud` を残す | — |
+| 3.1 | `nextcloud` の接続を維持 | SmbConfig, 既存の `smb_share.yml` | tdbsam の `nextcloud` を残す | — |
 | 3.2, 3.3 | NFS との相互の読み書き | SmbConfig | `force user` / `force group = nextcloud` | — |
 | 3.4 | SSH・NFS を変えない | 全体 | 変更しないファイルの一覧 | — |
 | 4.1 | 最小権限 | KanidmServiceAccount | `idm_radius_servers`、読み取り専用トークン | — |
@@ -177,8 +178,8 @@ sequenceDiagram
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| SyncJob | NAS / 同期 | Kanidm の秘密を tdbsam へ反映する | 1.1, 2.1–2.7, 4.3, 4.4, 5.1, 5.3 | Kanidm API (P0), smbpasswd / pdbedit (P0), openssl (P0) | Service, Batch, State |
-| SmbConfig | NAS / Samba | 認証方式と共有の許可を宣言する | 1.1, 1.3–1.5, 3.1–3.3 | Samba (P0), NSS (P0) | — |
+| SyncJob | NAS / 同期 | Kanidm の秘密を tdbsam へ反映する | 1.1, 1.3, 2.1–2.7, 4.3, 4.4, 5.1, 5.3 | Kanidm API (P0), kanidm-unix (P0), smbpasswd / pdbedit (P0), openssl (P0) | Service, Batch, State |
+| SmbConfig | NAS / Samba | 認証方式と共有の許可を宣言する | 1.1, 1.4, 1.5, 3.2, 3.3 | Samba (P0) | — |
 | SyncTasks | Ansible | 同期ジョブを配置し、定期化する | 4.2, 5.2, 6.2, 6.3 | systemd_failure_notify (P1) | — |
 | KanidmServiceAccount | Terraform | 同期用の主体と権限を宣言する | 4.1, 6.1 | provider 0.1.10 (P0) | — |
 
@@ -188,15 +189,15 @@ sequenceDiagram
 
 | Field | Detail |
 |-------|--------|
-| Intent | `nas_access` のメンバーの RADIUS 秘密を tdbsam のエントリへ反映する |
-| Requirements | 1.1, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 4.3, 4.4, 5.1, 5.3 |
+| Intent | POSIX が有効な person の RADIUS 秘密を tdbsam のエントリへ反映する |
+| Requirements | 1.1, 1.3, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 4.3, 4.4, 5.1, 5.3 |
 
 **Responsibilities & Constraints**
 - 書き込み先は tdbsam と状態ファイルだけ。Kanidm には書き込まない。
 - 削除の候補は、状態ファイルに記録された名前に限る。
 - `/etc/passwd` に存在する名前(ローカルユーザー)は、Kanidm 側に同名がいても対象にしない(2.6)。kanidm-unixd は `/etc/passwd` を先に引くため、同名の Kanidm の利用者で SMB に登録すると、ローカルユーザーのパスワードを書き換えることになる。
-- NSS(getpwnam)で解決できないメンバーは、tdbsam に登録できない。失敗ではなく「解決不能」として SKIP し、ログに残す。
-- 計画の前に、同期対象のグループ(`nas_access`)を NSS(getgrnam)で引く。引けなければ kanidm-unixd が使えない状態とみなして Fatal とし、tdbsam に触れない。kanidm-unixd が止まると全メンバーが解決不能に見え、規則 3 によって managed の全員を削除してしまうためである。
+- NSS(getpwnam)で解決できない person は、tdbsam に登録できない。失敗ではなく「解決不能」として SKIP し、ログに残す。
+- 計画の前に `kanidm-unix status` を実行する。標準出力に `Kanidm: online` の行が無ければ Fatal とし、tdbsam に触れず終了コード 1 で終わる。kanidm-unixd が止まると全員が解決不能に見え、規則 3 によって managed の全員を削除してしまうためである。`kanidm-unix status` は v1.11.1 では失敗時も終了コード 0 を返すので、終了コードではなく標準出力で判定する。成功時はプロバイダごとに `<name>: online|offline` を出し、NAS では `system: online` と `Kanidm: online` の 2 行になる(2026-11-22 の実測)。
 - 秘密はプロセスの引数・ログ・ファイルに出さない。smbpasswd と openssl へは標準入力で渡す。ログに出すのは、利用者名と操作の種別(add / update / delete / skip / hold)だけにする。
 
 **Dependencies**
@@ -268,18 +269,17 @@ def build_plan(
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
 | GET | `/v1/self` | `Authorization: Bearer <token>` | UAT(`memberof` に `idm_radius_servers`) | 含まれない・401/403 → Fatal |
-| GET | `/v1/group/nas_access` | 同上 | `Option<ProtoEntry>`(`attrs.uuid`)。存在しなければ 200 で `null` | `null`・401/403/5xx → Fatal |
-| POST | `/v1/raw/search` | `{"filter": {"and": [{"eq": ["class","person"]}, {"eq": ["class","posixaccount"]}, {"eq": ["memberof","<group uuid>"]}]}}` | `{"entries": [ProtoEntry]}`(`attrs.name`, `attrs.uuid`) | 401/403/5xx → Fatal |
+| POST | `/v1/raw/search` | `{"filter": {"and": [{"eq": ["class","person"]}, {"eq": ["class","posixaccount"]}]}}` | `{"entries": [ProtoEntry]}`(`attrs.name`, `attrs.uuid`) | 401/403/5xx → Fatal |
 | GET | `/v1/person/<uuid>/_radius` | 同上 | 文字列か `null` | 404/5xx → その利用者は UNKNOWN |
 
 - 接続・TLS の失敗、タイムアウト(10 秒)、JSON の形の不正は、収集の段階では Fatal とする。
-- グループは名前で引き、メンバーの検索にはその UUID を使う。名前の解決失敗が 0 件の結果に化けないようにするためである。グループの存在を確かめたうえでの 0 件は、正常な状態として扱う。
-- `posixaccount` を検索の条件に入れる。POSIX でない person は kanidm-unixd の NSS で引けず、tdbsam に登録できないためである。
+- 同期の対象はグループの所属を見ずに、person かつ `posixaccount` のエントリ全件とする。POSIX でない person は kanidm-unixd の NSS で引けず、tdbsam に登録できないためである。
+- 組み込みの ACP `idm_acp_radius_servers` の対象は、class を持つ全エントリ(tombstone と recycled を除く)である。そのため `idm_radius_servers` に所属するサービスアカウントは、全 person の RADIUS 秘密を読める(Kanidm v1.11.1 の `server/lib/src/migration_data/dl15/access.rs` で確認)。
 - `_radius` の `null` は、ACP で `RadiusSecret` が見えない場合にも返る。`/v1/self` で所属を確かめたうえでのみ、`null` を「未発行」と解釈する。
 
 ##### Batch / Job Contract
 - **Trigger**: `nas-smb-sync.timer`(`OnCalendar=*:0/15`、`RandomizedDelaySec=1m`、`Persistent=true`)
-- **Input**: env の `KANIDM_URL`、`KANIDM_TOKEN`、`NAS_SMB_SYNC_GROUP`(`nas_access`)
+- **Input**: env の `KANIDM_URL`、`KANIDM_TOKEN`
 - **Output**: tdbsam の変更と状態ファイルの更新。終了コードは、全件成功なら 0、Fatal か HOLD か適用の失敗があれば 1
 - **Idempotency & recovery**: 変化が無ければ何も書かない。失敗しても次の周期で同じ計画を作り直すので、再実行で収束する。
 
@@ -300,7 +300,7 @@ def build_plan(
 
 - `[global]` に `server min protocol = SMB2_02`、`ntlm auth = ntlmv2-only`、`lanman auth = no` を明示する。いずれも 4.17 の既定値だが、要件 1.4 の根拠を設定に残すため明示する。
 - `[smb]` は次のとおりにする。
-  - `valid users = {{ nas_smb_user }} @{{ nas_smb_kanidm_group }}`
+  - `valid users` は置かない。tdbsam に登録された利用者(`nextcloud` と同期した利用者)は全員接続できる。
   - `force user = {{ nas_smb_user }}`
   - `force group = {{ nas_smb_user }}`
   - `guest ok = no`
@@ -313,7 +313,7 @@ def build_plan(
 要約のみ記載する。
 
 - スクリプトを `/usr/local/sbin/nas-smb-sync`(root:root 0700)へ copy する。
-- `/etc/nas-smb-sync.env`(root:root 0600)を、`no_log: true` の `copy content=` で置く。中身は `KANIDM_URL`(`kanidm_unixd_uri`)、`KANIDM_TOKEN`(`nas_smb_sync_kanidm_token`)、`NAS_SMB_SYNC_GROUP`。
+- `/etc/nas-smb-sync.env`(root:root 0600)を、`no_log: true` の `copy content=` で置く。中身は `KANIDM_URL`(`kanidm_unixd_uri`)と `KANIDM_TOKEN`(`nas_smb_sync_kanidm_token`)だけ。
 - `/var/lib/nas-smb-sync` を root:root 0700 で作る。
 - service と timer を template で置き、timer を enabled / started にする。service は `OnFailure=notify-failure@%n.service` を持つ。
 - トークンが空なら assert で止める。`smb_share.yml` の資格情報の assert と同じ形にする。
@@ -333,7 +333,7 @@ def build_plan(
 - 失敗の種類によらず、最後に終了コード 1 を返し、OnFailure で通知させる。
 
 ### Error Categories and Responses
-- **全体に関わる失敗**(接続・TLS・401・403・グループが無い・応答の形の不正): 変更なしで中止する(5.1)
+- **全体に関わる失敗**(接続・TLS・401・403・`kanidm-unix status` に `Kanidm: online` が無い・応答の形の不正): 変更なしで中止する(5.1)
 - **利用者ごとの取得の失敗**: HOLD として既存の登録を維持する(5.3)
 - **利用者ごとの適用の失敗**(smbpasswd / pdbedit の非ゼロ終了): その利用者の状態ファイルを更新せず、残りを続ける(5.3)
 - **秘密の未発行**: 失敗ではない。SKIP、または(managed に含まれる場合は)DELETE(2.4, 2.5)
@@ -349,19 +349,19 @@ def build_plan(
 ### Unit Tests(`scripts/test_nas_smb_sync.py`、CI の pytest)
 - `build_plan` が、ADD / UPDATE / ADOPT / SKIP / DELETE / HOLD を規則の順序どおりに出すこと
 - managed に無い名前(`nextcloud` を含む)に DELETE を出さないこと。local_users の名前を常に SKIP にすること
-- 状態ファイルが空で、tdbsam にハッシュの一致する登録がある場合に ADOPT になり、その後グループから外すと DELETE になること
-- 解決不能なメンバーが、managed に無ければ SKIP、あれば DELETE になること
-- 同期対象のグループを getgrnam で引けない場合に Fatal になり、tdbsam を書かないこと
+- 状態ファイルが空で、tdbsam にハッシュの一致する登録がある場合に ADOPT になり、その後 person が検索結果から消える(POSIX 無効・削除)と DELETE になること
+- 解決不能な person が、managed に無ければ SKIP、あれば DELETE になること
+- `kanidm-unix status` の標準出力に `Kanidm: online` の行が無い場合(行が `Kanidm: offline` の場合、空の場合を含む)に Fatal になり、tdbsam を書かず終了コード 1 になること。`Kanidm: online` の行がある場合は進むこと
 - managed にあり tdbsam に無い名前の DELETE が、pdbedit を呼ばずに managed から除かれ、終了コード 0 になること
-- 自分の所属に `idm_radius_servers` が無い場合、グループが `null` の場合、`entries` の形が不正な場合に、Fatal になること
+- 自分の所属に `idm_radius_servers` が無い場合、`entries` の形が不正な場合に、Fatal になること
 - NT ハッシュの計算が既知のベクトルと一致すること(`MD4(UTF-16LE("password"))` = `8846F7EAEE8FB117AD06BDD830B7586C`)
 - Kanidm の応答の解釈で、`null` → ABSENT、文字列 → PRESENT、形の不正 → 例外になること
 
 ### Integration Tests(実機、適用後)
-- `nas_access` のメンバーが秘密を発行し、15 分以内に `smbclient //192.168.1.201/smb -U <name>` で接続できること(1.1, 2.1)。kanidm の NSS モジュールは `initgroups_dyn` を持たないため、`valid users = @nas_access` の判定がグループの列挙で通ることを、この試験で確かめる
-- 誤った秘密と、`nas_access` 以外の利用者が拒否されること(1.2, 1.3)
+- 検証用の person を POSIX 有効にして秘密を発行すると、15 分以内に `smbclient //192.168.1.201/smb -U <name>` で接続できること(1.1, 2.1)
+- 誤った秘密と、秘密を持たない person が拒否されること(1.2, 1.3)
 - 秘密の再発行の後、古い秘密が拒否され、新しい秘密が通ること(2.2)
-- グループから外すと、15 分以内に接続できなくなり、tdbsam からエントリが消えること(2.3)
+- 秘密を削除すると、15 分以内に接続できなくなり、tdbsam からエントリが消えること(2.4)
 - 変化の無い 2 回目の実行で、tdbsam に変更が生じないこと(2.7)。`pdbedit -v` の Password last set が変わらないことで確かめる
 - Kanidm に到達できない状態で実行すると、tdbsam が変わらず、unit が failed になり、Discord に通知が届くこと(5.1, 5.2)
 - Kanidm の利用者が SMB で作ったファイルを Nextcloud で編集でき、逆もできること(3.2, 3.3)
@@ -371,7 +371,7 @@ def build_plan(
 ## Security Considerations
 - トークンは読み取り専用で、`idm_radius_servers` 以外の権限を持たない。全 person の RADIUS 秘密を読めるが、このラボでは RADIUS 秘密を SMB 以外に使わない。
 - トークンは、NAS 上の root だけが読める 0600 の env ファイルに置く(既存の `notify-failure.env` などと同じ扱い)。
-- RADIUS の ACP からはアカウントの有効期限を判定できない。kanidm-unixd の NSS も、期限切れのアカウントを解決する。そのため、期限切れの利用者も SMB で認証できる。利用者の失効は、グループからの除外か、秘密の削除で行う。
+- RADIUS の ACP からはアカウントの有効期限を判定できない。kanidm-unixd の NSS も、期限切れのアカウントを解決する。そのため、期限切れの利用者も SMB で認証できる。利用者の失効は、POSIX の無効化か、秘密の削除で行う。
 - 共有内の操作はすべて `nextcloud` の権限で行う。利用者の間で、共有内の権限は区別しない。
 
 ## 手作業(Git 外の操作)
