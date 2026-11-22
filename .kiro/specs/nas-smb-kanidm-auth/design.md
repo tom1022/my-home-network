@@ -377,4 +377,4 @@ def build_plan(
 ## 手作業(Git 外の操作)
 1. `terraform-kanidm` の apply の後、`entry_managed_by` の主体で `kanidm service-account api-token generate nas_smb_sync nas-smb-sync` を実行して、読み取り専用で無期限のトークンを発行する。値はファイルに書き出し、標準出力には出さない。
 2. その値を、Infisical の `prod` に `NAS_SMB_SYNC_KANIDM_TOKEN` として登録する。
-3. 利用者は、`kanidm person radius generate-secret <name>`(再認証の後)で秘密を発行し、`kanidm person radius show-secret <name>` で表示した値を SMB のパスワードに使う。
+3. 利用者は、Kanidm の Web UI の RADIUS 画面(`https://kanidm.fickledev.com/ui/radius`、再認証の後)で秘密を発行し、表示された値を SMB のパスワードに使う。Kanidm 1.11.1 の組み込みの ACP(`idm_acp_self_read` / `idm_acp_self_write`)が、本人による RADIUS 秘密の読み書きを許可している。
