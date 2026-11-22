@@ -36,7 +36,7 @@
   - _Boundary: KanidmServiceAccount_
 
 - [ ] 3. NAS の Samba と同期ジョブの配置
-- [ ] 3.1 (P) smb.conf で認証方式と共有の許可を宣言する
+- [x] 3.1 (P) smb.conf で認証方式と共有の許可を宣言する
   - `[global]` に、SMB2 以降・NTLMv2 だけ・LANMAN 無効を明示する
   - 共有 `smb` の許可を、`nextcloud` と `nas_access` のメンバーにする。共有内の操作は `nextcloud` のユーザーとグループで行い、ゲストを拒否する
   - 共有ディレクトリの所有者と mode、既存の create / directory mask は変えない

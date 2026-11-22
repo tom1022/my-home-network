@@ -4,13 +4,22 @@
    server role = standalone server
    security = user
    map to guest = never
-   # Only the NAS-local account may connect; no printer or home shares.
+   # Explicit although these match the Samba 4.17 defaults, so the policy is visible in config.
+   server min protocol = SMB2_02
+   ntlm auth = ntlmv2-only
+   lanman auth = no
+   # Only the NAS-local account and Kanidm group members may connect; no printer or home shares.
    load printers = no
    disable spoolss = yes
 
 [{{ nas_smb_share_name }}]
    path = {{ nas_smb_share_path }}
-   valid users = {{ nas_smb_user }}
+   valid users = {{ nas_smb_user }} @{{ nas_smb_kanidm_group }}
+   # Kanidm members have no local owner of the share directory; act as the
+   # share owner so NFS and SMB see the same ownership.
+   force user = {{ nas_smb_user }}
+   force group = {{ nas_smb_user }}
+   guest ok = no
    read only = no
    browseable = no
    create mask = 0640
