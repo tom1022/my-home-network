@@ -26,8 +26,8 @@ jobs:
       # project dependency) would be collected too and fail to import.
       - run: uv run pytest
 
-      - run: uv run ruff check scripts/
-      - run: uv run ruff format --check scripts/
+      - run: uv run ruff check scripts/ ansible/roles/nas/files/nas-smb-sync.py
+      - run: uv run ruff format --check scripts/ ansible/roles/nas/files/nas-smb-sync.py
 
       - run: uv run python scripts/check_host_address_drift.py
 
