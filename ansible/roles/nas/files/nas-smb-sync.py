@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Mirror Kanidm RADIUS secrets of a group's members into Samba's tdbsam.
+"""Mirror Kanidm RADIUS secrets of POSIX person accounts into Samba's tdbsam.
 
 Dependency direction: types -> plan (pure) -> I/O -> main.
 """
 
 from __future__ import annotations
 
-import grp
 import http.client
 import json
 import os
@@ -191,14 +190,7 @@ def ensure_radius_server(client: KanidmClient) -> None:
         raise FatalSyncError(f"token is not a member of {RADIUS_GROUP}")
 
 
-def get_group_uuid(client: KanidmClient, group: str) -> str:
-    body = client.call("GET", "/v1/group/" + urllib.parse.quote(group, safe=""))
-    if body is None:
-        raise FatalSyncError(f"group {group} does not exist")
-    return _attr(body, "uuid")
-
-
-def search_members(client: KanidmClient, group_uuid: str) -> list[Member]:
+def search_members(client: KanidmClient) -> list[Member]:
     body = client.call(
         "POST",
         "/v1/raw/search",
@@ -207,7 +199,6 @@ def search_members(client: KanidmClient, group_uuid: str) -> list[Member]:
                 "and": [
                     {"eq": ["class", "person"]},
                     {"eq": ["class", "posixaccount"]},
-                    {"eq": ["memberof", group_uuid]},
                 ]
             }
         },
@@ -326,15 +317,19 @@ def resolve_nss(name: str) -> bool:
     return True
 
 
-def lookup_group_nss(name: str) -> None:
-    grp.getgrnam(name)
+def read_unixd_status(run=subprocess.run) -> str:
+    # Exit code is not read: kanidm-unix status exits 0 even when unixd is down.
+    r = run(
+        ["kanidm-unix", "status"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+    )
+    return r.stdout.decode(errors="replace")
 
 
 def collect(
-    client: KanidmClient, group: str, resolve, hasher
+    client: KanidmClient, resolve, hasher
 ) -> tuple[list[Desired], dict[str, str]]:
     ensure_radius_server(client)
-    members = search_members(client, get_group_uuid(client, group))
+    members = search_members(client)
     desired = []
     secrets: dict[str, str] = {}
     for m in members:
@@ -390,16 +385,12 @@ def run(
     state_path: Path = STATE_PATH,
     passwd_path: Path = PASSWD_PATH,
     resolve=resolve_nss,
-    group_lookup=lookup_group_nss,
+    unixd_status=read_unixd_status,
     hasher=nt_hash,
     opener=urllib.request.urlopen,
 ) -> int:
     try:
-        url, token, group = (
-            env["KANIDM_URL"],
-            env["KANIDM_TOKEN"],
-            env["NAS_SMB_SYNC_GROUP"],
-        )
+        url, token = env["KANIDM_URL"], env["KANIDM_TOKEN"]
     except KeyError as e:
         print(f"fatal: missing env {e.args[0]}", file=sys.stderr)
         return 1
@@ -409,13 +400,16 @@ def run(
     try:
         # With kanidm-unixd down every member looks unresolvable, which the
         # plan would turn into deleting everyone in managed.
-        group_lookup(group)
-    except KeyError:
-        print(f"fatal: group {group} is not resolvable via NSS", file=sys.stderr)
+        online = "Kanidm: online" in unixd_status().splitlines()
+    except OSError as e:
+        print(f"fatal: kanidm-unix status failed ({e})", file=sys.stderr)
+        return 1
+    if not online:
+        print("fatal: kanidm-unixd is not online", file=sys.stderr)
         return 1
     try:
         desired, secrets = collect(
-            KanidmClient(url, token, opener=opener), group, resolve, hasher
+            KanidmClient(url, token, opener=opener), resolve, hasher
         )
     except FatalSyncError as e:
         print(f"fatal: {e}", file=sys.stderr)

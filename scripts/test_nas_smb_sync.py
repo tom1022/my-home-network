@@ -265,21 +265,6 @@ def test_tls_failure_is_fatal():
         mod.ensure_radius_server(c)
 
 
-def test_group_uuid():
-    c, _ = client({("GET", "/v1/group/nas_access"): {"attrs": {"uuid": ["g-1"]}}})
-    assert mod.get_group_uuid(c, "nas_access") == "g-1"
-
-
-@pytest.mark.parametrize(
-    "body",
-    [None, {"attrs": {}}, {"attrs": {"uuid": []}}, {"attrs": {"uuid": [1]}}, "x"],
-)
-def test_group_null_or_bad_shape_is_fatal(body):
-    c, _ = client({("GET", "/v1/group/nas_access"): body})
-    with pytest.raises(mod.FatalSyncError):
-        mod.get_group_uuid(c, "nas_access")
-
-
 def test_search_members_builds_filter_and_parses():
     c, op = client(
         {
@@ -291,7 +276,7 @@ def test_search_members_builds_filter_and_parses():
             }
         }
     )
-    assert mod.search_members(c, "g-1") == [
+    assert mod.search_members(c) == [
         Member("alice", "u1"),
         Member("bob", "u2"),
     ]
@@ -301,7 +286,6 @@ def test_search_members_builds_filter_and_parses():
             "and": [
                 {"eq": ["class", "person"]},
                 {"eq": ["class", "posixaccount"]},
-                {"eq": ["memberof", "g-1"]},
             ]
         }
     }
@@ -309,7 +293,7 @@ def test_search_members_builds_filter_and_parses():
 
 def test_search_members_zero_entries_is_ok():
     c, _ = client({("POST", "/v1/raw/search"): {"entries": []}})
-    assert mod.search_members(c, "g") == []
+    assert mod.search_members(c) == []
 
 
 @pytest.mark.parametrize(
@@ -326,13 +310,13 @@ def test_search_members_zero_entries_is_ok():
 def test_search_members_bad_shape_is_fatal(body):
     c, _ = client({("POST", "/v1/raw/search"): body})
     with pytest.raises(mod.FatalSyncError):
-        mod.search_members(c, "g")
+        mod.search_members(c)
 
 
 def test_search_members_http_failure_is_fatal():
     c, _ = client({("POST", "/v1/raw/search"): 503})
     with pytest.raises(mod.FatalSyncError):
-        mod.search_members(c, "g")
+        mod.search_members(c)
 
 
 def test_secret_null_is_absent_and_string_is_present():
@@ -460,10 +444,9 @@ class FakeTdb:
         self.hashes.pop(name, None)
 
 
-def full_routes(members, secrets, group="nas_access"):
+def full_routes(members, secrets):
     r = {
         ("GET", "/v1/self"): SELF_OK,
-        ("GET", f"/v1/group/{group}"): {"attrs": {"uuid": ["g-1"]}},
         ("POST", "/v1/raw/search"): {
             "entries": [{"attrs": {"name": [n], "uuid": [f"u-{n}"]}} for n in members]
         },
@@ -476,7 +459,6 @@ def full_routes(members, secrets, group="nas_access"):
 ENV = {
     "KANIDM_URL": "https://k.example",
     "KANIDM_TOKEN": "tok",
-    "NAS_SMB_SYNC_GROUP": "nas_access",
 }
 
 
@@ -487,7 +469,7 @@ def run_job(
     managed=None,
     local=("nextcloud",),
     unresolvable=(),
-    group_lookup=lambda g: None,
+    unixd_status=lambda: "system: online\nKanidm: online\n",
     env=ENV,
 ):
     state = tmp_path / "managed"
@@ -502,7 +484,7 @@ def run_job(
         state_path=state,
         passwd_path=passwd,
         resolve=lambda n: n not in unresolvable,
-        group_lookup=group_lookup,
+        unixd_status=unixd_status,
         hasher=fake_hash,
         opener=op,
     )
@@ -569,7 +551,6 @@ def test_run_unresolvable_member_is_skipped_without_failure(tmp_path):
     [
         lambda r: r.update({("GET", "/v1/self"): 403}),
         lambda r: r.update({("GET", "/v1/self"): urllib.error.URLError("x")}),
-        lambda r: r.update({("GET", "/v1/group/nas_access"): None}),
         lambda r: r.update({("POST", "/v1/raw/search"): {"entries": 1}}),
         lambda r: r.update({("GET", "/v1/person/u-alice/_radius"): 401}),
         lambda r: r.update(
@@ -589,10 +570,16 @@ def test_run_fatal_collection_exits_1_without_touching_tdbsam_or_state(
     assert managed_of(state) == {"alice"}
 
 
-def test_run_group_unresolvable_is_fatal_and_deletes_nobody(tmp_path, capsys):
-    def no_group(name):
-        raise KeyError(name)
-
+@pytest.mark.parametrize(
+    "out",
+    [
+        "system: online\nKanidm: offline\n",
+        "",
+        "Kanidm: online (stale)\n",
+        "xKanidm: online\n",
+    ],
+)
+def test_run_unixd_not_online_is_fatal_and_deletes_nobody(tmp_path, capsys, out):
     tdb = FakeTdb({"alice": fake_hash("pw1")})
     code, state, op = run_job(
         tmp_path,
@@ -600,7 +587,7 @@ def test_run_group_unresolvable_is_fatal_and_deletes_nobody(tmp_path, capsys):
         tdb,
         managed={"alice"},
         unresolvable={"alice"},
-        group_lookup=no_group,
+        unixd_status=lambda: out,
     )
     assert code == 1
     assert tdb.ops == []
@@ -608,15 +595,45 @@ def test_run_group_unresolvable_is_fatal_and_deletes_nobody(tmp_path, capsys):
     assert capsys.readouterr().err.startswith("fatal:")
 
 
-def test_run_group_lookup_uses_configured_group(tmp_path):
-    seen = []
-    run_job(
+def test_run_unixd_status_command_failure_is_fatal(tmp_path, capsys):
+    def boom():
+        raise FileNotFoundError("kanidm-unix")
+
+    tdb = FakeTdb({"alice": fake_hash("pw1")})
+    code, state, _ = run_job(
         tmp_path,
-        full_routes([], {}),
-        FakeTdb(),
-        group_lookup=seen.append,
+        full_routes(["alice"], {"alice": "pw1"}),
+        tdb,
+        managed={"alice"},
+        unixd_status=boom,
     )
-    assert seen == ["nas_access"]
+    assert code == 1
+    assert tdb.ops == []
+    assert managed_of(state) == {"alice"}
+    assert capsys.readouterr().err.startswith("fatal:")
+
+
+def test_run_unixd_online_proceeds_to_plan(tmp_path):
+    tdb = FakeTdb()
+    code, _, _ = run_job(
+        tmp_path,
+        full_routes(["alice"], {"alice": "pw1"}),
+        tdb,
+        unixd_status=lambda: "system: online\nKanidm: online\n",
+    )
+    assert code == 0
+    assert tdb.hashes == {"alice": fake_hash("pw1")}
+
+
+def test_read_unixd_status_runs_kanidm_unix_status():
+    r = Rec(b"Kanidm: online\n", code=0)
+    assert mod.read_unixd_status(run=r) == "Kanidm: online\n"
+    assert r.calls[0][0] == ["kanidm-unix", "status"]
+
+
+def test_missing_group_env_is_not_required(tmp_path):
+    code, _, _ = run_job(tmp_path, full_routes([], {}), FakeTdb())
+    assert code == 0
 
 
 def test_run_managed_but_absent_from_tdbsam_is_dropped_without_pdbedit(tmp_path):
