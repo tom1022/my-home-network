@@ -142,6 +142,8 @@ class KanidmClient:
         # The token is deliberately kept out of every exception message.
         # Unredirected so a redirect cannot carry the token to another host.
         req.add_unredirected_header("Authorization", f"Bearer {self._token}")
+        # Cloudflare in front of kanidm rejects urllib's default UA with 403 (1010).
+        req.add_header("User-Agent", "nas-smb-sync")
         req.add_header("Accept", "application/json")
         if data is not None:
             req.add_header("Content-Type", "application/json")

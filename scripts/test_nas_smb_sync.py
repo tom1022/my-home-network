@@ -188,6 +188,13 @@ def test_client_sends_bearer_and_timeout_10():
     assert timeout == 10
 
 
+def test_every_request_sends_fixed_user_agent():
+    c, op = client({("GET", "/v1/self"): SELF_OK, ("POST", "/v1/x"): {}})
+    c.call("GET", "/v1/self")
+    c.call("POST", "/v1/x", {"a": 1})
+    assert [h["User-agent"] for _, _, h, _ in op.calls] == ["nas-smb-sync"] * 2
+
+
 def test_authorization_header_is_not_sent_to_redirect_targets():
     seen = {}
 
