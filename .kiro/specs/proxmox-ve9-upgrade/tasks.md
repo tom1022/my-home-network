@@ -44,7 +44,7 @@
   - `pveum role list` で `TerraformProvisioner` が `VM.Monitor` を含まない
   - _Requirements: 1.2, 1.4_
 
-- [ ] 4. n100 のメジャー更新
+- [x] 4. n100 のメジャー更新
 - [x] 4.1 n100 の事前チェッカーを通し、バックアップを取る
   - 前夜の両ノードのバックアップジョブが成功していることを確かめる
   - `pve8to9 --full` の FAIL を 0 件にする。WARN の各項目について、解消したか、解消しない理由を記録する
@@ -59,7 +59,7 @@
   - 再起動前の確認で失敗が 0 件、`pveversion` が 9 系の最新を示し、`apt policy` の参照先が Debian 13 と pve-no-subscription だけになっている
   - _Requirements: 2.3, 2.5, 3.2, 3.3, 3.5_
 
-- [ ] 4.3 n100 を 9 で再起動し、受入を確かめる
+- [x] 4.3 n100 を 9 で再起動し、受入を確かめる
   - `/etc/default/grub` の `GRUB_CMDLINE_LINUX_DEFAULT` に `ahci.mobile_lpm_policy=0` を加えて `update-grub` する。既定の起動対象を 6.8 に固定したまま、作業者が現地にいる時間に `--next-boot` で 7.0 を起動する
   - 再起動後に SSH で BootDeadman の確認の印を作り、再起動後の確認を行う (タスク 2.3 と同じ項目)
   - 確認を満たしたら BootDeadman を外す。SSH が戻らなければ hp-z440 の作業に進まない

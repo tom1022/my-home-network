@@ -225,3 +225,20 @@ NOTICE 1 件: `local-lvm` のゲストボリュームに autoactivation が有�
 - 2026-11-25 00:06 `proxmox-boot-tool kernel pin 6.8.12-43-pve` で既定の起動対象を 6.8 に固定
 - 2026-11-25 00:07:16 VM 150 で `/var/lib/rancher/k3s/server/cred/passwd` を `/root/passwd.bak-20261122-2` へ移した (ユーザー承認済みの手順)。00:07:33 に k3s の 3 ノードが Ready、00:08:45 に `cloud.fickledev.com` が HTTP 200
 - n100 のゲスト (VM 150、151、CT 200) は稼働、VM 9000 は停止のまま。quorum は Nodes 2、Quorate
+
+### タスク 4.3 (2 回目)
+
+- 2026-11-25 00:13 n100 の `/etc/default/grub` を `/root/ve9-upgrade-logs/grub.before-lpm` に退避し、`GRUB_CMDLINE_LINUX_DEFAULT="quiet ahci.mobile_lpm_policy=0"` に変更。`modinfo -k 7.0.14-30-pve ahci` に `mobile_lpm_policy` があることを確認
+- `proxmox-boot-tool kernel pin 7.0.14-30-pve --next-boot` (既定の固定は 6.8.12-43-pve のまま)。`grub.cfg` の 7.0 の項目 2 件に引数が入ったことを確認
+- 00:19:29 `systemctl reboot` (作業者が現地に待機)。00:21:32 に 7.0.14-30-pve で起動。00:22 に BootDeadman の確認の印を作成
+- PostRebootCheck (00:22〜00:24):
+  - `/proc/cmdline` に `ahci.mobile_lpm_policy=0`。`dmesg` で ata1・ata2 とも `lpm-pol 0`、ata の exception と I/O error は 0 件
+  - nic0・nic1 が UP、vmbr0 は 192.168.1.10/24、vmbr1 は 172.16.0.2/16。hp-z440 から `ping -c3 172.16.0.2` 3/3
+  - `pvecm status`: Nodes 2、Quorate Yes
+  - VM 150、151、CT 200 が running、VM 9000 は stopped のまま
+  - `pveversion`: pve-manager/9.2.32 (running kernel: 7.0.14-30-pve)
+  - `chrony` active、作業 PC から `scp` 成功 (dist-upgrade 直後の失敗は再起動で解消)
+  - `systemctl --failed`: `openipmi.service` のみ (以前からの失敗)
+  - `apt-daily-upgrade.timer` は inactive (disabled)
+  - k3s-server は `passwd newer than datastore` の fatal (2 回)。00:22:44 に passwd を `/root/passwd.bak-20261125` へ移した。00:23:10 に 3 ノード Ready、00:23:55 に `cloud.fickledev.com` が HTTP 200。Running/Completed 以外の Pod なし
+- 00:25 BootDeadman を撤去 (`upgrade-deadman.timer` を disable、`upgrade-deadman.service`・`.timer`・`/usr/local/sbin/upgrade-deadman` を削除し `daemon-reload`)。`proxmox-boot-tool kernel unpin` で 6.8 の固定を外し、GRUB の既定は先頭の項目 (7.0.14-30-pve)
