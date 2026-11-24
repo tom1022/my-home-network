@@ -394,3 +394,86 @@ NOTICE 1 件: `local-lvm` のゲストボリュームに autoactivation が有�
 - ホストの `zpool list`: zfs-pool 3.62T、ALLOC 539G、HEALTH ONLINE
 
 判定: タスク 5.4 の確認項目はすべて満たした。
+
+### タスク 6.1: 事前チェッカーとバックアップ
+
+#### 前夜のバックアップジョブ (2026-11-25 00:40 確認)
+
+- `pvesh get /cluster/tasks` の vzdump タスク: hp-z440 は 2026-11-24 04:30:01 が OK (11-23、11-22、11-21 の 04:30 も OK)。n100 は 11-22 21:38:59 の手動のバックアップ (OK) の後、11-23 と 11-24 の 04:30 のタスクが無い。n100 が 2026-11-22 21:56 から 11-24 23:35 まで停止していたため (タスク 4.3 の 1 回目) で、ジョブの失敗ではない
+- PBS 上の VM 152、VM 201、CT 202 に 2026-11-24 04:30 JST (= 11-23T19:30 UTC) のバックアップがある
+
+#### `pve8to9 --full` (2026-11-25 00:40、PVE 8.4.21、出力は hp-z440 の `/root/ve9-upgrade-logs/pve8to9-hp-z440-6.1.txt`)
+
+結果: TOTAL 48、PASSED 40、SKIPPED 3、WARNINGS 3、FAILURES 0。Ceph は「SKIP: no hyper-converged ceph setup detected!」。
+
+| WARN | 扱い |
+|---|---|
+| `cluster consists of less than three quorum-providing nodes!` | 解消しない。QDevice の追加は本 spec の Non-Goals |
+| `4 running guest(s) detected - consider migrating or stopping them.` | 解消しない。ゲストを他方のノードへ移さない (要件 3.5)。ゲストは `dist-upgrade` の間も稼働のまま |
+| `The matching CPU microcode package 'intel-microcode' could not be found!` | 解消しない。パッケージの追加は design.md の手順に無く、本 spec の範囲外 |
+
+SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local-lvm` のゲストボリュームに autoactivation が有効なものがある (n100 と同じ。ローカルストレージのみで問題にならないとチェッカー自身が説明している。design.md に無い変更のため実行していない)。
+
+#### 当日の手動バックアップ
+
+- バックアップ対象: `pbs_backup_targets` のうち hp-z440 のゲストは VM 152 (k3s-agent-z440。`scsi2` は VM の設定が `backup=0` のため vzdump が除外する)、VM 201 (nas)、CT 202 (pbs。`pbs_backup_include_pbs_self: true`)。VM 110 は `pbs_backup_excluded_targets`、VM 105 は対象外 (触れない)、VM 108 / 9001 は `pbs_backup_targets` に無い
+- 00:41:19 `vzdump 152 201 202 --storage pbs-zfs-pool --mode snapshot --compress zstd --prune-backups keep-all=1` を hp-z440 の tmux (`ve9`) の中で実行。ログ: `/root/ve9-upgrade-logs/vzdump-manual.log`。VM 152 は 378.00 GiB を 330 秒、VM 201 は 1.04 TiB を 285 秒、CT 202 は 23 秒。`Backup job finished successfully`、rc=0。`--backup` にディスクの個別除外は指定していない (`scsi2` の除外は手動の vzdump に反映していない)
+- 00:52 `pvesm list pbs-zfs-pool` の当日分:
+
+| VMID | volid |
+|---|---|
+| 152 | `pbs-zfs-pool:backup/vm/152/2026-11-24T15:41:20Z` |
+| 201 | `pbs-zfs-pool:backup/vm/201/2026-11-24T15:46:52Z` |
+| 202 | `pbs-zfs-pool:backup/ct/202/2026-11-24T15:51:39Z` |
+
+(夜間分も残っている。ゲストは作業前の状態のまま: 110、152、201、CT 202 が running、105、108、9001 が stopped)
+
+### タスク 6.2: 9 への更新と再起動の準備
+
+#### dist-upgrade (2026-11-25 00:52〜01:01)
+
+1. 00:52:18 hp-z440 の tmux セッション `ve9-upgrade` の中で `/root/ve9-upgrade-logs/dist-upgrade.sh` を実行 (ログ: `/root/ve9-upgrade-logs/dist-upgrade.log`)。n100 のスクリプトと同じ内容で、退避するのは `sources.list` と `pve-enterprise.list` (`ceph.list` はタスク 5.2 で削除済み)。参照先は `debian.sources` (trixie / trixie-updates / trixie-security、`main contrib non-free-firmware`) と `proxmox.sources` (`trixie` の `pve-no-subscription`)、`sources.list` は空。`DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef dist-upgrade`
+2. 計画: 824 upgraded、200 newly installed、73 to remove。`DIST_UPGRADE_RC=0`、01:01:13 完了
+3. 設定ファイルの扱い (`--force-confold`): 対話の問い合わせは `/etc/issue` の 1 件のみ (既存を残した)。`/etc/default/grub` は既存の内容のまま (`GRUB_CMDLINE_LINUX_DEFAULT="quiet nouveau.modeset=0 ahci.mobile_lpm_policy=0"`)、新しい版は `/etc/default/grub.ucf-dist` に置かれた。`/etc/lvm/lvm.conf` は既存を残し、新しい版が `/etc/lvm/lvm.conf.dpkg-dist` に置かれた
+4. 01:01 `pve-manager` 9 が `/etc/apt/sources.list.d/pve-enterprise.sources` (有効な enterprise リポジトリ) を置いていたので、design.md の「他の `.sources` を削除する」に従い削除 (退避: `/root/ve9-upgrade-logs/apt-sources-before/pve-enterprise.sources.from-pve-manager-9`)。`apt-get update` は 3 つの参照先 (debian、security、proxmox) とも Hit で、`apt list --upgradable` は 0 件
+5. 01:01 `DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold install proxmox-default-headers libdw1t64` (tmux セッション `ve9-headers`、ログ `/root/ve9-upgrade-logs/headers.log`) → rc=0。両パッケージは `dist-upgrade` の中で入っており (`proxmox-default-headers 2.1.0`、`proxmox-headers-7.0.14-30-pve`、`libdw1t64 0.192-4`)、この操作で新規に入ったものは無い。`apt-mark showmanual` に両パッケージが出る
+6. ゲストは n100 へ移していない。tmux のセッションは終了し、ログは残した
+
+#### dist-upgrade の副作用 (想定外。n100 と同じ)
+
+- `chrony.service` が 00:58:47 から failed (`Fatal error : Could not send notification to $NOTIFY_SOCKET`)。`dist-upgrade` の途中の systemd の入れ替えが原因。これに伴い `host-health-chrony.service` が 01:00:28 に failed し、`OnFailure=` が起動した (通知が出た可能性がある)。再起動での解消を 6.3 で確かめる
+- `openipmi.service` の failed は以前から
+- dist-upgrade の途中、`openssh-server` の入れ替えの間に `systemctl: error while loading shared libraries: libcrypto.so.3` が 1 回出た (dpkg は rc=0 で完了)。更新後の `scp` は成功した (n100 のような失敗なし)
+
+#### BootDeadman の配置 (2026-11-25 01:02)
+
+- 戻り先のカーネル: `6.8.12-43-pve` (タスク 5.4 で起動と PostRebootCheck を確かめたもの)。`proxmox-kernel-6.8.12-43-pve-signed 6.8.12-43` は dist-upgrade の後も導入済み
+- n100 と同じ内容のファイルを配置 (hp-z440 上。IaC には入れない): `/usr/local/sbin/upgrade-deadman` (確認の印があれば何もしない。稼働中が `6.8.12-43-pve` なら何もしない。それ以外は `proxmox-boot-tool kernel pin 6.8.12-43-pve` と `systemctl reboot`)、`/etc/systemd/system/upgrade-deadman.service` (oneshot)、`/etc/systemd/system/upgrade-deadman.timer` (`OnBootSec=15min`、`WantedBy=timers.target`)
+- `systemctl enable --now upgrade-deadman.timer` → `is-enabled` enabled、`is-active` active。`systemd-analyze verify` 問題なし
+- 有効化の直後 (01:02:49) に、起動から 15 分を過ぎているためタイマーが 1 回発火した。稼働中のカーネルが戻り先と同じなので何もせず終了 (`status=0/SUCCESS`)。`proxmox-boot-tool kernel list` に固定なし (`Manually selected kernels: None`)
+- 撤去の手順 (タスク 6.3): `systemctl disable --now upgrade-deadman.timer` と、上記 3 ファイルの削除、`daemon-reload`
+
+#### PreRebootCheck (2026-11-25 01:03、対象カーネル 7.0.14-30-pve)
+
+| 項目 | 結果 |
+|---|---|
+| nic_link_missing | 失敗なし。物理 NIC 5 つ (nic0〜3 は tg3、nic4 は e1000e) の MAC すべてに `50-pve-nic{0..4}.link` がある |
+| interfaces_unknown_name | 失敗なし。`/etc/network/interfaces` の名前は lo、nic0〜4、vmbr0 (`bridge-ports nic4`)、vmbr1 (`bridge-ports nic0`)。`interfaces.new` は無い (8.4 の再起動で適用済み) |
+| stale_name_reference | 失敗なし。`/etc/network`、`/etc/pve`、`/etc/default/grub*`、`/etc/udev/rules.d`、`/etc/systemd/network`、`/etc/hosts`、`/etc/modprobe.d` に `eno1|ens5f|enp0s25|enp3s0|enxc436` なし。`/etc/pve/firewall/` は空、`host.fw` は無い。`post-up ethtool -K nic4 …` |
+| initramfs_stale | 失敗なし。`initrd.img-7.0.14-30-pve` (01:01:05) が `.link` (00:29:12) より新しい。`lsinitramfs` の `nic` 一致はカーネルのモジュール名 (`sata_inic162x`、`hinic3`、`nic7018_wdt`) のみで `.link` は含まれない (8.4 で起動を確かめた 6.8.12-43 の initramfs も同じ) |
+| grub_entry_missing | 失敗なし。`grub.cfg` に 7.0.14-30-pve の項目 (cmdline に `quiet nouveau.modeset=0 ahci.mobile_lpm_policy=0`)。`GRUB_DEFAULT=0` の先頭の項目が 7.0.14-30-pve。6.8.12-43-pve の項目も残っている |
+| efi_removable_stale | 失敗なし。`EFI/BOOT/BOOTx64.efi` と `EFI/proxmox/shimx64.efi` が同日時 (01:00:32)・同 sha256 (9dee7152…) |
+| boot_entry_missing | 失敗なし。`efibootmgr` の BootCurrent と BootOrder の先頭が 000C (proxmox) |
+| パッケージ | `dpkg --audit` 空、`apt-get check` 正常、`apt list --upgradable` 0 件 |
+| VM 105 の扱い | 決定済み (`onboot: 0`、停止のまま) |
+
+失敗 0 件。
+
+#### 6.2 の受入の実測 (2026-11-25 01:03)
+
+- `pveversion`: `pve-manager/9.2.32/60a22e26e411402f` (`proxmox-ve: 9.2.0`、`proxmox-kernel-helper 9.2.1`、`proxmox-kernel-7.0 7.0.14-30`、導入済みの `proxmox-kernel-6.8.12-43-pve-signed` も残る)。稼働中のカーネルは再起動前なので 6.8.12-43-pve のまま
+- `apt policy` の参照先: `deb.debian.org/debian` の `trixie`・`trixie-updates` (main / contrib / non-free-firmware)、`security.debian.org/debian-security` の `trixie-security`、`download.proxmox.com/debian/pve` の `trixie/pve-no-subscription` のみ。`/etc/apt/sources.list.d/` は `debian.sources` と `proxmox.sources` の 2 ファイル、`/etc/apt/sources.list` は 0 バイト
+- BootDeadman: `upgrade-deadman.timer` が enabled / active
+- `apt-daily-upgrade.timer`: disabled のまま
+- ゲスト: VM 110、152、201、CT 202 が running、VM 105、108、9001 が stopped のまま。`pvecm status` は Nodes 2、Quorate Yes。再起動はしていない
+- `systemctl --failed`: `chrony`、`host-health-chrony` (上記の副作用)、`openipmi` (以前から)
