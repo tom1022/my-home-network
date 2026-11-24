@@ -242,3 +242,96 @@ NOTICE 1 件: `local-lvm` のゲストボリュームに autoactivation が有�
   - `apt-daily-upgrade.timer` は inactive (disabled)
   - k3s-server は `passwd newer than datastore` の fatal (2 回)。00:22:44 に passwd を `/root/passwd.bak-20261125` へ移した。00:23:10 に 3 ノード Ready、00:23:55 に `cloud.fickledev.com` が HTTP 200。Running/Completed 以外の Pod なし
 - 00:25 BootDeadman を撤去 (`upgrade-deadman.timer` を disable、`upgrade-deadman.service`・`.timer`・`/usr/local/sbin/upgrade-deadman` を削除し `daemon-reload`)。`proxmox-boot-tool kernel unpin` で 6.8 の固定を外し、GRUB の既定は先頭の項目 (7.0.14-30-pve)
+
+## hp-z440 (192.168.1.2、root)
+
+### タスク 5.1: 作業の開始、8.4 の最新、ブート構成の修正、存在しないインターフェースの除去
+
+#### 作業前の状態 (2026-11-25 00:25)
+
+| 項目 | 値 |
+|---|---|
+| `pveversion` | pve-manager/8.4.21、稼働中のカーネル 6.8.12-19-pve |
+| ルートの空き | `df -h /`: 94G 中 24G 使用、空き 66G (10 GB 以上を満たす) |
+| `apt-daily-upgrade.timer` | active (作業前) |
+| クォーラム | `pvecm status`: Nodes 2、Quorate Yes (two_node) |
+| `grub2/force_efi_extra_removable` | false。`EFI/BOOT/BOOTx64.efi` は 2024-04-03 のまま、`EFI/proxmox/` は 2026-09-04 |
+| `apt list --upgradable` | 78 パッケージ |
+| `/etc/network/interfaces` | `auto enxc436c0eafd1d` / `iface enxc436c0eafd1d inet manual` が残っている (実在する NIC は eno1、ens5f0〜ens5f3) |
+| `GRUB_CMDLINE_LINUX_DEFAULT` | `"quiet nouveau.modeset=0"` |
+
+作業前のゲストの一覧 (`qm list` / `pct list`。VM 105 は記録の対象外):
+
+| 種別 | ID | 名前 | 作業前の状態 | onboot |
+|---|---|---|---|---|
+| VM | 108 | windows | stopped | - |
+| VM | 110 | tv | running | 1 |
+| VM | 152 | k3s-agent-z440 | running | 1 |
+| VM | 201 | nas | running | 1 |
+| VM | 9001 | debian-12-template | stopped | - |
+| CT | 202 | pbs | running | 1 |
+
+- running: 110、152、201、202 / stopped: 108、9001
+- パススルー
+  - VM 110: `usb0: host=3275:0080`、`usb1: host=058f:9540` (USB)。ディスクは `virtio0: local-lvm:vm-107-disk-1` (128G) のみで、ホストのディスクのパススルーは無い
+  - VM 108 (停止中): `hostpci0: 0000:01:00.0,pcie=1` (GPU)
+  - VM 152: `scsi2` / `scsi3` は `zfs-pool` のボリューム。VM 201: `scsi1` は `zfs-pool` のボリューム。CT 202: `mp0: zfs-pool:subvol-202-disk-0`。ホストのディスクのパススルーは無い
+
+#### 実行した操作
+
+1. 00:25 `systemctl disable --now apt-daily-upgrade.timer` → disabled / inactive。ノードの作業がすべて終わるまで戻さない
+2. 00:25 `/root/ve9-upgrade-logs/` を作り、`/etc/default/grub` (`grub.before-lpm`)、`/etc/network/interfaces` (`interfaces.before-5.1`)、`/etc/modules` (`modules.before-5.2`) を退避
+3. 00:26 `apt-get -s full-upgrade` → 削除対象なし (ceph の 19.2.5 への更新を含む)。`DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold full-upgrade` → rc=0 (ログ `/root/ve9-upgrade-logs/full-upgrade.log`)。カーネルの追加なし (6.8.12-43-pve は導入済みで未起動)。末尾に removable bootloader の警告 (手順 5 で解消)
+4. 00:27 `apt-get -y remove systemd-boot` → `systemd-boot` のみ削除 (`dpkg -l`: rc)。`systemd-boot-efi` は ii のまま
+5. 00:27 `debconf-set-selections` で `grub2/force_efi_extra_removable` を true にし (`debconf-show` で true)、`apt-get -y install --reinstall grub-efi-amd64` → rc=0。`EFI/BOOT/` の 4 ファイルと `EFI/proxmox/` の 6 ファイルがすべて 2026-11-25 00:27 に更新。`EFI/BOOT/BOOTx64.efi` と `EFI/proxmox/shimx64.efi` の sha256 が一致 (759fd87f…)。`efibootmgr` の BootCurrent は 000C のまま
+6. 00:28 `/etc/default/grub` の `GRUB_CMDLINE_LINUX_DEFAULT` を `"quiet nouveau.modeset=0"` → `"quiet nouveau.modeset=0 ahci.mobile_lpm_policy=0"` に変更 (`diff` で当該 1 行のみ)。`update-grub` → rc=0。`grub.cfg` の `ahci.mobile_lpm_policy=0` は 5 行で、既定の 6.8.12-43-pve の項目を含む (`linux /boot/vmlinuz-6.8.12-43-pve root=/dev/mapper/pve-root ro quiet nouveau.modeset=0 ahci.mobile_lpm_policy=0`)
+7. 00:28 `/etc/network/interfaces` から `auto enxc436c0eafd1d`、`iface enxc436c0eafd1d inet manual` と直後の空行の 3 行を除去 (`diff` で除去の 3 行のみ)。残る定義は lo、eno1、ens5f0〜ens5f3、vmbr0、vmbr1。`ifquery --list -a` は lo、eno1、vmbr0、vmbr1。実在する NIC (`ip -br link`) は eno1、ens5f0〜ens5f3 で、除去した定義の NIC は無い
+8. 00:28 `apt-get update` 後の `apt list --upgradable` → 空 (「Listing...」のみ)
+
+判定: `apt list --upgradable` が空、EFI のフォールバックが `EFI/proxmox` と同日付・同 sha256、`/etc/network/interfaces` が実在するインターフェースだけを参照している。
+
+### タスク 5.2: Ceph のサーバー側と旧 NVIDIA ドライバの除去
+
+1. 00:28 `apt-get -s remove` で対象を確認 → 削除対象は 9 パッケージのみ (`ceph`、`ceph-base`、`ceph-mds`、`ceph-mgr`、`ceph-mgr-modules-core`、`ceph-mon`、`ceph-osd`、`ceph-volume`、`libsqlite3-mod-ceph`)。`apt-get -y remove` で削除し、`/etc/apt/sources.list.d/ceph.list` (`deb … ceph-squid bookworm no-subscription`) を削除。`apt-get update` 後の `sources.list.d` は `pve-enterprise.list` のみ
+2. 残った設定 (dpkg の rc) の `ceph-base`、`ceph-mds`、`ceph-mgr`、`ceph-mon`、`ceph-osd` を `apt-get -y purge`。`/var/lib/ceph` は空で、`/etc/ceph` (`ceph.conf`、`ceph.client.admin.keyring`、`rbdmap`) は `ceph-common` の所有で残る。クライアント側 (`ceph-common`、`ceph-fuse`、`libcephfs2`、`python3-ceph-argparse`、`python3-ceph-common`、`python3-cephfs` など) は ii のまま
+3. 00:29 NVIDIA: `dpkg -l` で `nvidia` / `glx-alternative-nvidia` に一致する ii のうち `pve-nvidia-vgpu-helper` を除く 24 パッケージ (`nvidia-kernel-dkms`、`nvidia-smi`、`nvidia-persistenced`、`nvidia-modprobe`、`nvidia-driver-libs`、`libnvidia-*`、`libegl-nvidia0`、`libglx-nvidia0`、`libgl1-nvidia-glvnd-glx`、`firmware-nvidia-gsp`、`glx-alternative-nvidia`、`nvidia-alternative` ほか。すべて 535 系または Debian 12 由来) を `apt-get -s purge` で確認 → 削除対象は上記に加えて `glx-diversions` (`glx-alternative-nvidia` の付随) のみ。`pve-nvidia-vgpu-helper` は `pve-manager` が依存するため残す。`apt-get -y purge` → rc=0 (ログ `/root/ve9-upgrade-logs/nvidia-purge.log`)
+4. `/etc/modules` の `nvidia`、`nvidia_uvm` の 2 行を削除 (`diff` で当該 2 行のみ)
+5. 確認 (`dpkg -l`): `ceph*`・`libceph*`・`python3-ceph*` で残るのは上記のクライアント側 (`ceph-common`、`ceph-fuse`、`libcephfs2`、`python3-ceph-argparse`、`python3-ceph-common`、`python3-cephfs`) のみ。`nvidia` / `libnvidia` / `firmware-nvidia` は ii も rc も無い。`proxmox-ve` 8.4.0、`pve-manager` 8.4.21 は残っている。`apt list --upgradable` は空
+6. 00:30 `pve8to9 --full` (出力は `/root/ve9-upgrade-logs/pve8to9-hp-z440.txt`) → TOTAL 48、FAIL 0。Ceph は「SKIP: no hyper-converged ceph setup detected!」で FAIL なし
+
+| WARN | 扱い |
+|---|---|
+| `cluster consists of less than three quorum-providing nodes!` | 解消しない。QDevice の追加は本 spec の Non-Goals |
+| `4 running guest(s) detected - consider migrating or stopping them.` | 解消しない。ゲストを他方のノードへ移さない (要件 3.5) |
+| `The matching CPU microcode package 'intel-microcode' could not be found!` | 解消しない。パッケージの追加は design.md の手順に無く、本 spec の範囲外 |
+
+- GPU (VM 108 のパススルーではなくホスト側のドライバ) はメジャー更新が終わるまで使えない (design.md のとおり)。`nvidia-persistenced` は purge で外れた
+
+### タスク 5.3: NIC 名の固定
+
+1. 00:29 `pve-network-interface-pinning generate` (既定の引数) → rc=0
+   - ens5f0 (enp3s0f0) → nic0、ens5f1 (enp3s0f1) → nic1、ens5f2 (enp3s0f2) → nic2、ens5f3 (enp3s0f3) → nic3、eno1 (enp0s25) → nic4
+   - 更新対象として `host.fw.new`、`interfaces.new`、`/etc/pve/sdn/controllers.cfg` を表示。実際に生成された `.new` は `/etc/network/interfaces.new` のみ。`host.fw` は元から無く `.new` は生成されない。`/etc/pve/sdn/controllers.cfg` は元から無く、0 バイトの空ファイルができた (`.new` ではない)。`fabrics.cfg` は元から無い (`/etc/pve/sdn/fabrics` ディレクトリは 5.1 の `full-upgrade` の `pve-manager` のトリガーが作成)
+2. `.link` 一覧 (`/usr/local/lib/systemd/network/`、いずれも `Type=ether`)
+
+| ファイル | MACAddress | Name |
+|---|---|---|
+| 50-pve-nic0.link | 98:be:94:04:8e:98 (ens5f0) | nic0 |
+| 50-pve-nic1.link | 98:be:94:04:8e:99 (ens5f1) | nic1 |
+| 50-pve-nic2.link | 98:be:94:04:8e:9a (ens5f2) | nic2 |
+| 50-pve-nic3.link | 98:be:94:04:8e:9b (ens5f3) | nic3 |
+| 50-pve-nic4.link | c8:d3:ff:b5:f3:52 (eno1) | nic4 |
+
+3. 00:29 `diff -y /etc/network/interfaces /etc/network/interfaces.new` → `auto/iface eno1→nic4`、`ens5f1→nic1`、`ens5f2→nic2`、`ens5f3→nic3`、`ens5f0→nic0`、`bridge-ports eno1→nic4` (vmbr0)、`bridge-ports ens5f0→nic0` (vmbr1) の 8 行が置き換わった。`post-up ethtool -K eno1 tso off gso off gro off` (vmbr0 の行) は置き換わっていなかった
+4. 00:30 `interfaces.new` の `post-up ethtool -K eno1 …` を `post-up ethtool -K nic4 tso off gso off gro off` に手で直した (`sed` で当該 1 行のみ)。`interfaces.new` に旧名 (`eno1`、`ens5f*`、`enp*`、`enx*`) は無く、`post-up` の行は 1 行で nic4 を指す。`diff` の `>` 側は 9 行
+5. `/etc/pve/firewall/` は空で `cluster.fw` は無い (旧名の参照なし)。`/etc/pve`、`/etc/network`、`/etc/default/grub`、`/etc/udev/rules.d`、`/etc/systemd/network`、`/etc/hosts`、`/etc/modprobe.d`、`/etc/modules` を旧名で grep → `/etc/network/interfaces` (現行、再起動で `interfaces.new` に置き換わる) のみ。`/etc`・`/usr/local`・`/root` 全体の grep でも同じ
+6. 00:30〜00:31 `update-initramfs -u -k all` → 6.8.12-43、6.8.12-19、6.5.13-6、6.5.11-8 の 4 カーネルすべてを生成 (00:29:45〜00:31:01、いずれも `.link` の 00:29:12 より新しい)。`lsinitramfs` で `.link` (pve-nic*) は 4 つとも含まれない (n100 の 2.2 と同じ)
+
+### タスク 5.1〜5.3 後のノードの状態 (2026-11-25 00:31)
+
+- 再起動していない (稼働中のカーネルは 6.8.12-19-pve)。VM 110、152、201、CT 202 が running、VM 108、9001 が stopped のまま。`pvecm status`: Nodes 2、Quorate Yes
+- `apt-daily-upgrade.timer`: disabled / inactive。`systemctl --failed`: `openipmi.service` のみ
+
+### VM 105 の起動設定 (タスク 5.4 の前提)
+
+- 2026-11-25 00:26:29 hp-z440 で `qm set 105 --onboot 0` (ユーザー承認済み)。VM 105 は停止のまま。hp-z440 の再起動で起動しない。戻すときは `qm set 105 --onboot 1`

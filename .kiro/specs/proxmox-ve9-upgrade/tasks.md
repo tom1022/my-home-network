@@ -69,19 +69,19 @@
 - [ ] 5. hp-z440 の準備 (PVE 8.4 のまま)
   - n100 のタスク 4.3 が完了してから着手する (1 ノードずつ)。タスク 5.4 の再起動は、VM 105 の扱いが決まるまで行わない (VM 105 は `onboot: 1` のため再起動で起動する)
   - _Requirements: 3.1_
-- [ ] 5.1 hp-z440 の作業の開始を記録し、8.4 の最新、ブート構成の修正、存在しないインターフェースの除去を入れる
+- [x] 5.1 hp-z440 の作業の開始を記録し、8.4 の最新、ブート構成の修正、存在しないインターフェースの除去を入れる
   - タスク 2.1 と同じ記録と更新を行う。`GRUB_CMDLINE_LINUX_DEFAULT` に `ahci.mobile_lpm_policy=0` を加えて `update-grub` する。作業前の状態に、VM 110 の USB とパススルーのディスクの識別子を含める。VM 105 は記録の対象に含めない
   - `/etc/network/interfaces` から実在しない USB の NIC の定義を除く (NIC 名の固定より前に行う)
   - `apt list --upgradable` が空で、`/etc/network/interfaces` が実在するインターフェースだけを参照している
   - _Requirements: 1.1, 1.6, 2.2, 2.3_
 
-- [ ] 5.2 hp-z440 から Ceph のサーバー側と旧 NVIDIA ドライバを外す
+- [x] 5.2 hp-z440 から Ceph のサーバー側と旧 NVIDIA ドライバを外す
   - Ceph のサーバー側の 9 パッケージと Ceph のリポジトリを外す。Proxmox VE が依存するクライアント側は残す
   - Debian non-free の NVIDIA ドライバ 535 を purge し、`/etc/modules` の nvidia の行を外す
   - `dpkg -l` に Ceph のサーバー側のパッケージと Debian の NVIDIA のパッケージが無く、`pve8to9 --full` が Ceph の FAIL を報告しない
   - _Requirements: 6.1, 6.2, 6.3_
 
-- [ ] 5.3 hp-z440 の NIC 名を固定する
+- [x] 5.3 hp-z440 の NIC 名を固定する
   - タスク 2.2 と同じ手順で行う。`post-up ethtool` の行が新しい名前になっていることを確かめる
   - 物理 NIC ごとに `.link` があり、`interfaces.new` が新しい名前だけを参照していることを記録する
   - _Requirements: 2.1, 2.2_
