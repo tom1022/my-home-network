@@ -271,7 +271,10 @@ hp-z440 だけ (NIC 名の固定より前に行う):
 両ノード共通 (NIC 名の固定):
 7. `pve-network-interface-pinning generate` を既定の引数で実行する。両ノードの PVE 8.4.21 に入っていることは確認済み。物理 NIC をすべて `nicN` に割り当て、`/usr/local/lib/systemd/network` に `.link` を生成する。対象の設定ファイル (`/etc/network/interfaces`、`/etc/pve/nodes/<node>/host.fw`、`/etc/pve/sdn/controllers.cfg`、`/etc/pve/sdn/fabrics.cfg`) のうち存在するものに `.new` を生成する
 8. 生成された `.new` をすべて元のファイルと `diff -y` で突き合わせる。インターフェース名を含む行 (`post-up ethtool -K eno1 ...` 等) がすべて新しい名前になっていることを確かめ、置き換わっていない行は `.new` の側を手で直す。ツールが書き換えない `/etc/pve/firewall/cluster.fw` に旧名が無いことを確かめる (調査時点では両ノードとも存在しない)
-9. `update-initramfs -u -k all` を実行し、`.link` を initramfs に含める
+9. `update-initramfs -u -k all` を実行する。`/usr/local/lib/systemd/network` の `.link` は initramfs に入らない。ルートは LVM でネットワークを使わないため、名前は起動後の udev が付ける
+
+両ノード共通 (SATA の省電力):
+9a. `/etc/default/grub` の `GRUB_CMDLINE_LINUX_DEFAULT` に `ahci.mobile_lpm_policy=0` を加え、`update-grub` を実行する。カーネル 6.9 以降の ahci は、LPM の既定値 (`CONFIG_SATA_MOBILE_LPM_POLICY=3`、med_power_with_dipm) をモバイル向けに限らず全チップセットに掛ける。n100 (Alder Lake-N `8086:54d3`) のルートの SSD は 7.0 でこれに耐えず、リンクのリセットと I/O エラーが続いて udevd・journald が timeout し、emergency mode に落ちた。0 (keep_firmware_settings) は 6.8 での実際の値と同じ。hp-z440 (C610 `8086:8d02`/`8d62`) も 7.0 で同じ既定値が掛かるので、同じ値を入れる。8.4 の再起動の後、`dmesg` の `lpm-pol 0` と `/proc/cmdline` で効いていることを確かめる
 
 最後に:
 10. `PreRebootCheck` を満たしてから再起動し、`PostRebootCheck` を満たすことを確かめる (要件 1.1)。再起動先は 8.4 系の最新のカーネル
@@ -381,7 +384,7 @@ type PostRebootFailure =
 - 置く時期は `NodeMajorUpgrade` の `dist-upgrade` の後、9 での最初の再起動の前。外す時期は `PostRebootCheck` を満たした後
 - ホストの一時的な仕組みとし、IaC には入れない。配置と撤去は `manual-operations.md` に記録する
 - 戻せる範囲: 起動が `multi-user.target` まで進んだが、NIC やドライバの退行で SSH が届かない場合
-- 戻せない範囲: 起動の途中での停止とカーネルパニック。現地での対処になる (受け入れ済みのリスク)
+- 戻せない範囲: 起動の途中での停止、emergency mode、カーネルパニック。タイマーが動かないため現地での対処になる。9 での最初の再起動は作業者が現地にいる時間に行い、既定の起動対象は戻り先のカーネルに固定したまま `proxmox-boot-tool kernel pin <7.0 のカーネル> --next-boot` で起動する。GRUB で直接起動するノードでは、次回だけの指定を外すのは `multi-user.target` の `proxmox-boot-cleanup.service` で、`/boot` が LVM 上にあるため GRUB の `save_env` も効かない。このため失敗時は、電源を入れ直して GRUB の Advanced options から戻り先のカーネルを選ぶ。`PostRebootCheck` を満たした後に `proxmox-boot-tool kernel unpin` で固定を外す
 
 **Contracts**: State [x]
 

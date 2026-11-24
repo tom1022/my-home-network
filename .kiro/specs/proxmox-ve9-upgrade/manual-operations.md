@@ -216,3 +216,12 @@ NOTICE 1 件: `local-lvm` のゲストボリュームに autoactivation が有�
 - BootDeadman: `upgrade-deadman.timer` が enabled / active
 - `apt-daily-upgrade.timer`: disabled / inactive のまま
 - ゲスト: VM 150、151、CT 200 が running、VM 9000 が stopped のまま。`pvecm status` は Nodes 2、Quorate Yes。再起動はしていない (稼働中のカーネルは 6.8.12-43-pve)
+
+### タスク 4.3 (1 回目、失敗)
+
+- 2026-11-22 21:56:45 n100 で `systemctl reboot`。7.0.14-30-pve で起動し emergency mode に落ちた。SSH・`vmbr1` とも不通。emergency mode ではタイマーが動かず、BootDeadman は発動しなかった
+- 原因: カーネル 6.9 以降の ahci が LPM の既定値 (`CONFIG_SATA_MOBILE_LPM_POLICY=3`) を全チップセットに掛けるようになり (上流 commit 7627a0edef54「ata: ahci: Drop low power policy board type」)、n100 (Alder Lake-N `8086:54d3`) のルートの SSD (ata2) が `lpm-pol 3` でリンクのリセットと `READ FPDMA QUEUED` の失敗を繰り返した。`I/O error, dev sda` が 35 回。udevd・journald・modules-load が timeout し、`/boot/efi` と `/dev/pve/swap` のデバイスを待って emergency mode になった。6.8 の起動はどれも `lpm-pol 0` でエラー 0 件。SMART は PASSED (Reallocated 0、UDMA_CRC_Error_Count 0)。userspace (systemd 257.13) は 6.8 で正常に動いており、原因ではない
+- 2026-11-24 23:35 現地で電源を入れ直し、GRUB から 6.8.12-43-pve を選んで起動
+- 2026-11-25 00:06 `proxmox-boot-tool kernel pin 6.8.12-43-pve` で既定の起動対象を 6.8 に固定
+- 2026-11-25 00:07:16 VM 150 で `/var/lib/rancher/k3s/server/cred/passwd` を `/root/passwd.bak-20261122-2` へ移した (ユーザー承認済みの手順)。00:07:33 に k3s の 3 ノードが Ready、00:08:45 に `cloud.fickledev.com` が HTTP 200
+- n100 のゲスト (VM 150、151、CT 200) は稼働、VM 9000 は停止のまま。quorum は Nodes 2、Quorate

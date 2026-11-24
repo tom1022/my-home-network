@@ -60,16 +60,17 @@
   - _Requirements: 2.3, 2.5, 3.2, 3.3, 3.5_
 
 - [ ] 4.3 n100 を 9 で再起動し、受入を確かめる
+  - `/etc/default/grub` の `GRUB_CMDLINE_LINUX_DEFAULT` に `ahci.mobile_lpm_policy=0` を加えて `update-grub` する。既定の起動対象を 6.8 に固定したまま、作業者が現地にいる時間に `--next-boot` で 7.0 を起動する
   - 再起動後に SSH で BootDeadman の確認の印を作り、再起動後の確認を行う (タスク 2.3 と同じ項目)
   - 確認を満たしたら BootDeadman を外す。SSH が戻らなければ hp-z440 の作業に進まない
-  - 稼働中のカーネルが 7.0 系で、確認の結果がすべて記録され、BootDeadman が撤去されている
+  - 稼働中のカーネルが 7.0 系で、`dmesg` が `lpm-pol 0` を示し ata の exception が 0 件、確認の結果がすべて記録され、BootDeadman と 6.8 の固定が撤去されている
   - _Requirements: 2.4, 2.6, 3.2, 3.4, 4.1, 4.2, 4.4_
 
 - [ ] 5. hp-z440 の準備 (PVE 8.4 のまま)
   - n100 のタスク 4.3 が完了してから着手する (1 ノードずつ)。タスク 5.4 の再起動は、VM 105 の扱いが決まるまで行わない (VM 105 は `onboot: 1` のため再起動で起動する)
   - _Requirements: 3.1_
 - [ ] 5.1 hp-z440 の作業の開始を記録し、8.4 の最新、ブート構成の修正、存在しないインターフェースの除去を入れる
-  - タスク 2.1 と同じ記録と更新を行う。作業前の状態に、VM 110 の USB とパススルーのディスクの識別子を含める。VM 105 は記録の対象に含めない
+  - タスク 2.1 と同じ記録と更新を行う。`GRUB_CMDLINE_LINUX_DEFAULT` に `ahci.mobile_lpm_policy=0` を加えて `update-grub` する。作業前の状態に、VM 110 の USB とパススルーのディスクの識別子を含める。VM 105 は記録の対象に含めない
   - `/etc/network/interfaces` から実在しない USB の NIC の定義を除く (NIC 名の固定より前に行う)
   - `apt list --upgradable` が空で、`/etc/network/interfaces` が実在するインターフェースだけを参照している
   - _Requirements: 1.1, 1.6, 2.2, 2.3_
