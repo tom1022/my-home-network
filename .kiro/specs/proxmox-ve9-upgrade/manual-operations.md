@@ -335,3 +335,62 @@ NOTICE 1 件: `local-lvm` のゲストボリュームに autoactivation が有�
 ### VM 105 の起動設定 (タスク 5.4 の前提)
 
 - 2026-11-25 00:26:29 hp-z440 で `qm set 105 --onboot 0` (ユーザー承認済み)。VM 105 は停止のまま。hp-z440 の再起動で起動しない。戻すときは `qm set 105 --onboot 1`
+
+### タスク 5.4: 再起動前の確認 (PreRebootCheck) と再起動
+
+#### 作業前のゲストの状態 (2026-11-25 00:32)
+
+| 項目 | 値 |
+|---|---|
+| running | VM 110 (tv)、VM 152 (k3s-agent-z440)、VM 201 (nas)、CT 202 (pbs) |
+| stopped | VM 108 (windows)、VM 9001 (debian-12-template)。VM 105 は停止で対象外 (`onboot: 0`) |
+| パススルー | VM 110: `usb0: host=3275:0080`、`usb1: host=058f:9540` (ホストの `lsusb` に両方あり)。VM 108: `hostpci0: 0000:01:00.0,pcie=1` (停止中) |
+| カーネル | 稼働中 6.8.12-19-pve |
+| `pvecm status` | Nodes 2、Quorate Yes |
+| k3s | `kubectl --context default get nodes`: 3 ノード Ready。Running/Completed 以外の Pod なし |
+| PBS | `proxmox-backup-manager datastore list`: zfs-pool (`/mnt/zfs-pool-0`) |
+
+#### PreRebootCheck (2026-11-25 00:32、対象カーネル 6.8.12-43-pve)
+
+| 項目 | 結果 |
+|---|---|
+| nic_link_missing | 失敗なし。物理 NIC 5 つ (ens5f0〜3、eno1) の MAC すべてに `50-pve-nic{0..4}.link` がある |
+| interfaces_unknown_name | 失敗なし。`interfaces.new` の名前は lo、nic0〜4、vmbr0、vmbr1 で、nic0〜4 は `.link` にある |
+| stale_name_reference | 失敗なし。`interfaces.new` を `eno1|ens5f|enp|enx` で grep して一致なし (`post-up ethtool -K nic4`)。`/etc/pve/firewall/*.fw` は存在しない |
+| initramfs_stale | 失敗なし。`initrd.img-6.8.12-43-pve` (00:29:45) が `.link` (00:29:12) より新しい |
+| grub_entry_missing | 失敗なし。`grub.cfg` に `vmlinuz-6.8.12-43-pve` の項目 (cmdline に `quiet nouveau.modeset=0 ahci.mobile_lpm_policy=0`)。`GRUB_DEFAULT=0` で先頭がこのカーネル |
+| efi_removable_stale | 失敗なし。`EFI/BOOT/BOOTx64.efi` と `EFI/proxmox/shimx64.efi` が同日時 (00:27:28)・同 sha256 (759fd87f…) |
+| boot_entry_missing | 失敗なし。`efibootmgr` の BootCurrent と BootOrder の先頭が 000C (proxmox) |
+| VM 105 の扱い | 決定済み (`onboot: 0`、停止) |
+
+失敗 0 件。
+
+#### 再起動
+
+- 00:33:10 hp-z440 で `systemctl reboot` (ゲストは PVE の自動の停止・起動のみ。個別の操作なし)
+- 00:37:37 起動 (`uptime -s`)。00:37:56 に SSH (`vmbr0` 側、作業 PC から) が復帰。SSH の不通は 約 4 分 (10 分以内)
+
+#### PostRebootCheck (2026-11-25 00:38)
+
+| 項目 | 結果 |
+|---|---|
+| ssh_unreachable | 失敗なし。作業 PC から 192.168.1.2 に SSH 可 |
+| 稼働中のカーネル | `uname -r`: 6.8.12-43-pve (導入済みの 6.8 系の最新、`grub.cfg` の既定)、`pveversion`: 8.4.21 |
+| `/proc/cmdline` | `BOOT_IMAGE=/boot/vmlinuz-6.8.12-43-pve root=/dev/mapper/pve-root ro quiet nouveau.modeset=0 ahci.mobile_lpm_policy=0` |
+| `dmesg` | ata1〜 の `lpm-pol 0`。`ata.*exception` は 0 件 |
+| NIC 名 | nic0 (98:be:94:04:8e:98)、nic4 (c8:d3:ff:b5:f3:52) が UP、nic1〜3 は DOWN (リンクなし)。`/sys/class/net` に旧名なし。vmbr0 は 192.168.1.2/24 (nic4)、vmbr1 は 172.16.0.1/24 (nic0)。`interfaces.new` は消え、`interfaces` に置き換わった |
+| link_unreachable | 失敗なし。n100 から `ping -c3 172.16.0.1` 3/3 到達 (損失 0%、平均 0.21 ms)。hp-z440 から `172.16.0.2` も 3/3 (平均 0.24 ms) |
+| no_quorum | 失敗なし。n100・hp-z440 とも `pvecm status` が Nodes 2、Quorate Yes |
+| guest_not_running | 失敗なし。00:38:00 時点では VM 152、201、CT 202 が自動起動の途中で stopped、00:38:26 までに VM 110、152、201、CT 202 のすべてが running |
+| guest_started_unexpectedly | 失敗なし。VM 108、9001 は stopped のまま。VM 105 も `qm status 105` が stopped |
+| passthrough_missing | 失敗なし。`lsusb` に 3275:0080 と 058f:9540 があり、VM 110 は running。`qm config 110` の `usb0`、`usb1` は変わらない。VM 108 の `hostpci0` も変わらない |
+| k3s_node_not_ready | 失敗なし。`kubectl --context default get nodes`: k3s-server、k3s-agent-minipc、k3s-agent-z440 の 3 ノードが Ready。Running/Completed 以外の Pod なし |
+| `systemctl --failed` | `openipmi.service` のみ (再起動前と同じ) |
+| `apt-daily-upgrade.timer` | disabled のまま |
+
+#### PBS (CT 202)
+
+- CT 202 は running。`pct exec 202 -- proxmox-backup-manager datastore list`: zfs-pool (`/mnt/zfs-pool-0`)。`proxmox-backup`、`proxmox-backup-proxy` が active
+- ホストの `zpool list`: zfs-pool 3.62T、ALLOC 539G、HEALTH ONLINE
+
+判定: タスク 5.4 の確認項目はすべて満たした。
