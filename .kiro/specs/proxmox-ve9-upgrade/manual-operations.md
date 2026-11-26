@@ -519,3 +519,23 @@ SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local
 
 - BootDeadman を撤去 (`upgrade-deadman.timer` を disable、`upgrade-deadman.service`・`.timer`・`/usr/local/sbin/upgrade-deadman` を削除し `daemon-reload`)。`list-unit-files` に deadman は 0 件
 - `proxmox-boot-tool kernel unpin` で 6.8.12-43-pve の固定と `next-boot-pin` を外した (`Pinned kernel` なし)。`GRUB_DEFAULT=0`、`grub.cfg` の先頭の項目は `vmlinuz-7.0.14-30-pve`
+
+### タスク 7.1: NVIDIA ドライバの適用 (hp-z440、2026-11-27)
+
+- 03:31 `nvidia_driver.yml --check --diff`: ok=2、changed=1、failed=1。失敗は `nvidia-driver-pinning-620` の取得で、check モードでは cuda-keyring が入らず CUDA リポジトリが見えないための制約
+- 03:31〜03:37 本適用 (1 回目): ok=5、changed=3、failed=1。cuda-keyring、`nvidia-driver-pinning-620`、`nvidia-kernel-open-dkms`、`nvidia-driver-cuda` は入ったが、`firmware-nvidia-gsp` の確認で止まった。`nvidia_driver_version: "620.70.06"` を期待したが、pinning は 620 系の範囲を固定するだけで、CUDA リポジトリの最新 620.70.10-1 が入ったため
+- 設計の修正 (8eb4a09): 系の中の版は固定せず 620 系の範囲で固定する。ロールは `nvidia_driver_version` を廃止し、assert を `Installed: 620.` の判定に変更。実機は 620.70.10 のまま (ダウングレードなし)
+- 03:42:31〜03:43:39 本適用 (2 回目): ok=16、changed=8、failed=0、skipped=2。続けて 3 回目: ok=14、changed=0、failed=0、skipped=2 (冪等)
+- ansible-lint: Passed (0 failure、0 warning)。`scripts/test_nvidia_dkms_guard.py`: 7 passed
+
+| 項目 | 結果 |
+|---|---|
+| `nvidia-smi -L` (03:43:44) | `GPU 0: NVIDIA GeForce GTX 1650` |
+| `dkms status -k 7.0.14-30-pve` | `nvidia/620.70.10, 7.0.14-30-pve, x86_64: installed` |
+| `apt-cache policy firmware-nvidia-gsp` | Installed 620.70.10-1 (CUDA リポジトリ) |
+| nouveau | `lsmod` に無し。nvidia、nvidia_uvm は読み込み済み。再起動なし |
+| `/etc/modules-load.d/nvidia.conf` | `nvidia`、`nvidia_uvm` |
+| DkmsGuardHook | `/usr/local/sbin/nvidia-dkms-guard` (0755)、`nvidia-dkms-guard.service` (`OnFailure=notify-failure@%n.service`)、`apt-daily-upgrade.service.d/nvidia-dkms-guard.conf`、`apt.conf.d/99nvidia-dkms-guard` を配置。手動で start して Result=success、固定の印 (`/var/lib/nvidia-dkms-guard`) は作られない |
+| Beszel hub の GPU 項目 | 未検証。リポジトリに GPU 項目の確認手順が無く、hub の画面と API は認証が要るため |
+
+判定: タスク 7.1 は Beszel の GPU 項目が未検証のため、チェックしない。
