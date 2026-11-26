@@ -63,7 +63,7 @@
   - `/etc/default/grub` の `GRUB_CMDLINE_LINUX_DEFAULT` に `ahci.mobile_lpm_policy=0` を加えて `update-grub` する。既定の起動対象を 6.8 に固定したまま、作業者が現地にいる時間に `--next-boot` で 7.0 を起動する
   - 再起動後に SSH で BootDeadman の確認の印を作り、再起動後の確認を行う (タスク 2.3 と同じ項目)
   - 確認を満たしたら BootDeadman を外す。SSH が戻らなければ hp-z440 の作業に進まない
-  - 稼働中のカーネルが 7.0 系で、`dmesg` が `lpm-pol 0` を示し ata の exception が 0 件、確認の結果がすべて記録され、BootDeadman と 6.8 の固定が撤去されている
+  - 稼働中のカーネルが 7.0 系で、`dmesg` の `lpm-pol` が 0 (`keep_firmware_settings`) か 1 (`max_performance`) で省電力が掛かっておらず ata の exception が 0 件、確認の結果がすべて記録され、BootDeadman と 6.8 の固定が撤去されている
   - _Requirements: 2.4, 2.6, 3.2, 3.4, 4.1, 4.2, 4.4_
 
 - [x] 5. hp-z440 の準備 (PVE 8.4 のまま)

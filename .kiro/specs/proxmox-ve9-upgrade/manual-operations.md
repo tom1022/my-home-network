@@ -243,6 +243,13 @@ NOTICE 1 件: `local-lvm` のゲストボリュームに autoactivation が有�
   - k3s-server は `passwd newer than datastore` の fatal (2 回)。00:22:44 に passwd を `/root/passwd.bak-20261125` へ移した。00:23:10 に 3 ノード Ready、00:23:55 に `cloud.fickledev.com` が HTTP 200。Running/Completed 以外の Pod なし
 - 00:25 BootDeadman を撤去 (`upgrade-deadman.timer` を disable、`upgrade-deadman.service`・`.timer`・`/usr/local/sbin/upgrade-deadman` を削除し `daemon-reload`)。`proxmox-boot-tool kernel unpin` で 6.8 の固定を外し、GRUB の既定は先頭の項目 (7.0.14-30-pve)
 
+### n100 の停止と復帰 (2026-11-26〜27)
+
+- 2026-11-26 17:52:02 hp-z440 の corosync に `[CFG] Node 2 was shut down by sysadmin`。n100 は正常な手順でシャットダウンされた。本 spec の作業ではない (11-25 01:05 以降 n100 への操作なし)。停止中は VM 150・151 が止まり、k3s API と Nextcloud が停止。hp-z440 は 2Node 構成で単独 Quorate
+- 2026-11-27 01:51 タスク 6.3 の再起動前の確認で停止を検知し、hp-z440 の再起動を見送った
+- 03:11 頃 ユーザーが n100 を起動。7.0.14-30-pve、Quorate、VM 150・151 は onboot で running
+- k3s-server は `passwd newer than datastore` の fatal (104 回)。03:21:47 に passwd を `/root/passwd.bak-20261127` へ移した。03:22:00 に 3 ノード Ready、Running/Completed 以外の Pod なし、`cloud.fickledev.com/status.php` が HTTP 200
+
 ## hp-z440 (192.168.1.2、root)
 
 ### タスク 5.1: 作業の開始、8.4 の最新、ブート構成の修正、存在しないインターフェースの除去
