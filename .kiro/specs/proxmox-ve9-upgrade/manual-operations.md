@@ -477,3 +477,38 @@ SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local
 - `apt-daily-upgrade.timer`: disabled のまま
 - ゲスト: VM 110、152、201、CT 202 が running、VM 105、108、9001 が stopped のまま。`pvecm status` は Nodes 2、Quorate Yes。再起動はしていない
 - `systemctl --failed`: `chrony`、`host-health-chrony` (上記の副作用)、`openipmi` (以前から)
+
+### タスク 6.3: 9 での再起動と受入
+
+#### 再起動 (2026-11-27)
+
+- 再起動前の確認 (03:24): GRUB の `GRUB_CMDLINE_LINUX_DEFAULT="quiet nouveau.modeset=0 ahci.mobile_lpm_policy=0"`。`proxmox-boot-tool kernel list` は固定 6.8.12-43-pve、次回だけ 7.0.14-30-pve。`upgrade-deadman.timer` enabled。n100 は 7.0.14-30-pve で `pvecm status` が Nodes 2、Quorate Yes。`zpool list`: zfs-pool ONLINE。再起動前の VM 110 は `usb0: host=3275:0080`、`usb1: host=058f:9540` のみ (hostpci と raw ディスクのパススルーは無い。ディスクは `local-lvm` の `virtio0`)
+- 03:24:23 hp-z440 で `systemctl reboot` (作業者が現地に待機。ゲストは PVE の自動の停止・起動のみ)
+- 03:27:34 起動 (`uptime -s`)、03:27:51 に SSH が復帰。SSH の不通は 約 3 分半 (15 分以内)
+
+#### PostRebootCheck (2026-11-27 03:27〜03:29)
+
+| 項目 | 結果 |
+|---|---|
+| ssh_unreachable | 失敗なし。作業 PC から 192.168.1.2 に SSH 可 |
+| 稼働中のカーネル | `uname -r`: 7.0.14-30-pve、`pveversion`: pve-manager/9.2.32 (running kernel: 7.0.14-30-pve) |
+| `/proc/cmdline` | `BOOT_IMAGE=/boot/vmlinuz-7.0.14-30-pve root=/dev/mapper/pve-root ro quiet nouveau.modeset=0 ahci.mobile_lpm_policy=0` |
+| LPM | `link_power_management_policy`: host0〜5 (ata1〜6) が `max_performance`、host6〜7 が `keep_firmware_settings`。`dmesg` の ata1〜6 は `lpm-pol 1` (`max_performance` に対応。n100 の `lpm-pol 0` と値が違う。C610 は同じ `ahci.mobile_lpm_policy=0` でも `max_performance` になった)。省電力は掛かっていない |
+| ata の障害 | `dmesg \| grep -c "ata.*exception"` は 0 件、`I/O error` は 0 件、`ata[0-9]+.*(error\|reset\|failed)` は 0 件 |
+| NIC 名 | nic0 (98:be:94:04:8e:98)、nic4 (c8:d3:ff:b5:f3:52) が UP、nic1〜3 は DOWN (リンクなし。8.4 と同じ)。vmbr0 は 192.168.1.2/24 (nic4)、vmbr1 は 172.16.0.1/24 (nic0) |
+| link_unreachable | 失敗なし。hp-z440 から `ping -c3 172.16.0.2` 3/3 (損失 0%、平均 0.247 ms)。n100 から `ping -c3 172.16.0.1` 3/3 (損失 0%、平均 0.191 ms) |
+| no_quorum | 失敗なし。`pvecm status` が Nodes 2、Quorate Yes |
+| guest_not_running | 失敗なし。03:27:56 は自動起動の途中で停止、03:28:30 までに VM 110、152、201、CT 202 がすべて running |
+| guest_started_unexpectedly | 失敗なし。VM 108、9001 は stopped のまま。VM 105 は `qm status 105` が stopped (触れていない) |
+| passthrough_missing | 失敗なし。`lsusb` に 3275:0080 と 058f:9540。`qm config 110` の `usb0`、`usb1`、`virtio0` は再起動前と同一。`qm monitor 110` の `info usb` に PX-S1UD Digital TV Tuner (usb0) と EMV Smartcard Reader (usb1)。VM 108 の `hostpci0` も変わらない。VM 201 の `scsi0`、`scsi1`、VM 152 の `scsi0〜3` も同一。VM 201 は `qm guest cmd 201 get-osinfo` に応答 |
+| k3s_node_not_ready | 失敗なし。`kubectl --context default get nodes`: k3s-server、k3s-agent-minipc、k3s-agent-z440 の 3 ノードが Ready。03:28:30 時点では k3s-agent-z440 上の Pod が Unknown だったが、03:29:10 までに Running/Completed 以外の Pod が 0 件になった |
+| Nextcloud | `https://cloud.fickledev.com/status.php`: 03:28:30 は 503 (Pod の回復前)、03:29:10 に HTTP 200 |
+| `systemctl --failed` | `openipmi.service` のみ (以前からの失敗)。`chrony` は active (`Selected source` あり、stratum 3)、`host-health-chrony` は inactive (dead)。dist-upgrade 後の失敗は再起動で解消 |
+| PBS (CT 202) | running。`proxmox-backup`、`proxmox-backup-proxy` が active。`zpool status -x`: all pools are healthy |
+
+判定: タスク 6.3 の確認項目はすべて満たした。
+
+#### 撤去 (2026-11-27 03:29)
+
+- BootDeadman を撤去 (`upgrade-deadman.timer` を disable、`upgrade-deadman.service`・`.timer`・`/usr/local/sbin/upgrade-deadman` を削除し `daemon-reload`)。`list-unit-files` に deadman は 0 件
+- `proxmox-boot-tool kernel unpin` で 6.8.12-43-pve の固定と `next-boot-pin` を外した (`Pinned kernel` なし)。`GRUB_DEFAULT=0`、`grub.cfg` の先頭の項目は `vmlinuz-7.0.14-30-pve`
