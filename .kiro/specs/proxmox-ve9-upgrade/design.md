@@ -105,7 +105,7 @@ graph TB
 | Hypervisor | Proxmox VE 9.2 系の最新 (作業時点で pve-manager 9.2.32) | 両ノードの更新先 | ベースは Debian 13 trixie |
 | Kernel | `proxmox-default-kernel` が指す 7.0 系 (作業時点で 7.0.14-30) | 両ノードの既定のカーネル | 6.17 系は固定先の予備としてだけ使う |
 | Backup | Proxmox Backup Server 4.2 系の最新 | CT 202 の更新先 | |
-| GPU Driver | CUDA リポジトリの `nvidia-kernel-open-dkms` 620.70.06 と `nvidia-driver-cuda` | hp-z440 の GTX 1650 | `nvidia-driver-pinning-620` でブランチを固定する |
+| GPU Driver | CUDA リポジトリの 620 系の `nvidia-kernel-open-dkms` と `nvidia-driver-cuda` | hp-z440 の GTX 1650 | `nvidia-driver-pinning-620` で 620 系に固定する。系の中の版は固定しない (CUDA リポジトリの最新が入る) |
 | Bootloader | GRUB (`grub-efi-amd64`)。removable のフォールバックも更新する | 両ノードの起動 | `systemd-boot` メタパッケージは削除 |
 | IaC | Ansible (既存)、Terraform + bpg/proxmox 0.111.1 (既存、版は変えない) | 構成と資源の管理 | |
 
@@ -415,7 +415,7 @@ type PostRebootFailure =
 - `/etc/modprobe.d/` に nouveau のブラックリストを置き、`update-initramfs -u -k all` を実行する。Debian のドライバを purge すると、Debian のパッケージが置いていたブラックリストも消えるため
 - 適用の最後に、nouveau が読み込まれていれば `modprobe -r nouveau` で外し、`modprobe nvidia` で読み込む。再起動はしない。nouveau を外せなかった場合は止まって報告し、追加の再起動は `PreRebootCheck` / `PostRebootCheck` の対象として行う
 - 起動時の読み込みは `/etc/modules-load.d/nvidia.conf` (`nvidia`、`nvidia_uvm`) で宣言する。`/etc/modules` の同じ行は NodePrep の手順 6 で外している
-- `firmware-nvidia-gsp` が CUDA リポジトリの 620.70.06 から入っていることを `apt policy firmware-nvidia-gsp` で確かめる。Debian の non-free-firmware にも同名のパッケージ (550 系) があるため
+- `firmware-nvidia-gsp` が CUDA リポジトリの 620 系 (`Installed:` が `620.` で始まる) から入っていることを `apt policy firmware-nvidia-gsp` で確かめる。Debian の non-free-firmware にも同名のパッケージ (550 系) があるため
 - DkmsGuardHook を配置する。本体は systemd の oneshot ユニット `nvidia-dkms-guard.service` で、`OnFailure=notify-failure@%n.service` を宣言する。起動の契機は 2 つで、どちらも `systemctl start --no-block` で本体を起動するだけにする
   - `apt-daily-upgrade.service` の drop-in の `ExecStopPost=`。unattended-upgrades の成否に関わらず実行される
   - `/etc/apt/apt.conf.d/` の `DPkg::Post-Invoke`。手動の apt の実行のたびに呼ばれる。起動に失敗しても apt の終了コードに影響しないよう、末尾で `|| true` とする
@@ -429,7 +429,7 @@ type PostRebootFailure =
 
 ##### Batch / Job Contract
 - Trigger: `ansible-playbook playbooks/nvidia_driver.yml` (hp-z440 だけが対象)
-- Output: `dkms status` で `nvidia/620.70.06` が稼働中のカーネルに対して `installed` になる。`nvidia-smi -L` が GTX 1650 を表示する (要件 5.1)。console-pi の Beszel hub で hp-z440 の GPU 項目が更新される (要件 5.4)。これが hp-z440 の完了判定になる
+- Output: `dkms status` で `nvidia/620.*` が稼働中のカーネルに対して `installed` になる。`nvidia-smi -L` が GTX 1650 を表示する (要件 5.1)。console-pi の Beszel hub で hp-z440 の GPU 項目が更新される (要件 5.4)。これが hp-z440 の完了判定になる
 - Idempotency & recovery: 再実行で同じ状態になる
 
 ##### State Management (DkmsGuardHook)
