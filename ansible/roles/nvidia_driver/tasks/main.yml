@@ -26,8 +26,8 @@
 - name: Ensure firmware-nvidia-gsp comes from the CUDA repository
   ansible.builtin.assert:
     that:
-      - "('Installed: ' ~ nvidia_driver_version) in nvidia_driver_gsp_policy.stdout"
-    fail_msg: firmware-nvidia-gsp {{ nvidia_driver_version }} is not the installed version.
+      - "('Installed: ' ~ nvidia_driver_branch ~ '.') in nvidia_driver_gsp_policy.stdout"
+    fail_msg: firmware-nvidia-gsp is not from the {{ nvidia_driver_branch }} branch.
 
 # Debian のドライバを purge すると、そのパッケージが置いていたブラックリストも消える。
 - name: Ensure nouveau is blacklisted

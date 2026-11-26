@@ -2,7 +2,6 @@
 # ドライバのブランチを変える操作は日常適用とは別のライフサイクルで、この変数を
 # 変えて行う。CUDA リポジトリは unattended-upgrades の対象外のまま保つ。
 nvidia_driver_branch: "620"
-nvidia_driver_version: "620.70.06"
 
 nvidia_driver_cuda_keyring_url: https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/cuda-keyring_1.1-1_all.deb
 
