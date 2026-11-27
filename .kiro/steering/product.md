@@ -47,6 +47,7 @@ Proxmox VE 上のリソース作成を Terraform、各ホストの構成適用�
 
 - `admin-plane-rebuild` — 管理面の再構成（要件定義フェーズ）
 - `backup-durability-and-alerting` — バックアップの堅牢化と検知（要件定義フェーズ）
+- `proxmox-ve9-upgrade` — Proxmox VE 9 / PBS 4 への更新（実装フェーズ）
 - `autonomous-parallel-dev-platform`（`gitops-apps` 側）— 自律開発環境（要件定義フェーズ）
 
 ## Current State

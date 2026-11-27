@@ -10,7 +10,9 @@ OS/ミドルウェア構成を適用する。Gitea（自前 CI 起点）から T
 
 - **IaC**: Terraform >= 1.5.0, provider `bpg/proxmox` >= 0.95.0
 - **Configuration Management**: Ansible >= 10.7.0（Role ベース）, ansible-lint >= 26.3.0
-- **Virtualization**: Proxmox VE（VM: qemu-guest-agent 前提, LXC: Debian 12 テンプレート）
+- **Virtualization**: Proxmox VE 9（Debian 13 trixie ベース、カーネル 7.0 系）。VM: qemu-guest-agent 前提, LXC: Terraform の既定テンプレートは Debian 12（`debian-12-standard_12.12-1_amd64`）
+- **Proxmox Backup Server**: 4 系（LXC 202、Debian 13 ベース）。LXC 202 は `features: nesting=1` が必要
+- **GPU（hp-z440）**: NVIDIA プロプライエタリドライバ 620 系（DKMS、導入済みの全カーネルに対してビルド済み）
 - **GitOps**: ArgoCD（`gitops/apps/`, ApplicationSet パターン）
 - **Identity**: Kanidm（k3s 上、OIDC / LDAPS / kanidm-unixd を提供）, oauth2-proxy（Traefik の
   forwardAuth 判定先）

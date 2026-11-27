@@ -141,7 +141,7 @@
   - 両ノードのジョブの成功が記録されている
   - _Requirements: 7.3_
 
-- [ ] 10. IaC と記述の整合を確かめる
+- [x] 10. IaC と記述の整合を確かめる
 - [x] 10.1 Ansible の適用と自動更新の範囲を確かめる
   - `site.yml` を `proxmox_nodes` と `pbs` に限って `--check --diff` で流し、次に本適用する。これで `apt-daily-upgrade.timer` が両ノードで再開する
   - 両ノードの unattended-upgrades の有効行が作業前と同じで、`unattended-upgrade --dry-run` が trixie の Debian-Security と Proxmox の Origin を対象にすることを確かめる
@@ -149,7 +149,7 @@
   - _Depends: 1.2_
   - _Requirements: 8.2, 8.3_
 
-- [ ] 10.2 steering を実機に合わせる
+- [x] 10.2 steering を実機に合わせる
   - Proxmox VE と PBS の版、ベースの Debian、LXC テンプレートの版、hp-z440 の NVIDIA ドライバの記述を実機に合わせ、Active Specifications に本 spec を加える
   - steering の該当する記述が、タスク 4.3、6.3、9.1 で記録した版と一致する
   - _Requirements: 8.4_
