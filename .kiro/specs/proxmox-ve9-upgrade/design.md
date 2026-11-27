@@ -456,7 +456,8 @@ type PostRebootFailure =
 - 着手前に退避を 2 つ取る
   - `/etc/proxmox-backup` を tar にまとめ、hp-z440 の `local` ストレージの下に置く
   - CT 202 を `local` ストレージへ vzdump する。データストアの `mp0` はバックアップ対象外 (既定) のまま
-- データストアを read-only のメンテナンスモードにし、`pbs3to4 --full` の FAIL を 0 件にしてから、`proxmox.sources` (`download.proxmox.com/debian/pbs`、`trixie`、`pbs-no-subscription`) と `debian.sources` に置き換えて `dist-upgrade` する。`proxmox.sources` の内容は `PbsRoleDeb822` と同じ (Signed-By は `/usr/share/keyrings/proxmox-release-trixie.gpg`。事前に取得しておく)
+- データストアを read-only のメンテナンスモードにし、`pbs3to4 --full` の FAIL を 0 件にしてから (例外は後述の 1 件)、`proxmox.sources` (`download.proxmox.com/debian/pbs`、`trixie`、`pbs-no-subscription`) と `debian.sources` に置き換えて `dist-upgrade` する。`proxmox.sources` の内容は `PbsRoleDeb822` と同じ (Signed-By は `/usr/share/keyrings/proxmox-release-trixie.gpg`。事前に取得しておく)
+- 例外: CT 202 はコンテナなので、カーネルと GRUB を引き込むメタパッケージ `proxmox-backup` を入れていない。`pbs3to4` はこのメタパッケージの版で 3 系の最新かを判定するので、`could not match the 'proxmox-backup' package version` の FAIL が必ず出る。この 1 件は、`apt-cache policy proxmox-backup-server` の Installed と Candidate が一致することで代わりに確かめ、許容する
 - CT を再起動し、メンテナンスモードを解除する
 
 **Contracts**: Batch [x]
