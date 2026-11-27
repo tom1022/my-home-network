@@ -539,3 +539,18 @@ SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local
 | Beszel hub の GPU 項目 | 未検証。リポジトリに GPU 項目の確認手順が無く、hub の画面と API は認証が要るため |
 
 判定: タスク 7.1 は Beszel の GPU 項目が未検証のため、チェックしない。
+
+#### Beszel の GPU 項目の確認 (2026-11-27 09:57〜10:01)
+
+| 項目 | 結果 |
+|---|---|
+| agent | `beszel-agent 0.19.0`。systemd の `beszel-agent.service` で単体バイナリ (`/usr/local/bin/beszel-agent`) を起動。env は `LISTEN` と `KEY` のみ |
+| v0.19.0 の GPU 検出 | `agent/gpu.go` の `NewGPUManager` は起動時に 1 回だけ `nvidia-smi` を PATH で探し、見つかれば `GPU_COLLECTOR` や `NVML` の設定なしで `nvidia-smi -l 4 --query-gpu=...` を常駐させる |
+| 再起動前の agent | 起動は 03:27:47 で、`/usr/bin/nvidia-smi` の再配置 (ctime 03:32:32) とドライバ適用より前。agent の子プロセスに `nvidia-smi` が無く、GPU を収集していなかった |
+| agent の再起動 | 09:57:11 に hp-z440 の `beszel-agent.service` だけを 1 回 restart (監視エージェントのみ。ホスト・ゲストの再起動なし) |
+| 再起動後の agent | 子プロセス `nvidia-smi -l 4 --query-gpu=index,name,temperature.gpu,memory.used,memory.total,utilization.gpu,power.draw --format=csv,noheader,nounits` が 09:57:10 から常駐 |
+| 同じ問い合わせの手動実行 (09:57:24) | `0, NVIDIA GeForce GTX 1650, 30.47, 0 MiB, 4096 MiB, 0 %, [N/A]` |
+| hub からの接続 | 09:57:24〜10:00:51 の間、hp-z440 の 45876/tcp に確立済み・TIME_WAIT を含め接続が 1 本も無い (`ss -tan`) |
+| hub 側の GPU 項目 | 未検証。作業端末の Tailscale が停止しており console-pi (100.116.132.42) に SSH できないため |
+
+判定: agent は GPU を収集しているが、hub で hp-z440 の GPU 項目が更新されることは未確認のため、タスク 7.1 はチェックしない。
