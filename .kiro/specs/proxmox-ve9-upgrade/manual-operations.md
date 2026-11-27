@@ -606,9 +606,39 @@ SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local
 | WARN | 更新可能パッケージあり (bookworm の通常更新)。`unexpected running and installed kernel '7.0.14-30-pve'` (コンテナはホストのカーネルで動く)。NTP 無し (ホストの時計を共有する CT。host_vars の chrony 無効化と同じ理由)。`grub-efi-amd64` 未導入 (コンテナで不要) |
 | SKIP | dkms の状態が取れない |
 
-判定: FAIL が 0 件にならないため、リポジトリの置き換えと `dist-upgrade` には進まず停止した。タスク 9.1 はチェックしない。
+判定: FAIL が 0 件にならないため、この時点では停止した。設計に例外 (9ff1a77) が加わったため、後述のとおり再開した。
 
-#### 停止時点の状態 (14:30 JST)
+#### 停止時点の状態 (14:30 JST、再開前)
 
 - データストア `zfs-pool` は read-only のメンテナンスモードのまま (解除していない)。04:30 のバックアップジョブはこの状態では書き込めない
 - CT 202 は稼働のまま、再起動なし。パッケージ・リポジトリの変更なし (`proxmox-backup-server 3.4.9-2`、bookworm)
+
+#### 再開: 例外の確認 (14:32 JST)
+
+- `pbs3to4 --full` を再実行: TOTAL 9、PASS 3、SKIP 1、WARN 4、FAIL 1。FAIL は `could not match the 'proxmox-backup' package version` の 1 件のみ
+- `apt-cache policy proxmox-backup-server`: Installed 3.4.9-2、Candidate 3.4.9-2 (一致)。メタパッケージ `proxmox-backup` は導入していない
+
+#### リポジトリの置き換えと dist-upgrade (14:33〜14:35 JST、CT 202 内の `/root/pbsup.sh`、ログ `/root/pbs4-upgrade-logs/dist-upgrade.log`)
+
+1. 旧 `sources.list` と `sources.list.d` を `/root/pbs4-upgrade-logs/apt-sources-before/` へ退避
+2. `proxmox-release-trixie.gpg` を `https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg` から `/usr/share/keyrings/` へ取得 (0644)
+3. `/etc/apt/sources.list` を空にし、`proxmox-backup.list` を削除。`debian.sources` (`deb.debian.org/debian` の `trixie trixie-updates`、`security.debian.org/debian-security` の `trixie-security`、Components は `main contrib non-free-firmware`、Signed-By は `/usr/share/keyrings/debian-archive-keyring.gpg`) と `proxmox.sources` (`download.proxmox.com/debian/pbs` の `trixie`、`pbs-no-subscription`、Signed-By は `/usr/share/keyrings/proxmox-release-trixie.gpg`) を作成
+4. `apt-get update` rc=0。`DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef dist-upgrade`: 290 upgraded、65 newly installed、21 to remove。`DIST_UPGRADE_RC=0` (14:35 完了)
+5. 設定ファイルの扱い: 対話の問い合わせは `/etc/issue` の 1 件 (既存を残した)。新しい版が `.dpkg-dist` として残ったのは `/etc/issue`、`/etc/crontab`、`/etc/cron.d/e2scrub_all`。`/etc/ca-certificates.conf.dpkg-old` もできた。`/etc/ssh/ssh_config`、`/etc/login.defs`、`/etc/systemd/*.conf` などは変更が無く新しい版が入った
+6. `proxmox-backup-server` 4 の postinst が `/etc/apt/sources.list.d/pbs-enterprise.sources` (有効な enterprise リポジトリ、401) を置いたため、`apt-get update` が 401 で失敗した。`pbs` ロールが `pbs_enterprise_repo_files` で削除するのと同じファイルなので削除した。再実行の `apt-get update` は 3 つの参照先すべて Hit、`apt list --upgradable` は 0 件
+7. 依存で新規に入ったもの: `chrony 4.8-4~bpo13+2` (inactive)、`zfsutils-linux`、`zfs-zed`、`libzfs7linux` 2.4.4-pve1
+
+#### 更新後の状態 (14:36 JST、再起動前)
+
+| 項目 | 結果 |
+|---|---|
+| `proxmox-backup-manager versions` | `proxmox-backup-server 4.2.14-1 running version: 4.2.14` (`proxmox-backup` は `unknown`、メタパッケージ未導入のため) |
+| OS | Debian GNU/Linux 13 (trixie) |
+| `proxmox-backup.service`、`proxmox-backup-proxy.service` | active。proxy は更新中に SIGHUP でリロードされたが、`ActiveEnterTimestamp` は更新前の 2026-11-26 18:28:21 UTC のまま (新しい版での再起動はしていない) |
+| `systemctl --failed` | `logrotate.service` (00:00 に 226/NAMESPACE で失敗、更新前から)、`systemd-networkd.service` と `.socket` (11-26 18:28 の CT 起動時から失敗)、`zfs-mount.service`、`zfs-share.service`、`zfs-zed.service` (更新で zfs パッケージが入り、05:35 に失敗) |
+| `/var/run/reboot-required` | 作成された (05:35) |
+| `pbs3to4 --full` | FAIL 1 (`'proxmox-backup' package not found!`、例外の 1 件)、WARN 3 (稼働カーネル、NTP、grub-efi-amd64) |
+| バックアップの件数 | `pvesm list pbs-zfs-pool` で 15 件 (更新前と一致) |
+| メンテナンスモード | `zfs-pool` は read-only のまま。設計は CT の再起動後に解除するため、解除していない |
+
+CT の再起動はしていない (承認待ち)。判定: 再起動と解除、更新後の確認が残るため、タスク 9.1 はチェックしない。
