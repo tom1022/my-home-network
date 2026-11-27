@@ -554,3 +554,17 @@ SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local
 | hub 側の GPU 項目 | 未検証。作業端末の Tailscale が停止しており console-pi (100.116.132.42) に SSH できないため |
 
 判定: agent は GPU を収集しているが、hub で hp-z440 の GPU 項目が更新されることは未確認のため、タスク 7.1 はチェックしない。
+
+### タスク 7.2: DkmsGuardHook の実 apt での確認 (hp-z440、2026-11-27 10:02〜10:04)
+
+開始時の状態: 稼働中 7.0.14-30-pve、固定なし (`proxmox-boot-pin`、`next-boot-pin` とも無し)、`/var/lib/nvidia-dkms-guard/` に印なし、`dkms status` は 6.8.12-13、-17、-43、7.0.14-30 のすべて installed。`apt-daily-upgrade.timer` は disabled のまま。
+
+| 場合 | 操作 | 期待 | 結果 |
+|---|---|---|---|
+| (1) 正常 | 10:02:52 `apt-get install --reinstall -y less` | ユニットが成功し、固定が起きない | 10:02:54 に `nvidia-dkms-guard.service` が Result=success (ExecMainStatus=0)。固定、印とも作られず |
+| (2) 未導入 | 10:03:02 `dkms remove nvidia/620.70.10 -k 6.8.12-43-pve` (稼働中ではないカーネル)、`proxmox-boot-tool kernel pin 6.8.12-43-pve` でそのカーネルを既定にした (`proxmox-boot-pin` = 6.8.12-43-pve)。10:03:08 に同じ apt | 固定、印の作成、通知 | 10:03:13 にユニットが ExecMainStatus=1 で失敗。`proxmox-boot-pin` が 7.0.14-30-pve に書き換わり、`/var/lib/nvidia-dkms-guard/pinned` が作られた。`notify-failure@nvidia-dkms-guard.service` が `webhook HTTP 204` |
+| (3) 復旧 | 10:03:40 `dkms install nvidia/620.70.10 -k 6.8.12-43-pve` (rc=0、installed)。10:04:44 に同じ apt | 固定と印が外れる | 10:04:46 にユニットが Result=success。ユニット自身の `proxmox-boot-tool kernel unpin` で `proxmox-boot-pin`、`next-boot-pin` が除去され、印も消えた |
+
+終了時の状態 (10:04:50): 開始時と `dkms status`、固定の有無、印、GRUB (`GRUB_DEFAULT=0`、自動選択は 6.8.12-43 と 7.0.14-30)、`apt-daily-upgrade.timer` (disabled) が一致 (差分なし)。稼働中 7.0.14-30-pve、nvidia モジュール読み込み済み、`nvidia-smi -L` は GTX 1650。再起動なし。
+
+判定: 3 つの場合とも設計どおり。タスク 7.2 をチェックする。
