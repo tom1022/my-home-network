@@ -123,7 +123,7 @@
   - 3 つの場合の結果が記録され、最後に既定の起動対象が 7.0 系の最新に戻っている
   - _Requirements: 5.3_
 
-- [ ] 8. `TerraformProvisioner` に `VM.GuestAgent.Audit` を足し、Terraform の整合を確かめる
+- [x] 8. `TerraformProvisioner` に `VM.GuestAgent.Audit` を足し、Terraform の整合を確かめる
   - 権限の変更前後の一覧を記録する
   - Infisical 経由で `terraform plan` を実行し、エラーが無く、差分が無い
   - _Requirements: 1.4, 8.1_

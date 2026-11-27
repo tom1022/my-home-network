@@ -568,3 +568,13 @@ SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local
 終了時の状態 (10:04:50): 開始時と `dkms status`、固定の有無、印、GRUB (`GRUB_DEFAULT=0`、自動選択は 6.8.12-43 と 7.0.14-30)、`apt-daily-upgrade.timer` (disabled) が一致 (差分なし)。稼働中 7.0.14-30-pve、nvidia モジュール読み込み済み、`nvidia-smi -L` は GTX 1650。再起動なし。
 
 判定: 3 つの場合とも設計どおり。タスク 7.2 をチェックする。
+
+## クラスタ (続き)
+
+### タスク 8: `TerraformProvisioner` に `VM.GuestAgent.Audit` を足す (2026-11-27、n100 から実行)
+
+- 前提: 両ノードが PVE 9.2.32、クラスタは quorate
+- 変更前の `pveum role list` の該当行: `Datastore.Allocate, Datastore.AllocateSpace, Datastore.AllocateTemplate, Datastore.Audit, Sys.Audit, VM.Allocate, VM.Audit, VM.Backup, VM.Clone, VM.Config.CDROM, VM.Config.CPU, VM.Config.Cloudinit, VM.Config.Disk, VM.Config.HWType, VM.Config.Memory, VM.Config.Network, VM.Config.Options, VM.PowerMgmt` (18 件)
+- 実行: `pveum role modify TerraformProvisioner --privs "<上記 18 件 + VM.GuestAgent.Audit>"` → rc=0
+- 変更後の該当行: `Datastore.Allocate, Datastore.AllocateSpace, Datastore.AllocateTemplate, Datastore.Audit, Sys.Audit, VM.Allocate, VM.Audit, VM.Backup, VM.Clone, VM.Config.CDROM, VM.Config.CPU, VM.Config.Cloudinit, VM.Config.Disk, VM.Config.HWType, VM.Config.Memory, VM.Config.Network, VM.Config.Options, VM.GuestAgent.Audit, VM.PowerMgmt` (19 件。差分は `VM.GuestAgent.Audit` の追加のみ。集合の差分を機械的に比較して確認)
+- `terraform plan` (`terraform/`、`infisical run` 経由、`-lock=false`): エラーなし、`No changes. Your infrastructure matches the configuration.`
