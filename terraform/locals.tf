@@ -64,13 +64,14 @@ locals {
 
   containers = {
     "gitea" = {
-      vmid  = 200
-      node  = "n100"
-      cores = 2
-      mem   = 4096
-      disk  = 64
-      ip0   = "192.168.1.200"
-      ip1   = "172.16.0.200"
+      vmid    = 200
+      node    = "n100"
+      cores   = 2
+      mem     = 4096
+      disk    = 64
+      ip0     = "192.168.1.200"
+      ip1     = "172.16.0.200"
+      nesting = true
     }
     "pbs" = {
       vmid      = 202
@@ -81,6 +82,8 @@ locals {
       ip0       = "192.168.1.202"
       zfs_pools = [500]
       ip1       = "172.16.0.202"
+      # Debian 13 (systemd 257) は nesting 無しだと tmpfs 系マウントと /run の書き込みに失敗する
+      nesting = true
     }
   }
 }

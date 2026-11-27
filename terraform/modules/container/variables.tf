@@ -99,3 +99,9 @@ variable "network_interface_firewall" {
   type        = bool
   default     = false
 }
+
+variable "nesting" {
+  description = "features.nesting of the container. null leaves the block undeclared."
+  type        = bool
+  default     = null
+}

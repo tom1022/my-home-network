@@ -25,6 +25,7 @@ module "containers" {
   bind_mounts                = try(var.container_bind_mounts[each.key], [])
   protection                 = lookup(each.value, "protection", false)
   network_interface_firewall = lookup(each.value, "firewall", false)
+  nesting                    = lookup(each.value, "nesting", null)
 }
 
 module "virtual_machines" {

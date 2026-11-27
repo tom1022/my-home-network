@@ -113,14 +113,20 @@ resource "proxmox_virtual_environment_container" "this" {
     type             = var.os_type
   }
 
+  dynamic "features" {
+    for_each = var.nesting == null ? [] : [var.nesting]
+    content {
+      nesting = features.value
+    }
+  }
+
   started = var.start
 
   lifecycle {
     # operating_system: このブロックで template_file_id と type を宣言しているが、Proxmox は
     # クローン後に内部識別用の追加属性を補って返すため、宣言していない部分の不一致が毎回差分として現れる。
-    # features/console: このモジュールはいずれも宣言しないが、Proxmox API はクローン元や実機の
-    # 実効値を computed 属性として返すため、宣言なし=null との差分が常に出る。features の変更は
-    # root@pam 権限を要求し (実測: HTTP 403)、現在の API トークンでは適用できない。
-    ignore_changes = [operating_system, features, console]
+    # console: このモジュールは宣言しないが、Proxmox API はクローン元や実機の実効値を
+    # computed 属性として返すため、宣言なし=null との差分が常に出る。
+    ignore_changes = [operating_system, console]
   }
 }
