@@ -459,6 +459,7 @@ type PostRebootFailure =
 - データストアを read-only のメンテナンスモードにし、`pbs3to4 --full` の FAIL を 0 件にしてから (例外は後述の 1 件)、`proxmox.sources` (`download.proxmox.com/debian/pbs`、`trixie`、`pbs-no-subscription`) と `debian.sources` に置き換えて `dist-upgrade` する。`proxmox.sources` の内容は `PbsRoleDeb822` と同じ (Signed-By は `/usr/share/keyrings/proxmox-release-trixie.gpg`。事前に取得しておく)
 - 例外: CT 202 はコンテナなので、カーネルと GRUB を引き込むメタパッケージ `proxmox-backup` を入れていない。`pbs3to4` はこのメタパッケージの版で 3 系の最新かを判定するので、`could not match the 'proxmox-backup' package version` の FAIL が必ず出る。この 1 件は、`apt-cache policy proxmox-backup-server` の Installed と Candidate が一致することで代わりに確かめ、許容する
 - CT を再起動し、メンテナンスモードを解除する
+- Debian 13 (systemd 257) の unprivileged CT には `features: nesting=1` を付ける。nesting が無いと tmpfs のマウントユニット (`run-proxmox\x2dbackup.mount` など) が失敗し、`proxmox-backup-proxy` が `/run/proxmox-backup` に書けず起動しない。pve-container の `check_systemd_nesting` は systemd 241 より新しい CT に nesting が無いと `Systemd <版> detected. You may need to enable nesting.` を出し、pct のドキュメントは nesting を「required by systemd to isolate services」としている (https://pve.proxmox.com/pve-docs/chapter-pct.html)。Terraform の `containers` の `nesting = true` で宣言する
 
 **Contracts**: Batch [x]
 

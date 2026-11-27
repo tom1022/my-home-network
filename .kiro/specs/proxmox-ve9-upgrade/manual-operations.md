@@ -654,3 +654,23 @@ CT の再起動はしていない (承認待ち)。判定: 再起動と解除、
 - `pvesm status` (両ノード): `pbs-zfs-pool` は inactive (`Can't connect to 192.168.1.202:8007 (Connection refused)`)。`pvesm list pbs-zfs-pool` は 0 件 (接続できないため。更新前の 15 件が消えたわけではない)
 - メンテナンスモードは read-only のまま、解除していない。mask や削除は行っていない
 - 判定: 設計の前提が崩れたため停止。タスク 9.1 はチェックしない。CT 202 の設定の変更 (`features: nesting=1` の追加は Terraform 管理の CT 設定の変更になる) などは設計に無く、未実施
+
+#### nesting の付与と再起動 (14:54〜14:59 JST、ユーザー承認済みの復旧)
+
+- 原因: Debian 13 (systemd 257) の unprivileged CT に `features: nesting=1` が無かった。pve-container 6.1.24 の `check_systemd_nesting` が出す `Systemd 257 detected. You may need to enable nesting.` の警告がこれにあたる。pct のドキュメントは nesting を「required by systemd to isolate services」としている
+- 実行前の確認 (14:54): CT 202 の `/var/log/proxmox-backup/tasks/active` は空 (proxy が停止中のため `task list` は API に接続できない)。hp-z440 と n100 に実行中の vzdump なし
+- hp-z440 で `pct set 202 --features nesting=1` (rc=0)。`pct config 202` に `features: nesting=1` が入り、`mp0: zfs-pool:subvol-202-disk-0,mp=/mnt/zfs-pool-0,size=500G` は変更なし
+- 14:54:49 `pct reboot 202` (1 回、rc=0、nesting の警告は出ない)。CT は 05:54:53 UTC に起動した
+
+| 項目 | 結果 |
+|---|---|
+| `systemctl --failed` | `zfs-mount.service`、`zfs-share.service`、`zfs-zed.service` のみ。CT に `/dev/zfs` が無いため失敗する (更新で入った zfs パッケージ由来)。4 つの mount ユニット、`proxmox-backup-proxy.service`、`logrotate.service`、`systemd-networkd.service` は失敗していない |
+| mount ユニット | `dev-mqueue.mount`、`run-lock.mount`、`run-proxmox\x2dbackup.mount`、`tmp.mount` は active |
+| `proxmox-backup-proxy.service` | active、`ActiveEnterTimestamp` 2026-11-27 05:54:57 UTC (再起動後) |
+| `proxmox-backup-manager versions` | `proxmox-backup-server 4.2.14-1 running version: 4.2.14`。`apt-cache policy` の Installed と Candidate が一致 |
+| `pvesm status` (hp-z440、n100) | `pbs-zfs-pool` は active |
+| `pvesm list pbs-zfs-pool` (hp-z440、n100) | 15 件 (100: 1、113: 4、150: 2、151: 2、152: 2、201: 2、202: 2)。更新前と一致 |
+
+- 14:58:56 JST `proxmox-backup-manager datastore update zfs-pool --delete maintenance-mode` (rc=0)。`datastore show zfs-pool` に `maintenance-mode` の行が無いことを確認
+- Terraform: `locals.tf` の `containers` で `pbs` と `gitea` に `nesting = true` を宣言し、`ignore_changes` から `features` を外した。`terraform plan -lock=false` は `No changes. Your infrastructure matches the configuration.`
+- 判定: タスク 9.1 の受入を満たした

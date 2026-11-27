@@ -129,7 +129,7 @@
   - _Requirements: 1.4, 8.1_
 
 - [ ] 9. PBS を 4 へ更新する
-- [ ] 9.1 PBS の退避を取り、CT 202 を更新する
+- [x] 9.1 PBS の退避を取り、CT 202 を更新する
   - `/etc/proxmox-backup` の tar と、データストアを除く CT 202 の vzdump を hp-z440 の `local` に取る。更新前のバックアップの件数を記録する
   - データストアを read-only のメンテナンスモードにし、`pbs3to4 --full` の FAIL を 0 件にする (メタパッケージ `proxmox-backup` が無いことによる 1 件は、`proxmox-backup-server` が 3 系の最新であることで代える)
   - APT の参照先を deb822 形式の Debian 13 と PBS の pbs-no-subscription (タスク 1.2 と同じ内容) に置き換えて `dist-upgrade` し、CT を再起動してメンテナンスモードを解除する
