@@ -578,3 +578,37 @@ SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local
 - 実行: `pveum role modify TerraformProvisioner --privs "<上記 18 件 + VM.GuestAgent.Audit>"` → rc=0
 - 変更後の該当行: `Datastore.Allocate, Datastore.AllocateSpace, Datastore.AllocateTemplate, Datastore.Audit, Sys.Audit, VM.Allocate, VM.Audit, VM.Backup, VM.Clone, VM.Config.CDROM, VM.Config.CPU, VM.Config.Cloudinit, VM.Config.Disk, VM.Config.HWType, VM.Config.Memory, VM.Config.Network, VM.Config.Options, VM.GuestAgent.Audit, VM.PowerMgmt` (19 件。差分は `VM.GuestAgent.Audit` の追加のみ。集合の差分を機械的に比較して確認)
 - `terraform plan` (`terraform/`、`infisical run` 経由、`-lock=false`): エラーなし、`No changes. Your infrastructure matches the configuration.`
+
+## CT 202 (PBS)
+
+### タスク 9.1: PBS の退避と更新の準備 (2026-11-27、hp-z440 の CT 202、途中で停止)
+
+#### 更新前の確認 (14:26〜14:28 JST)
+
+- 直近の vzdump タスク: 2026-11-25、11-26、11-27 の 04:30 に n100、hp-z440 とも OK
+- 更新前の PBS: Debian 12 (bookworm)、`proxmox-backup-server 3.4.9-2` (running 3.4.9)、リポジトリは `proxmox-backup.list` (1 行形式、bookworm)
+- 更新前のバックアップの件数: `pvesm list pbs-zfs-pool` で 15 件 (100: 1、113: 4、150: 2、151: 2、152: 2、201: 2、202: 2)。11-26 夜の最新は 150: 19:30:00Z、151: 19:32:13Z、152: 19:30:00Z、201: 19:34:06Z、202: 19:39:32Z
+- 実行中の vzdump: hp-z440、n100 とも無し (`pgrep -x vzdump`)
+
+#### 退避
+
+- 14:27 `/etc/proxmox-backup` を tar にまとめ (CT 内で作成)、`pct pull` で hp-z440 の `/var/lib/vz/dump/pbs202-etc-proxmox-backup-pre-pbs4.tar.gz` (5267 bytes) へ移した。sha256 が CT 内の元と一致 (`e0002354…5660`)
+- 14:27:04〜14:27:45 `vzdump 202 --storage local --mode snapshot --compress zstd` が成功。`/var/lib/vz/dump/vzdump-lxc-202-2026_11_27-14_27_04.tar.zst` (1.09 GB、書込 4.8 GiB で `mp0` は含まれない)
+
+#### メンテナンスモードと `pbs3to4 --full` (14:28 JST)
+
+- 14:28 `proxmox-backup-manager datastore update zfs-pool --maintenance-mode read-only`。`datastore show` で `maintenance-mode = read-only` を確認
+- `pbs3to4 --full`: TOTAL 9、PASS 3、SKIP 1、WARN 4、FAIL 1
+
+| 区分 | 内容 |
+|---|---|
+| FAIL | `could not match the 'proxmox-backup' package version, is it installed?`。メタパッケージ `proxmox-backup` が未導入 (`apt-cache policy` で Installed: (none)、`proxmox-backup-server` と `-docs` のみ導入)。導入すると `proxmox-default-kernel`、`proxmox-kernel-helper`、`grub-pc` などの kernel と bootloader (28 パッケージ新規、`apt-get -s` で確認) が入るため、コンテナには不適切と判断して導入していない |
+| WARN | 更新可能パッケージあり (bookworm の通常更新)。`unexpected running and installed kernel '7.0.14-30-pve'` (コンテナはホストのカーネルで動く)。NTP 無し (ホストの時計を共有する CT。host_vars の chrony 無効化と同じ理由)。`grub-efi-amd64` 未導入 (コンテナで不要) |
+| SKIP | dkms の状態が取れない |
+
+判定: FAIL が 0 件にならないため、リポジトリの置き換えと `dist-upgrade` には進まず停止した。タスク 9.1 はチェックしない。
+
+#### 停止時点の状態 (14:30 JST)
+
+- データストア `zfs-pool` は read-only のメンテナンスモードのまま (解除していない)。04:30 のバックアップジョブはこの状態では書き込めない
+- CT 202 は稼働のまま、再起動なし。パッケージ・リポジトリの変更なし (`proxmox-backup-server 3.4.9-2`、bookworm)
