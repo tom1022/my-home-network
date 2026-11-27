@@ -674,3 +674,53 @@ CT の再起動はしていない (承認待ち)。判定: 再起動と解除、
 - 14:58:56 JST `proxmox-backup-manager datastore update zfs-pool --delete maintenance-mode` (rc=0)。`datastore show zfs-pool` に `maintenance-mode` の行が無いことを確認
 - Terraform: `locals.tf` の `containers` で `pbs` と `gitea` に `nesting = true` を宣言し、`ignore_changes` から `features` を外した。`terraform plan -lock=false` は `No changes. Your infrastructure matches the configuration.`
 - 判定: タスク 9.1 の受入を満たした
+
+## タスク 10.1: Ansible の適用と自動更新の範囲の確認 (2026-11-27 15:03〜15:09 JST)
+
+`site.yml` を `--limit 'proxmox_nodes:pbs'` で実行した。Infisical は machine identity (universal-auth) のトークンと `--projectId` を明示して渡した。`refresh_known_hosts.yml` は `-e ssh_known_hosts_path` で scratchpad の known_hosts に向けた。
+
+#### check / diff (15:05)
+
+- n100、hp-z440: changed なし
+- pbs: changed は 2 件
+  - `Ensure Proxmox archive key is installed`: check モードでは `get_url` が常に changed を返す。dest は `proxmox-release-trixie.pgp` へのシンボリックリンクで、サイズは実機の 1185 バイトと一致する
+  - `Ensure PBS apt repository is configured`: 既存の `proxmox.sources` に `X-Repolib-Name: proxmox` の行が加わるだけ (URIs、Suites=trixie、Components、Signed-By は同じ)
+- `pbs : Determine whether target PBS datastore already exists` が check モードで失敗した。直前の `proxmox-backup-manager datastore list` が check で skip され、空の stdout を `from_json` に渡すため。ロールの check モードの制約で、実機の状態の問題ではない。ロールは変更していない
+- 後続の `mariadb_dump` と `mail_backup` (pbs) は site.yml の check では未到達。`mail_backup.yml` を単独で check し changed 0。`proxmox_unattended_upgrades.yml` を単独で check し、両ノードで `apt-daily-upgrade.timer` の 1 件だけが changed
+
+#### 本適用 (15:06:21〜15:07:05)
+
+| ホスト | ok | changed | failed | ignored |
+|---|---|---|---|---|
+| n100 | 35 | 2 | 0 | 2 |
+| hp-z440 | 35 | 2 | 0 | 2 |
+| pbs | 64 | 2 | 0 | 2 |
+
+- changed の内訳: 全ホストで known_hosts の更新 (ローカル) 1 件、n100 と hp-z440 は `apt-daily-upgrade.timer`、pbs は `proxmox.sources` の書き換え
+- ignored は `refresh_known_hosts.yml` の `ssh-keyscan` が `Connection closed by remote host` で失敗した分 (`ignore_errors` で設計済み)
+
+#### 2 回目の適用 (15:07:06〜15:07:45)
+
+n100、hp-z440、pbs とも changed=0、failed=0 (ok は 35、35、64)。
+
+#### 受入の確認
+
+| 項目 | 結果 |
+|---|---|
+| `apt-daily-upgrade.timer` (n100、hp-z440、15:07:50) | `is-active` active、`is-enabled` enabled。15:07:03 に起動した |
+| `apt-daily-upgrade.timer` (pbs) | `proxmox_unattended_upgrades` の対象外。適用の前後とも active / enabled (pbs には `50unattended-upgrades` と `20auto-upgrades` が無い) |
+| `50unattended-upgrades` の有効行 (両ノード) | `Origins-Pattern` の 3 行 (`origin=Debian,codename=${distro_codename},label=Debian-Security`、`origin=Debian,codename=${distro_codename}-security,label=Debian-Security`、`origin=Proxmox,label=Proxmox Debian Repository`) と `Automatic-Reboot "false"`。作業前の記録は無い。ロールのコミット 09d119b 以降ロールに変更が無いことと、実機がテンプレートの出力と一致することで同一と確認した |
+| `unattended-upgrade --dry-run -v` (15:09、両ノード) | `Allowed origins are: origin=Debian,codename=trixie,label=Debian-Security, origin=Debian,codename=trixie-security,label=Debian-Security, origin=Proxmox,label=Proxmox Debian Repository`。`No packages found that can be upgraded unattended and no pending auto-removals` |
+| hp-z440 の DkmsGuard | `apt-daily-upgrade.service.d/nvidia-dkms-guard.conf` と `99nvidia-dkms-guard` が残る。`nvidia-dkms-guard.service` は Result=success。`/var/lib/nvidia-dkms-guard` は無し。`dkms status` は 4 カーネルとも installed。`nvidia-smi -L` は GTX 1650 |
+
+#### タイマー再開による更新
+
+timer の再開と同時に (15:07:03)、取りこぼした実行が両ノードで走り、`apt-daily-upgrade.service` が Result=success で終わった (n100 は 15:09:09、hp-z440 は 15:09:13 に `All upgrades installed`)。
+
+- 実行中に Ansible の 2 回目の適用と dry-run が `Lock file is already taken` を出したのは、このため
+- 自動削除: `proxmox-kernel-6.8.12-19-pve-signed`
+- 更新: `libpve-*`、`libproxmox-rs-perl`、`libsubid5` など。`pveversion` は両ノードとも `pve-manager/9.3.1` になった
+- 稼働中のカーネルは 7.0.14-30-pve のまま。`/var/run/reboot-required` は無く、`dpkg --audit` は空、`systemctl --failed` は `openipmi.service` のみ。pve-cluster、pvedaemon、pvestatd は active
+- 再起動とゲストの操作はしていない
+
+判定: タスク 10.1 の受入を満たした。

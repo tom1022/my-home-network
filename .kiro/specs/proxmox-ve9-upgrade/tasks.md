@@ -142,7 +142,7 @@
   - _Requirements: 7.3_
 
 - [ ] 10. IaC と記述の整合を確かめる
-- [ ] 10.1 Ansible の適用と自動更新の範囲を確かめる
+- [x] 10.1 Ansible の適用と自動更新の範囲を確かめる
   - `site.yml` を `proxmox_nodes` と `pbs` に限って `--check --diff` で流し、次に本適用する。これで `apt-daily-upgrade.timer` が両ノードで再開する
   - 両ノードの unattended-upgrades の有効行が作業前と同じで、`unattended-upgrade --dry-run` が trixie の Debian-Security と Proxmox の Origin を対象にすることを確かめる
   - 本適用がエラー無く終わり、`apt-daily-upgrade.timer` が両ノードで active になっている
