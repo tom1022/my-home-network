@@ -642,3 +642,15 @@ SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local
 | メンテナンスモード | `zfs-pool` は read-only のまま。設計は CT の再起動後に解除するため、解除していない |
 
 CT の再起動はしていない (承認待ち)。判定: 再起動と解除、更新後の確認が残るため、タスク 9.1 はチェックしない。
+
+#### CT 202 の再起動と失敗 (14:37〜14:41 JST、停止)
+
+- 14:37 再起動の前に確認: `proxmox-backup-manager task list` は空 (実行中のタスクなし)。hp-z440 と n100 に実行中の vzdump なし
+- 14:37:46 hp-z440 で `pct reboot 202` (1 回)。`WARN: Systemd 257 detected. You may need to enable nesting.` が出て rc=0。CT は 14:37:56 に SSH へ戻った (`uptime -s` = 05:37:51 UTC)
+- 結果: `proxmox-backup-proxy.service` が起動に失敗した (`Error: mkstemp "/run/proxmox-backup/proxy.pid.tmp_XXXXXX" failed: EACCES: Permission denied`、再起動の試行 5 回で `Start request repeated too quickly`)。`proxmox-backup.service` は active
+- 原因の調査: `run-proxmox\x2dbackup.mount` (tmpfs を `/run/proxmox-backup` へマウントするユニット) が `mount: /run/proxmox-backup: tmpfs already mounted on /dev/shm` で失敗。`/run/proxmox-backup` は root:root 0755 で、backup ユーザーの proxy が書けない。ほかに `dev-mqueue.mount`、`run-lock.mount`、`tmp.mount` も失敗。CT の設定 (`pct config 202`) に `features` が無い (nesting なし)
+- `systemctl --failed` (14:39): 上記 4 つの mount、`proxmox-backup-proxy.service`、`zfs-mount.service`、`zfs-share.service`、`zfs-zed.service` (zfs-* は再起動後も失敗のまま)
+- `proxmox-backup-manager versions`: `proxmox-backup-server 4.2.14-1 running version: 4.2.14`
+- `pvesm status` (両ノード): `pbs-zfs-pool` は inactive (`Can't connect to 192.168.1.202:8007 (Connection refused)`)。`pvesm list pbs-zfs-pool` は 0 件 (接続できないため。更新前の 15 件が消えたわけではない)
+- メンテナンスモードは read-only のまま、解除していない。mask や削除は行っていない
+- 判定: 設計の前提が崩れたため停止。タスク 9.1 はチェックしない。CT 202 の設定の変更 (`features: nesting=1` の追加は Terraform 管理の CT 設定の変更になる) などは設計に無く、未実施
