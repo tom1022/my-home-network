@@ -109,8 +109,8 @@
   - 稼働中のカーネルが 7.0 系で、確認の結果がすべて記録され、BootDeadman が撤去されている
   - _Requirements: 2.4, 2.6, 3.2, 3.4, 4.1, 4.2, 4.3, 4.4_
 
-- [ ] 7. hp-z440 の GPU を使える状態にする
-- [ ] 7.1 NVIDIA ドライバのロールを hp-z440 に適用し、GPU を確かめる
+- [x] 7. hp-z440 の GPU を使える状態にする
+- [x] 7.1 NVIDIA ドライバのロールを hp-z440 に適用し、GPU を確かめる
   - `--check --diff` の後に本適用する。`firmware-nvidia-gsp` が CUDA リポジトリの 620 系から入っていることを確かめる
   - `dkms status` で NVIDIA のモジュールが稼働中のカーネルに対して installed になり、`nvidia-smi -L` が GTX 1650 を表示し、console-pi の Beszel hub で hp-z440 の GPU 項目が更新される
   - _Depends: 1.1_

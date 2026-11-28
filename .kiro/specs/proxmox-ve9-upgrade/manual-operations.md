@@ -555,6 +555,16 @@ SKIP 3 件: Ceph 無し、RBD 無し、LXCFS が未更新。NOTICE 1 件: `local
 
 判定: agent は GPU を収集しているが、hub で hp-z440 の GPU 項目が更新されることは未確認のため、タスク 7.1 はチェックしない。
 
+#### hub 側の GPU 項目の確認 (2026-11-29 02:16〜02:26、console-pi)
+
+| 項目 | 結果 |
+|---|---|
+| 11-27 に接続が無かった原因 | console-pi の OS が 2026-09-22 21:04Z 頃から 2026-11-28 17:15Z まで停止していた (通電したまま書き込みなし)。hub の全系列が 09-22 21:04Z で途切れ、11-28 17:16Z に再開。hp-z440 の agent も 11-29 02:16:57 まで `SSH connected` が無い |
+| hub→agent 接続 | console-pi の `ss -tnp` で `beszel_systems` の全 10 台の 45876/tcp に ESTAB。`systems.status` は 10 台とも `up` |
+| hp-z440 の `system_stats` (1m) | 17:16:57Z から 1 分おきに記録。最新 3 件 (17:23:57Z〜17:25:57Z) の `g` は `{"0": {"n": "GeForce GTX 1650", "mt": 4000, "u": 0, ...}}`、温度 `t["GeForce GTX 1650"]` は 31.38 → 31.41 → 31.5 と更新 |
+
+判定: hub で hp-z440 の GPU 項目が更新されている。タスク 7.1 をチェックする。
+
 ### タスク 7.2: DkmsGuardHook の実 apt での確認 (hp-z440、2026-11-27 10:02〜10:04)
 
 開始時の状態: 稼働中 7.0.14-30-pve、固定なし (`proxmox-boot-pin`、`next-boot-pin` とも無し)、`/var/lib/nvidia-dkms-guard/` に印なし、`dkms status` は 6.8.12-13、-17、-43、7.0.14-30 のすべて installed。`apt-daily-upgrade.timer` は disabled のまま。
