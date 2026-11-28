@@ -675,6 +675,22 @@ CT の再起動はしていない (承認待ち)。判定: 再起動と解除、
 - Terraform: `locals.tf` の `containers` で `pbs` と `gitea` に `nesting = true` を宣言し、`ignore_changes` から `features` を外した。`terraform plan -lock=false` は `No changes. Your infrastructure matches the configuration.`
 - 判定: タスク 9.1 の受入を満たした
 
+### タスク 9.2: 更新後の最初の夜間のバックアップ (2026-11-28 23:40〜 JST に確認)
+
+PBS 4 への更新後の最初の夜間のジョブ (2026-11-28 04:30 JST) を、読み取りだけで確かめた。
+
+| 項目 | 結果 |
+|---|---|
+| n100 の vzdump タスク (`pvesh get /nodes/n100/tasks --typefilter vzdump --since 1795806000`) | 1 件。04:30:05〜04:30:44、status OK。対象は VM 150 (00:25)、VM 151 (00:12)。`Backup job finished successfully` |
+| hp-z440 の vzdump タスク (同) | 1 件。04:30:07〜04:31:17、status OK。対象は VM 152 (00:35)、VM 201 (00:06)、CT 202 (00:27)。`Backup job finished successfully` |
+| 両ノードのタスクログの ERROR / WARN | 無し |
+| `pvesm list pbs-zfs-pool` (hp-z440) | 15 件。11-28 04:30 JST 分 (UTC 11-27T19:30) の新しいスナップショットが 5 ゲスト分ある (vm/150、vm/151、vm/152、vm/201、ct/202)。各ゲストとも 11-27 04:30 JST 分と合わせて 2 件で `keep-last=2` と一致。ct/100 (1 件) と ct/113 (4 件) はジョブの対象外で変化なし。n100 の `pvesm list` も 15 件 (見出し込みで 16 行) |
+| PBS 側のタスク (`proxmox-backup-manager task list --all`) | 5 ゲスト分の `backup` と `prune` がすべて OK (19:30:05〜19:31:15 UTC) |
+| PBS の GC / verify / prune ジョブ | いずれも未設定 (`garbage-collection list` の `last-run-state` は空) |
+| データストア `zfs-pool` | `maintenance-mode` の行は無し |
+
+判定: タスク 9.2 の受入を満たした。
+
 ## タスク 10.1: Ansible の適用と自動更新の範囲の確認 (2026-11-27 15:03〜15:09 JST)
 
 `site.yml` を `--limit 'proxmox_nodes:pbs'` で実行した。Infisical は machine identity (universal-auth) のトークンと `--projectId` を明示して渡した。`refresh_known_hosts.yml` は `-e ssh_known_hosts_path` で scratchpad の known_hosts に向けた。
@@ -724,3 +740,21 @@ timer の再開と同時に (15:07:03)、取りこぼした実行が両ノード
 - 再起動とゲストの操作はしていない
 
 判定: タスク 10.1 の受入を満たした。
+
+## k3s-server (VM 150)
+
+### k3s の bootstrap の修正 (2026-11-28 23:37 JST、再起動は未実施)
+
+原因: `/var/lib/rancher/k3s/server/cred/passwd` のデータストア側の写しが 2026-09-03 から古いまま。k3s は起動のたびに node エントリを設定上の agent-token で書き換え、`Save(override=false)` がデータストア側の更新を飛ばすため、再起動すると `passwd newer than datastore` で fatal になる。`k3s token rotate` は override=true で保存する。`--new-token` に現在のサーバートークンを渡せばトークンの値は変わらず、データストア側の写しだけが更新される。
+
+| 項目 | 結果 |
+|---|---|
+| 作業前 (23:3x) | `k3s` active (2026-11-27 15:10:58 から)、3 ノード Ready、`https://cloud.fickledev.com/status.php` は 200 |
+| `server/token` の sha256 先頭 12 桁、mtime | `df8803ca9e72`、2026-11-27 15:10:47 |
+| `cred/passwd` の sha256 先頭 12 桁、mtime | `944302ac1248`、2026-11-27 15:10:44 |
+| 実行 (23:37:53) | `sudo sh -c 'k3s token rotate --new-token "$(cat /var/lib/rancher/k3s/server/token)"'` (出力はファイルへ逃がし、トークンを含む行は除外)。rc=0、`Token rotated, restart k3s nodes with new token` |
+| 作業後の `server/token` | sha256 先頭 12 桁は `df8803ca9e72` で不変。mtime は 23:37:53 |
+| 作業後の `cred/passwd` | sha256 先頭 12 桁 `944302ac1248` で不変 (mtime も不変) |
+| journal | `Saving cluster bootstrap data to datastore` が 23:37:53 に出た |
+
+`k3s` の再起動と、その後の確認は未実施。

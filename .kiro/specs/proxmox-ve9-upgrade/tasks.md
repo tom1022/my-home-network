@@ -128,7 +128,7 @@
   - Infisical 経由で `terraform plan` を実行し、エラーが無く、差分が無い
   - _Requirements: 1.4, 8.1_
 
-- [ ] 9. PBS を 4 へ更新する
+- [x] 9. PBS を 4 へ更新する
 - [x] 9.1 PBS の退避を取り、CT 202 を更新する
   - `/etc/proxmox-backup` の tar と、データストアを除く CT 202 の vzdump を hp-z440 の `local` に取る。更新前のバックアップの件数を記録する
   - データストアを read-only のメンテナンスモードにし、`pbs3to4 --full` の FAIL を 0 件にする (メタパッケージ `proxmox-backup` が無いことによる 1 件は、`proxmox-backup-server` が 3 系の最新であることで代える)
@@ -136,7 +136,7 @@
   - `proxmox-backup-manager versions` が 4 系の最新を示し、バックアップの件数が更新前と一致する
   - _Requirements: 7.1, 7.2_
 
-- [ ] 9.2 更新後の最初のバックアップジョブを確かめる
+- [x] 9.2 更新後の最初のバックアップジョブを確かめる
   - 更新後の最初の夜間のジョブで、両ノードのジョブが成功していることを確かめる
   - 両ノードのジョブの成功が記録されている
   - _Requirements: 7.3_
