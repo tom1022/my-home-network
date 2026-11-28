@@ -762,3 +762,22 @@ timer の再開と同時に (15:07:03)、取りこぼした実行が両ノード
 | 23:40:47 | Pod はすべて Running / Completed。`https://cloud.fickledev.com/status.php` は 200 |
 
 判定: 再起動のたびに fatal になっていた状態は解消した。再起動 1 回で実測した。
+
+### vzdump ジョブの帯域上限 (2026-11-28 23:42 JST)
+
+夜間ジョブ (`managed-by-ansible-home-backup`、ID `488fba22-3dea-4887-91b0-b9cc2773c3a0`) の `bwlimit` を 0 から 204800 KiB/s (200 MiB/s) にした。`proxmox_backup` ロールが `pbs_backup_bwlimit` (host_vars/pbs) を読む。
+
+- ロールの変更: ジョブを読む 2 つの `uri` GET (バックアップジョブ一覧、クラスタの VM リソース) に `check_mode: false` を付けた。副作用の無い GET で、これが無いと check モードが `.json` の欠落で失敗する。更新の PUT は check モードで skip されるため、check では差分が出ない
+- ガード: 適用の前後で n100 の `pvesh get /cluster/backup/<id> --output-format json` を保存して比べた
+- `--check -v` (`playbooks/proxmox_backup.yml`): failed=0、`proxmox_backup_job_in_sync` は false
+- 本適用 (23:42:24〜23:42:30): ok=35、changed=1、failed=0
+- 2 回目の適用 (23:42:44): ok=34、changed=0、failed=0
+
+BEFORE / AFTER の `diff` (キーをソートした JSON) の出力はこの 1 行だけだった。
+
+```
+2c2
+<     "bwlimit": 0,
+---
+>     "bwlimit": 204800,
+```
