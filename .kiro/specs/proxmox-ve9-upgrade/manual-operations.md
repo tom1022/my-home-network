@@ -743,7 +743,7 @@ timer の再開と同時に (15:07:03)、取りこぼした実行が両ノード
 
 ## k3s-server (VM 150)
 
-### k3s の bootstrap の修正 (2026-11-28 23:37 JST、再起動は未実施)
+### k3s の bootstrap の修正 (2026-11-28 23:37〜23:40 JST)
 
 原因: `/var/lib/rancher/k3s/server/cred/passwd` のデータストア側の写しが 2026-09-03 から古いまま。k3s は起動のたびに node エントリを設定上の agent-token で書き換え、`Save(override=false)` がデータストア側の更新を飛ばすため、再起動すると `passwd newer than datastore` で fatal になる。`k3s token rotate` は override=true で保存する。`--new-token` に現在のサーバートークンを渡せばトークンの値は変わらず、データストア側の写しだけが更新される。
 
@@ -757,4 +757,8 @@ timer の再開と同時に (15:07:03)、取りこぼした実行が両ノード
 | 作業後の `cred/passwd` | sha256 先頭 12 桁 `944302ac1248` で不変 (mtime も不変) |
 | journal | `Saving cluster bootstrap data to datastore` が 23:37:53 に出た |
 
-`k3s` の再起動と、その後の確認は未実施。
+| 再起動 (23:40:25) | `sudo systemctl restart k3s` を 1 回だけ実行。`k3s` は 23:40:36 に active、23:40:42 に API が応答し 3 ノード Ready |
+| `journalctl -u k3s --since "2026-11-28 23:40:20" \| grep -c "newer than datastore"` | 0 |
+| 23:40:47 | Pod はすべて Running / Completed。`https://cloud.fickledev.com/status.php` は 200 |
+
+判定: 再起動のたびに fatal になっていた状態は解消した。再起動 1 回で実測した。
