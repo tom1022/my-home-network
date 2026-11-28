@@ -277,6 +277,7 @@
     validate_certs: "{{ proxmox_backup_api_validate_certs }}"
     status_code: 200
     return_content: true
+  check_mode: false
   register: proxmox_backup_jobs_api
   failed_when: false
   no_log: "{{ proxmox_backup_sensitive_no_log | bool }}"
