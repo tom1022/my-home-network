@@ -527,6 +527,7 @@
     validate_certs: "{{ proxmox_backup_api_validate_certs }}"
     status_code: 200
     return_content: true
+  check_mode: false
   register: proxmox_backup_cluster_vm_resources
   changed_when: false
   failed_when: false
