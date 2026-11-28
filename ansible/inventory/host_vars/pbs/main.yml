@@ -9,6 +9,8 @@ host_health_chrony_enabled: false
 pbs_backup_schedule: "30 4 * * *"
 pbs_backup_keep_last: 2
 pbs_backup_mode: snapshot
+# KiB/s。vzdump のジョブ全体の帯域上限。
+pbs_backup_bwlimit: 204800
 pbs_backup_include_pbs_self: true
 
 # Save backups to dataset assigned in Terraform.

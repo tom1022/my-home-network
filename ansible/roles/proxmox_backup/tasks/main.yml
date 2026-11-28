@@ -319,7 +319,7 @@
       comment: "{{ proxmox_backup_job_comment }}"
       all: "0"
       compress: zstd
-      bwlimit: "0"
+      bwlimit: "{{ proxmox_backup_bwlimit | string }}"
 
 - name: Compute current backup job state for comparison
   ansible.builtin.set_fact:
@@ -361,7 +361,7 @@
       comment: "{{ proxmox_backup_job_comment }}"
       all: '0'
       compress: zstd
-      bwlimit: '0'
+      bwlimit: "{{ proxmox_backup_bwlimit }}"
     validate_certs: "{{ proxmox_backup_api_validate_certs }}"
     status_code: 200
   register: proxmox_backup_job_create_api
@@ -393,7 +393,7 @@
       comment: "{{ proxmox_backup_job_comment }}"
       all: '0'
       compress: zstd
-      bwlimit: '0'
+      bwlimit: "{{ proxmox_backup_bwlimit }}"
     validate_certs: "{{ proxmox_backup_api_validate_certs }}"
     status_code: 200
   register: proxmox_backup_job_update_api

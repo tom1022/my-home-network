@@ -15,6 +15,7 @@ proxmox_backup_target_host: pbs
 proxmox_backup_schedule: "{{ hostvars[proxmox_backup_target_host].pbs_backup_schedule | default('30 4 * * *') }}"
 proxmox_backup_keep_last: "{{ hostvars[proxmox_backup_target_host].pbs_backup_keep_last | default(2) }}"
 proxmox_backup_mode: "{{ hostvars[proxmox_backup_target_host].pbs_backup_mode | default('snapshot') }}"
+proxmox_backup_bwlimit: "{{ hostvars[proxmox_backup_target_host].pbs_backup_bwlimit | default(0) }}"
 proxmox_backup_schedule_pve: >-
   {{
     (
